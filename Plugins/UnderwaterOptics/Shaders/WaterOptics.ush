@@ -1,0 +1,224 @@
+#ifndef UNDERWATER_OPTICS_INCLUDED
+#define UNDERWATER_OPTICS_INCLUDED
+#include "/Plugin/UnderwaterOptics/OceanWaves.ush"
+// Units: geometry in cm; integration distances and optical coefficients in metres.
+// One shared medium for the post-process and source-light transmission.
+#define WATER_AIR_CAPACITY 16
+struct FWaterOptics
+{
+    float4 C[WATER_AIR_CAPACITY];
+    float3 E[WATER_AIR_CAPACITY], X[WATER_AIR_CAPACITY], Y[WATER_AIR_CAPACITY];
+    float4 WP, TP;
+    float Surface;
+    float OceanTime, OceanEnabled;
+    float3 Bsc;
+
+    float ErfApprox(float v)
+    {
+        float t = 1.0 / (1.0 + 0.3275911 * abs(v));
+        return sign(v) * (1.0 - (((((1.061405429*t-1.453152027)*t)+1.421413741)*t-0.284496736)*t+0.254829592)*t*exp(-v*v));
+    }
+    float Profile(float z)
+    {
+        z=max(z,0.0);
+        return max(WP.r,0.0)+max(TP.r,0.0)*exp(-z/6.0)
+            +max(TP.g,0.0)*exp(-0.5*pow((z-TP.a)/15.0,2.0))
+            +max(TP.b,0.0)*exp(-max(200.0-z,0.0)/8.0);
+    }
+    float Integral(float z)
+    {
+        z=max(z,0.0);
+        return max(WP.r,0.0)*z + 6.0*max(TP.r,0.0)*(1.0-exp(-z/6.0))
+            +max(TP.g,0.0)*18.799712*(ErfApprox((z-TP.a)/21.213203)+ErfApprox(TP.a/21.213203))
+            +max(TP.b,0.0)*(8.0*(exp(-max(200.0-z,0.0)/8.0)-exp(-25.0))+max(z-200.0,0.0));
+    }
+    float ProfilePath(float za,float zb,float len)
+    {
+        // Midpoint limit near horizontal avoids catastrophic cancellation and threshold jumps.
+        return abs(zb-za)<0.01 ? Profile(0.5*(za+zb))*len : abs(Integral(zb)-Integral(za))*len/abs(zb-za);
+    }
+    bool BoxInterval(float3 start,float3 dir,int i,out float2 hit)
+    {
+        hit=float2(-1e10,1e10);
+        if(C[i].a<0.5) return false;
+        float3 ax=normalize(X[i]), ay=normalize(Y[i]), az=normalize(cross(ax,ay));
+        float3 r=start-C[i].xyz;
+        float3 o=float3(dot(r,ax),dot(r,ay),dot(r,az));
+        float3 d=float3(dot(dir,ax),dot(dir,ay),dot(dir,az));
+        float3 extent=E[i];
+        [unroll] for(int k=0;k<3;k++)
+        {
+            if(abs(d[k])<1e-6) { if(abs(o[k])>extent[k]) return false; }
+            else
+            {
+                float a=(-extent[k]-o[k])/d[k]*0.01;
+                float b=( extent[k]-o[k])/d[k]*0.01;
+                hit.x=max(hit.x,min(a,b)); hit.y=min(hit.y,max(a,b));
+            }
+        }
+        return hit.y>hit.x;
+    }
+    float SurfaceDistance(float3 p)
+    {
+        FOceanWaves waves;
+        return p.z-Surface-OceanEnabled*waves.Sample(p.xy,OceanTime).x;
+    }
+    int WaterSegments(float3 start,float3 end,out float2 water[40],out float3 dir)
+    {
+        float3 delta=end-start;
+        float lengthM=length(delta)*0.01;
+        dir=delta/max(lengthM*100.0,1e-5);
+        if(lengthM<1e-5) return 0;
+        float2 medium[18]; int mediumCount=0;
+        if(OceanEnabled<0.5)
+        {
+            float a=0.0,b=lengthM;
+            float z0=(Surface-start.z)*0.01,z1=(Surface-end.z)*0.01;
+            if(z0<=0.0 && z1<=0.0) return 0;
+            if(z0<0.0) a=lengthM*(-z0)/max(z1-z0,1e-6);
+            if(z1<0.0) b=lengthM*z0/max(z0-z1,1e-6);
+            medium[mediumCount++]=float2(a,b);
+        }
+        else
+        {
+            // Only search the narrow wave-height band. Deep rays retain the cheap path.
+            if(min(start.z,end.z)>Surface+80.0) return 0;
+            if(max(start.z,end.z)<Surface-80.0) medium[mediumCount++]=float2(0,lengthM);
+            else
+            {
+                float lo=0,hi=lengthM;
+                if(abs(dir.z)>1e-6)
+                {
+                    float a=(Surface-80.0-start.z)/(dir.z*100.0);
+                    float b=(Surface+80.0-start.z)/(dir.z*100.0);
+                    lo=clamp(min(a,b),0.0,lengthM);hi=clamp(max(a,b),0.0,lengthM);
+                }
+                float previous=lo; bool wet=SurfaceDistance(start+dir*(lo*100.0))<0.0;
+                float runStart=wet?0.0:lo;
+                [loop] for(int j=1;j<=32;j++)
+                {
+                    float t=lerp(lo,hi,float(j)/32.0);
+                    bool nextWet=SurfaceDistance(start+dir*(t*100.0))<0.0;
+                    if(nextWet!=wet)
+                    {
+                        float l=previous,r=t;
+                        [unroll] for(int k=0;k<8;k++)
+                        {
+                            float m=(l+r)*0.5;
+                            if((SurfaceDistance(start+dir*(m*100.0))<0.0)==wet) l=m; else r=m;
+                        }
+                        float crossing=(l+r)*0.5;
+                        if(wet && mediumCount<18) medium[mediumCount++]=float2(runStart,crossing);
+                        else runStart=crossing;
+                        wet=nextWet;
+                    }
+                    previous=t;
+                }
+                if(wet && mediumCount<18) medium[mediumCount++]=float2(runStart,lengthM);
+            }
+        }
+        float2 air[16]; int n=0;
+        [loop] for(int i=0;i<WATER_AIR_CAPACITY;i++)
+        {
+            float2 h;
+            if(BoxInterval(start,dir,i,h))
+            {
+                h=float2(max(h.x,0.0),min(h.y,lengthM));
+                if(h.y>h.x) air[n++]=h;
+            }
+        }
+        // Insertion sort; cursor=max(cursor,exit) merges touching/overlapping/nested boxes.
+        [loop] for(int i=1;i<n;i++)
+        {
+            float2 h=air[i]; int j=i-1;
+            [loop] while(j>=0) { if(air[j].x<=h.x) break; air[j+1]=air[j]; j--; }
+            air[j+1]=h;
+        }
+        int count=0;
+        [loop] for(int m=0;m<mediumCount;m++)
+        {
+            float cursor=medium[m].x, finish=medium[m].y;
+            [loop] for(int i=0;i<n;i++)
+            {
+                if(air[i].y<=cursor || air[i].x>=finish) continue;
+                if(air[i].x>cursor && count<40) water[count++]=float2(cursor,min(air[i].x,finish));
+                cursor=max(cursor,air[i].y);
+            }
+            if(finish>cursor && count<40) water[count++]=float2(cursor,finish);
+        }
+        return count;
+    }
+    float3 BaseTransmission(Texture2D lut,SamplerState samp,float metres)
+    {
+        uint w,h; lut.GetDimensions(w,h);
+        float span=250.0;
+        // The lookup describes 0..250 m. Continue its terminal optical-depth slope beyond that range.
+        float u=saturate(metres/span);
+        float3 t=max(Texture2DSampleLevel(lut,samp,float2(u,0.5),0).rgb,1e-8);
+        if(metres>span)
+        {
+            float stepM=span/max(float(w)-1.0,1.0);
+            float3 previous=max(Texture2DSampleLevel(lut,samp,float2(1.0-1.0/max(float(w),2.0),0.5),0).rgb,1e-8);
+            float3 slope=max(-log(t/previous)/stepM,0.0);
+            t*=exp(-slope*(metres-span));
+        }
+        // Exact zero-length identity even if the first lookup texel is imperfect.
+        return metres<=0.0 ? float3(1,1,1) : min(t,1.0);
+    }
+    float3 Transmission(Texture2D lut,SamplerState samp,float waterM,float turbidityIntegral)
+    {
+        return BaseTransmission(lut,samp,waterM)*exp(-float3(0.08,0.10,0.14)*turbidityIntegral
+            -Bsc*(waterM+4.0*turbidityIntegral));
+    }
+    float3 SourceTransmission(Texture2D lut,SamplerState samp,float3 start,float3 end)
+    {
+        float2 water[40]; float3 dir; int n=WaterSegments(start,end,water,dir);
+        float wm=0.0,it=0.0,z=(Surface-start.z)*0.01;
+        [loop] for(int i=0;i<n;i++)
+        {
+            float len=water[i].y-water[i].x;
+            wm+=len; it+=ProfilePath(z-dir.z*water[i].x,z-dir.z*water[i].y,len);
+        }
+        return Transmission(lut,samp,wm,it);
+    }
+    float3 ViewRadiance(Texture2D lut,SamplerState samp,float3 scene,float3 start,float3 end,
+        float3 sunDir,float sunE,float3 tint,float preExposure)
+    {
+        float2 water[40]; float3 dir; int n=WaterSegments(start,end,water,dir);
+        if(n==0) return scene;
+        float wm=0.0,it=0.0;
+        float3 front=float3(1,1,1), scatter=float3(0,0,0);
+        float z=(Surface-start.z)*0.01;
+        float mu=clamp(dot(normalize(sunDir),-dir),-1.0,1.0);
+        float g=0.8;
+        float phase=(1.0-g*g)/(12.5663706*pow(max(1.0+g*g-2.0*g*mu,1e-4),1.5));
+        [loop] for(int i=0;i<n;i++)
+        {
+            const int steps=24;
+            // Resolve the near-camera medium even when the depth buffer points at the sky.
+            // At this optical budget the least-extinguished channel contributes < 1e-6.
+            float cutoff=13.815511/max(min(Bsc.r,min(Bsc.g,Bsc.b)),0.005);
+            float segmentLength=min(water[i].y-water[i].x,max(cutoff-wm,0.0));
+            if(segmentLength<=0.0) break;
+            [loop] for(int j=0;j<steps;j++)
+            {
+                float s0=water[i].x+segmentLength*pow(float(j)/steps,3.0);
+                float s1=water[i].x+segmentLength*pow(float(j+1)/steps,3.0);
+                float ds=s1-s0;
+                float za=max(z-dir.z*s0,0.0),zb=max(z-dir.z*s1,0.0),zm=0.5*(za+zb);
+                float dt=ProfilePath(za,zb,ds);
+                float3 next=Transmission(lut,samp,wm+ds,it+dt);
+                float3 tau=max(-log(max(next,1e-12)/max(front,1e-12)),1e-6);
+                float3 effectiveLength=ds*(1.0-exp(-tau))/tau;
+                float3 down=BaseTransmission(lut,samp,zm)*exp(-float3(0.08,0.10,0.14)*Integral(zm));
+                float deepScale=lerp(1.0,1.0/max(WP.g,1.0),saturate(dir.z));
+                float3 source=sunE*tint*down*Bsc*(1.0+4.0*Profile(zm))*phase*deepScale;
+                scatter+=front*source*effectiveLength;
+                wm+=ds; it+=dt; front=next;
+            }
+        }
+        // Air contributes neither extinction nor scattering. Engine exposure happens afterward.
+        return max(scene*front+scatter*preExposure,0.0);
+    }
+};
+#endif

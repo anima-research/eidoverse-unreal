@@ -1,0 +1,11 @@
+/Binaries/
+/DerivedDataCache/
+/Intermediate/
+/Saved/
+/Plugins/*/Binaries/
+/Plugins/*/Intermediate/
+/.mcp.json
+*.bak
+.DS_Store
+__pycache__/
+*.pyc

@@ -1,0 +1,10 @@
+{
+  "FileVersion": 3,
+  "Version": 1,
+  "VersionName": "1.0",
+  "FriendlyName": "Underwater Optics",
+  "Description": "Shared water medium, automatic air-volume registry and local-light transmission.",
+  "Category": "Rendering",
+  "CanContainContent": false,
+  "Modules": [{"Name": "UnderwaterOptics", "Type": "Runtime", "LoadingPhase": "PostConfigInit"}]
+}

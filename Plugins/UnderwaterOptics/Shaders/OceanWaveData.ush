@@ -1,0 +1,6 @@
+// amplitude cm, wavelength cm, unit direction x/y, phase radians
+// Shared macro data, consumed by both C++ buoyancy and material shaders.
+OCEAN_WAVE(38.0, 2400.0, 0.9396926, 0.3420201, 0.0)
+OCEAN_WAVE(23.0, 1370.0, 0.4226183, 0.9063078, 1.7)
+OCEAN_WAVE(12.0, 710.0, -0.7880108, 0.6156615, 3.2)
+OCEAN_WAVE(6.0, 330.0, 0.2079117, -0.9781476, 0.8)

@@ -1,0 +1,15 @@
+#ifndef OCEAN_WAVES_INCLUDED
+#define OCEAN_WAVES_INCLUDED
+struct FOceanWaves
+{
+    // Height, dHeight/dX, dHeight/dY. World positions are centimeters.
+    float3 Sample(float2 p, float time)
+    {
+        float3 result=0;
+        #define OCEAN_WAVE(A,L,DX,DY,P) { float k=6.283185307/L; float phase=k*dot(p,float2(DX,DY))-sqrt(980.0*k)*time+P; result+=float3(A*sin(phase),A*k*cos(phase)*DX,A*k*cos(phase)*DY); }
+        #include "/Plugin/UnderwaterOptics/OceanWaveData.ush"
+        #undef OCEAN_WAVE
+        return result;
+    }
+};
+#endif

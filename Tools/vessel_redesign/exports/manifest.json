@@ -1,0 +1,336 @@
+{
+  "materials": {
+    "Ceramic": [
+      [
+        0.72,
+        0.78,
+        0.74
+      ],
+      0.35,
+      0.33
+    ],
+    "Teal": [
+      [
+        0.025,
+        0.16,
+        0.18
+      ],
+      0.65,
+      0.3
+    ],
+    "Graphite": [
+      [
+        0.035,
+        0.055,
+        0.065
+      ],
+      0.7,
+      0.38
+    ],
+    "Titanium": [
+      [
+        0.28,
+        0.35,
+        0.37
+      ],
+      0.85,
+      0.25
+    ],
+    "Safety": [
+      [
+        0.95,
+        0.23,
+        0.035
+      ],
+      0.25,
+      0.38
+    ],
+    "Interior": [
+      [
+        0.66,
+        0.59,
+        0.44
+      ],
+      0.1,
+      0.62
+    ],
+    "Rubber": [
+      [
+        0.012,
+        0.022,
+        0.025
+      ],
+      0.05,
+      0.8
+    ],
+    "Glow": [
+      [
+        0.12,
+        0.72,
+        0.82
+      ],
+      0.1,
+      0.25
+    ],
+    "Warm": [
+      [
+        1,
+        0.65,
+        0.25
+      ],
+      0.1,
+      0.25
+    ],
+    "Glass": [
+      [
+        0.075,
+        0.23,
+        0.28
+      ],
+      0.05,
+      0.12
+    ]
+  },
+  "meshes": [
+    {
+      "mesh": "SM_Habitat_Shell",
+      "group": "Habitat_Shell",
+      "file": "/Users/olena/unrealtest/vessel_redesign/exports/SM_Habitat_Shell.fbx",
+      "bounds": [
+        [
+          -620.0,
+          -320.0,
+          -110.0
+        ],
+        [
+          620.0,
+          320.0,
+          410.0
+        ]
+      ],
+      "triangles": 22220,
+      "materials": [
+        "V_Ceramic",
+        "V_Teal",
+        "V_Interior",
+        "V_Graphite"
+      ]
+    },
+    {
+      "mesh": "SM_Habitat_Glass",
+      "group": "Habitat_Glass",
+      "file": "/Users/olena/unrealtest/vessel_redesign/exports/SM_Habitat_Glass.fbx",
+      "bounds": [
+        [
+          -280.0,
+          -318.7200012207031,
+          35.46492004394531
+        ],
+        [
+          280.0,
+          318.7200012207031,
+          264.5350646972656
+        ]
+      ],
+      "triangles": 1624,
+      "materials": [
+        "V_Glass"
+      ]
+    },
+    {
+      "mesh": "SM_Habitat_Fittings",
+      "group": "Habitat_Fittings",
+      "file": "/Users/olena/unrealtest/vessel_redesign/exports/SM_Habitat_Fittings.fbx",
+      "bounds": [
+        [
+          -609.7999877929688,
+          -510.0,
+          -332.0
+        ],
+        [
+          609.7999877929688,
+          412.6000061035156,
+          557.0
+        ]
+      ],
+      "triangles": 49748,
+      "materials": [
+        "V_Titanium",
+        "V_Safety",
+        "V_Graphite",
+        "V_Teal",
+        "V_Ceramic"
+      ]
+    },
+    {
+      "mesh": "SM_Habitat_Interior",
+      "group": "Habitat_Interior",
+      "file": "/Users/olena/unrealtest/vessel_redesign/exports/SM_Habitat_Interior.fbx",
+      "bounds": [
+        [
+          -394.0,
+          -303.55499267578125,
+          -138.0
+        ],
+        [
+          394.0,
+          303.55499267578125,
+          393.8042297363281
+        ]
+      ],
+      "triangles": 13316,
+      "materials": [
+        "V_Safety",
+        "V_Titanium",
+        "V_Ceramic",
+        "V_Graphite",
+        "V_Glow",
+        "V_Teal",
+        "V_Warm",
+        "V_Rubber"
+      ]
+    },
+    {
+      "mesh": "SM_Habitat_Lettering",
+      "group": "Habitat_Lettering",
+      "file": "/Users/olena/unrealtest/vessel_redesign/exports/SM_Habitat_Lettering.fbx",
+      "bounds": [
+        [
+          -125.47899627685547,
+          -280.239990234375,
+          280.8049621582031
+        ],
+        [
+          120.14899444580078,
+          -268.760009765625,
+          332.3912658691406
+        ]
+      ],
+      "triangles": 26812,
+      "materials": [
+        "V_Graphite"
+      ]
+    },
+    {
+      "mesh": "SM_Submarine_Shell",
+      "group": "Submarine_Shell",
+      "file": "/Users/olena/unrealtest/vessel_redesign/exports/SM_Submarine_Shell.fbx",
+      "bounds": [
+        [
+          -2070.0,
+          -285.0,
+          -270.0
+        ],
+        [
+          245.0,
+          285.0,
+          270.0
+        ]
+      ],
+      "triangles": 41920,
+      "materials": [
+        "V_Ceramic",
+        "V_Teal",
+        "V_Interior",
+        "V_Graphite"
+      ]
+    },
+    {
+      "mesh": "SM_Submarine_Glass",
+      "group": "Submarine_Glass",
+      "file": "/Users/olena/unrealtest/vessel_redesign/exports/SM_Submarine_Glass.fbx",
+      "bounds": [
+        [
+          -80.0,
+          -275.3442077636719,
+          -83.84825897216797
+        ],
+        [
+          245.0,
+          275.3442077636719,
+          260.8523864746094
+        ]
+      ],
+      "triangles": 1972,
+      "materials": [
+        "V_Glass"
+      ]
+    },
+    {
+      "mesh": "SM_Submarine_Fittings",
+      "group": "Submarine_Fittings",
+      "file": "/Users/olena/unrealtest/vessel_redesign/exports/SM_Submarine_Fittings.fbx",
+      "bounds": [
+        [
+          -2295.0,
+          -520.0,
+          -440.0
+        ],
+        [
+          249.7336883544922,
+          520.0,
+          718.0
+        ]
+      ],
+      "triangles": 40860,
+      "materials": [
+        "V_Titanium",
+        "V_Safety",
+        "V_Graphite",
+        "V_Teal",
+        "V_Ceramic",
+        "V_Warm"
+      ]
+    },
+    {
+      "mesh": "SM_Submarine_Lettering",
+      "group": "Submarine_Lettering",
+      "file": "/Users/olena/unrealtest/vessel_redesign/exports/SM_Submarine_Lettering.fbx",
+      "bounds": [
+        [
+          -1131.818115234375,
+          -286.239990234375,
+          -15.24079418182373
+        ],
+        [
+          -888.181884765625,
+          286.239990234375,
+          65.52400207519531
+        ]
+      ],
+      "triangles": 17836,
+      "materials": [
+        "V_Ceramic",
+        "V_Safety"
+      ]
+    },
+    {
+      "mesh": "SM_Submarine_Interior",
+      "group": "Submarine_Interior",
+      "file": "/Users/olena/unrealtest/vessel_redesign/exports/SM_Submarine_Interior.fbx",
+      "bounds": [
+        [
+          -1626.5,
+          -270.7063903808594,
+          -280.0
+        ],
+        [
+          37.5,
+          270.7063903808594,
+          254.75527954101562
+        ]
+      ],
+      "triangles": 16836,
+      "materials": [
+        "V_Titanium",
+        "V_Ceramic",
+        "V_Graphite",
+        "V_Glow",
+        "V_Warm",
+        "V_Teal",
+        "V_Rubber",
+        "V_Safety"
+      ]
+    }
+  ]
+}
