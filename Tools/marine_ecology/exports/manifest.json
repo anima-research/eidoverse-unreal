@@ -1,0 +1,234 @@
+{
+  "palette": {
+    "Sand": [
+      [
+        0.25,
+        0.235,
+        0.18
+      ],
+      0,
+      0.93
+    ],
+    "Rock": [
+      [
+        0.13,
+        0.155,
+        0.145
+      ],
+      0,
+      0.87
+    ],
+    "Kelp": [
+      [
+        0.14,
+        0.17,
+        0.052
+      ],
+      0,
+      0.57
+    ],
+    "RedAlgae": [
+      [
+        0.2,
+        0.074,
+        0.055
+      ],
+      0,
+      0.72
+    ],
+    "Grass": [
+      [
+        0.11,
+        0.19,
+        0.065
+      ],
+      0,
+      0.7
+    ],
+    "Silver": [
+      [
+        0.47,
+        0.54,
+        0.53
+      ],
+      0.38,
+      0.3
+    ],
+    "Back": [
+      [
+        0.045,
+        0.095,
+        0.105
+      ],
+      0.22,
+      0.4
+    ],
+    "Fin": [
+      [
+        0.15,
+        0.21,
+        0.2
+      ],
+      0.1,
+      0.48
+    ],
+    "Eye": [
+      [
+        0.003,
+        0.007,
+        0.008
+      ],
+      0.1,
+      0.19
+    ],
+    "Rockfish": [
+      [
+        0.32,
+        0.19,
+        0.105
+      ],
+      0.08,
+      0.65
+    ],
+    "Ray": [
+      [
+        0.19,
+        0.22,
+        0.18
+      ],
+      0.05,
+      0.72
+    ],
+    "Urchin": [
+      [
+        0.1,
+        0.04,
+        0.065
+      ],
+      0,
+      0.83
+    ],
+    "Star": [
+      [
+        0.34,
+        0.17,
+        0.11
+      ],
+      0,
+      0.85
+    ],
+    "Mussel": [
+      [
+        0.027,
+        0.047,
+        0.061
+      ],
+      0.1,
+      0.43
+    ]
+  },
+  "meshes": [
+    {
+      "name": "ShelfTerrain",
+      "mesh": "SM_ShelfTerrain",
+      "file": "/Users/olena/unrealtest/marine_ecology/exports/SM_ShelfTerrain.fbx",
+      "triangles": 177608
+    },
+    {
+      "name": "ReefRock0",
+      "mesh": "SM_ReefRock0",
+      "file": "/Users/olena/unrealtest/marine_ecology/exports/SM_ReefRock0.fbx",
+      "triangles": 320
+    },
+    {
+      "name": "ReefRock1",
+      "mesh": "SM_ReefRock1",
+      "file": "/Users/olena/unrealtest/marine_ecology/exports/SM_ReefRock1.fbx",
+      "triangles": 320
+    },
+    {
+      "name": "ReefRock2",
+      "mesh": "SM_ReefRock2",
+      "file": "/Users/olena/unrealtest/marine_ecology/exports/SM_ReefRock2.fbx",
+      "triangles": 320
+    },
+    {
+      "name": "ReefRock3",
+      "mesh": "SM_ReefRock3",
+      "file": "/Users/olena/unrealtest/marine_ecology/exports/SM_ReefRock3.fbx",
+      "triangles": 320
+    },
+    {
+      "name": "GiantKelp0",
+      "mesh": "SM_GiantKelp0",
+      "file": "/Users/olena/unrealtest/marine_ecology/exports/SM_GiantKelp0.fbx",
+      "triangles": 2054
+    },
+    {
+      "name": "GiantKelp1",
+      "mesh": "SM_GiantKelp1",
+      "file": "/Users/olena/unrealtest/marine_ecology/exports/SM_GiantKelp1.fbx",
+      "triangles": 3654
+    },
+    {
+      "name": "GiantKelp2",
+      "mesh": "SM_GiantKelp2",
+      "file": "/Users/olena/unrealtest/marine_ecology/exports/SM_GiantKelp2.fbx",
+      "triangles": 5414
+    },
+    {
+      "name": "UnderstoryKelp",
+      "mesh": "SM_UnderstoryKelp",
+      "file": "/Users/olena/unrealtest/marine_ecology/exports/SM_UnderstoryKelp.fbx",
+      "triangles": 384
+    },
+    {
+      "name": "RedAlgae",
+      "mesh": "SM_RedAlgae",
+      "file": "/Users/olena/unrealtest/marine_ecology/exports/SM_RedAlgae.fbx",
+      "triangles": 384
+    },
+    {
+      "name": "Eelgrass",
+      "mesh": "SM_Eelgrass",
+      "file": "/Users/olena/unrealtest/marine_ecology/exports/SM_Eelgrass.fbx",
+      "triangles": 576
+    },
+    {
+      "name": "SilverShoal",
+      "mesh": "SM_SilverShoal",
+      "file": "/Users/olena/unrealtest/marine_ecology/exports/SM_SilverShoal.fbx",
+      "triangles": 7872
+    },
+    {
+      "name": "RockfishPair",
+      "mesh": "SM_RockfishPair",
+      "file": "/Users/olena/unrealtest/marine_ecology/exports/SM_RockfishPair.fbx",
+      "triangles": 738
+    },
+    {
+      "name": "Skate",
+      "mesh": "SM_Skate",
+      "file": "/Users/olena/unrealtest/marine_ecology/exports/SM_Skate.fbx",
+      "triangles": 180
+    },
+    {
+      "name": "Urchin",
+      "mesh": "SM_Urchin",
+      "file": "/Users/olena/unrealtest/marine_ecology/exports/SM_Urchin.fbx",
+      "triangles": 1088
+    },
+    {
+      "name": "SeaStar",
+      "mesh": "SM_SeaStar",
+      "file": "/Users/olena/unrealtest/marine_ecology/exports/SM_SeaStar.fbx",
+      "triangles": 880
+    },
+    {
+      "name": "MusselCluster",
+      "mesh": "SM_MusselCluster",
+      "file": "/Users/olena/unrealtest/marine_ecology/exports/SM_MusselCluster.fbx",
+      "triangles": 1440
+    }
+  ]
+}
