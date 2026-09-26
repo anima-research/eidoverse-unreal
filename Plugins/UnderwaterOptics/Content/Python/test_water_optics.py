@@ -21,7 +21,7 @@ custom.set_editor_property('include_file_paths',['/Plugin/UnderwaterOptics/Water
 pin=unreal.CustomInput(); pin.set_editor_property('input_name','UV')
 custom.set_editor_property('inputs',[pin])
 custom.set_editor_property('code','''
-FWaterOptics w; w.OceanEnabled=0; w.OceanTime=0; w.Surface=0; w.WP=float4(.12,1.5,.7,.35); w.TP=float4(.15,.35,.4,90); w.Bsc=float3(.015,.025,.04);
+FWaterOptics w; w.ExtScale=1; w.ScatTint=1; w.OceanEnabled=0; w.OceanTime=0; w.Surface=0; w.WP=float4(.12,1.5,.7,.35); w.TP=float4(.15,.35,.4,90); w.Bsc=float3(.015,.025,.04);
 [unroll] for(int i=0;i<16;i++) {w.C[i]=0;w.E[i]=float3(1,1,1);w.X[i]=float3(1,0,0);w.Y[i]=float3(0,1,0);}
 float3 a=float3(0,0,-100),b=float3(1000,0,-100);
 int test=min(int(UV.x*16),15);
@@ -70,7 +70,7 @@ pins=list(custom.get_editor_property('inputs'))
 pin=unreal.CustomInput(); pin.set_editor_property('input_name','LUT'); pins.append(pin)
 custom.set_editor_property('inputs',pins)
 custom.set_editor_property('code','''
-FWaterOptics w;
+FWaterOptics w; w.ExtScale=1; w.ScatTint=1;
 float distances[8]={0,1,10,100,249,250,300,500};
 return w.BaseTransmission(LUT,LUTSampler,distances[min(int(UV.x*8),7)]);
 ''')
@@ -89,3 +89,25 @@ for channel in ('r','g','b'):
 assert samples[6].b<samples[5].b and samples[7].b<samples[6].b,samples
 unreal.RenderingLibrary.release_render_target2d(rt)
 unreal.log('OPTICS_LUT_TESTS_SUCCESS: identity, monotonic RGB, continuing blue attenuation at 300/500 m')
+
+# Authored-medium scaling (eidoverse `water` absorption): transmission^ExtScale, per channel.
+custom.set_editor_property('code','''
+FWaterOptics w; w.ScatTint=1; w.Bsc=float3(.015,.025,.04);
+w.WP=float4(.12,1.5,.7,.35); w.TP=float4(.15,.35,.4,90);
+bool scaled=UV.x>0.5;
+w.ExtScale=scaled?float3(2,.5,1):float3(1,1,1);
+return w.Transmission(LUT,LUTSampler,40.0,3.0);
+''')
+assert mel.connect_material_expressions(uv,'',custom,'UV')
+assert mel.connect_material_expressions(lut,'',custom,'LUT')
+mel.recompile_material(mat)
+unreal.EditorAssetLibrary.save_loaded_asset(mat)
+rt=unreal.RenderingLibrary.create_render_target2d(world,2,1,unreal.TextureRenderTargetFormat.RTF_RGBA32F)
+unreal.RenderingLibrary.draw_material_to_render_target(world,rt,mat)
+ref,scaled=[unreal.RenderingLibrary.read_render_target_raw_pixel(world,rt,i,0,False) for i in range(2)]
+unreal.RenderingLibrary.release_render_target2d(rt)
+for channel,power in (('r',2),('g',.5),('b',1)):
+    r,s_=getattr(ref,channel),getattr(scaled,channel)
+    assert 0<r<1 and abs(s_-r**power)<=1e-4*max(1,r),(channel,r,s_,r**power)
+unreal.log('OPTICS_MEDIUM_SCALING_SUCCESS: transmission^ExtScale per channel')
+unreal.log('OPTICS_ALL_TESTS_DONE')

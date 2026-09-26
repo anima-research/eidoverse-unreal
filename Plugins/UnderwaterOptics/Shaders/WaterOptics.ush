@@ -12,6 +12,9 @@ struct FWaterOptics
     float Surface;
     float OceanTime, OceanEnabled;
     float3 Bsc;
+    // Authored-medium scaling relative to this reference water (eidoverse `water`
+    // component): transmission^ExtScale and in-scatter x ScatTint. (1,1,1) = reference.
+    float3 ExtScale, ScatTint;
 
     float ErfApprox(float v)
     {
@@ -163,12 +166,12 @@ struct FWaterOptics
             t*=exp(-slope*(metres-span));
         }
         // Exact zero-length identity even if the first lookup texel is imperfect.
-        return metres<=0.0 ? float3(1,1,1) : min(t,1.0);
+        return metres<=0.0 ? float3(1,1,1) : pow(min(t,1.0),max(ExtScale,0.0));
     }
     float3 Transmission(Texture2D lut,SamplerState samp,float waterM,float turbidityIntegral)
     {
-        return BaseTransmission(lut,samp,waterM)*exp(-float3(0.08,0.10,0.14)*turbidityIntegral
-            -Bsc*(waterM+4.0*turbidityIntegral));
+        return BaseTransmission(lut,samp,waterM)*exp(-max(ExtScale,0.0)*(float3(0.08,0.10,0.14)*turbidityIntegral
+            +Bsc*(waterM+4.0*turbidityIntegral)));
     }
     float3 SourceTransmission(Texture2D lut,SamplerState samp,float3 start,float3 end)
     {
@@ -197,7 +200,8 @@ struct FWaterOptics
             const int steps=24;
             // Resolve the near-camera medium even when the depth buffer points at the sky.
             // At this optical budget the least-extinguished channel contributes < 1e-6.
-            float cutoff=13.815511/max(min(Bsc.r,min(Bsc.g,Bsc.b)),0.005);
+            float3 bscScaled=Bsc*max(ExtScale,0.0);
+            float cutoff=13.815511/max(min(bscScaled.r,min(bscScaled.g,bscScaled.b)),0.005);
             float segmentLength=min(water[i].y-water[i].x,max(cutoff-wm,0.0));
             if(segmentLength<=0.0) break;
             [loop] for(int j=0;j<steps;j++)
@@ -210,9 +214,9 @@ struct FWaterOptics
                 float3 next=Transmission(lut,samp,wm+ds,it+dt);
                 float3 tau=max(-log(max(next,1e-12)/max(front,1e-12)),1e-6);
                 float3 effectiveLength=ds*(1.0-exp(-tau))/tau;
-                float3 down=BaseTransmission(lut,samp,zm)*exp(-float3(0.08,0.10,0.14)*Integral(zm));
+                float3 down=BaseTransmission(lut,samp,zm)*exp(-max(ExtScale,0.0)*float3(0.08,0.10,0.14)*Integral(zm));
                 float deepScale=lerp(1.0,1.0/max(WP.g,1.0),saturate(dir.z));
-                float3 source=sunE*tint*down*Bsc*(1.0+4.0*Profile(zm))*phase*deepScale;
+                float3 source=sunE*tint*down*Bsc*ScatTint*(1.0+4.0*Profile(zm))*phase*deepScale;
                 scatter+=front*source*effectiveLength;
                 wm+=ds; it+=dt; front=next;
             }
