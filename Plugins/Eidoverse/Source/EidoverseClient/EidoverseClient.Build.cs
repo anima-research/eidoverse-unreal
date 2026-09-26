@@ -8,7 +8,7 @@ public class EidoverseClient : ModuleRules
         PublicDependencyModuleNames.AddRange(new[] { "Core", "CoreUObject", "Engine", "InputCore", "ProceduralMeshComponent" });
         PrivateDependencyModuleNames.AddRange(new[] {
             "UnderwaterOptics",
-            "RenderCore", "RHI", "WebSockets", "Json", "HTTP", "ImageWrapper", "glTFRuntime",
+            "Projects", "RenderCore", "RHI", "WebSockets", "Json", "HTTP", "ImageWrapper", "glTFRuntime",
             "Slate", "SlateCore", "UMG", "MeshDescription", "StaticMeshDescription"
         });
         if (Target.bBuildEditor) PrivateDependencyModuleNames.Add("UnrealEd");

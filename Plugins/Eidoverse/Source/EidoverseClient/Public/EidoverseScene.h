@@ -25,6 +25,13 @@ struct FEidoverseSceneItem
     bool bPlaced=false;
     TSharedPtr<FJsonObject> Interact;
     bool bCollide=true;
+    // Client-evaluated closed-form motion (render-scene transform.motion).
+    TSharedPtr<FJsonObject> Motion;
+    TSharedPtr<FJsonObject> MotionBase;
+    // Mount onto another scene entity (render-scene transform.mount), wire units.
+    FString MountTo;
+    FVector MountOffsetWire=FVector::ZeroVector;
+    double MountYaw=0,OwnScale=1;
 };
 
 // Disposable scene projection, never a second persistent fold.
@@ -75,6 +82,12 @@ private:
     TSharedPtr<FJsonObject> FloraData;
     TSharedPtr<FJsonObject> LastAtmosphere;
     FVector SceneOrigin=FVector::ZeroVector;
+    // Server clock estimate: local seconds -> server epoch ms.
+    double ServerClockOffsetMs=0;
+    bool bServerClockKnown=false;
+    double ServerNowMs() const;
+    void ObserveServerTime(double ServerMs);
+    bool LocalTransform(const FString& Id,FTransform& Out,int32 Depth);
     bool bFloraDirty=false;
     void BuildFlora(const TSharedPtr<FJsonObject>& Data,const FVector& Origin);
     void TickWeather(float Dt);

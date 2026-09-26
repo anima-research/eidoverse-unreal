@@ -1,4 +1,5 @@
 #include "EidoverseScene.h"
+#include "EidoverseMotion.h"
 #include "EidoverseBridge.h"
 #include "EidoverseAvatar.h"
 #include "Dom/JsonObject.h"
@@ -104,6 +105,8 @@ void AEidoverseScene::ApplyEnvironment(const TSharedPtr<FJsonObject>& Env,const 
 void AEidoverseScene::Apply(const TSharedPtr<FJsonObject>& Message,const FVector& Origin,const FString& Library)
 {
     if(Message->HasField(TEXT("error"))){Diagnostic=Str(Message,TEXT("error"));return;}
+    SceneOrigin=Origin;
+    if(double ServerMs;Message->TryGetNumberField(TEXT("time"),ServerMs)&&FMath::IsFinite(ServerMs))ObserveServerTime(ServerMs);
     ApplyWeather(Obj(Message,TEXT("atmosphere")));
     if(auto Env=Obj(Message,TEXT("environment")))ApplyEnvironment(Env,Origin);
     if(Arr(Message,TEXT("removed")).Num()||Arr(Message,TEXT("upserts")).Num())bFloraDirty=true;
@@ -145,6 +148,17 @@ void AEidoverseScene::Apply(const TSharedPtr<FJsonObject>& Message,const FVector
         FVector P;const auto& Q=Arr(T,TEXT("q"));if(!Vec(Arr(T,TEXT("p")),P)||Q.Num()!=4)continue;
         FQuat Rot(Q[0]->AsNumber(),Q[1]->AsNumber(),Q[2]->AsNumber(),Q[3]->AsNumber());if(Rot.ContainsNaN()||Rot.SizeSquared()<.001)continue;
         E->Target=FTransform(AEidoverseBridge::FromWireRotation(Rot.GetNormalized()),Origin+AEidoverseBridge::FromWirePosition(P),FVector(FMath::Clamp(Num(T,TEXT("scale"),1),.001,1000.)));
+        // Closed-form parameters let Tick animate at frame rate; the sampled
+        // transform above remains the fallback when evaluation refuses.
+        auto Motion=Obj(T,TEXT("motion"));
+        E->Motion=Motion?Obj(Motion,TEXT("m")):nullptr;E->MotionBase=Motion?Obj(Motion,TEXT("base")):nullptr;
+        E->MountTo.Empty();
+        if(auto Mount=Obj(T,TEXT("mount")))
+        {
+            FVector Offset;
+            if(Vec(Arr(Mount,TEXT("offset")),Offset)&&!Str(Mount,TEXT("to")).IsEmpty())
+            {E->MountTo=Str(Mount,TEXT("to"));E->MountOffsetWire=Offset;E->MountYaw=Num(Mount,TEXT("yaw"));E->OwnScale=FMath::Clamp(Num(Mount,TEXT("scale"),1),.001,1000.);}
+        }
         if(!E->bPlaced&&E->Actor.IsValid()){E->Actor->SetActorTransform(E->Target);E->bPlaced=true;}
     }
     EntityCount=Items.Num();Diagnostic=FString::Printf(TEXT("%d entities · %d projection warnings"),EntityCount,Arr(Message,TEXT("warnings")).Num());
@@ -157,7 +171,10 @@ void AEidoverseScene::Tick(float Dt)
     for(auto& Pair:Items)
     {
         auto& E=Pair.Value;if(!E.Actor.IsValid())continue;
-        if(E.bPlaced&&!HeldTransforms.Contains(Pair.Key)&&!E.Actor->GetActorTransform().Equals(E.Target,.001)){FTransform T;T.Blend(E.Actor->GetActorTransform(),E.Target,1-FMath::Exp(-Dt*14));E.Actor->SetActorTransform(T);}
+        const bool bRemoteLease=RemoteLeases.Contains(Pair.Key)&&FPlatformTime::Seconds()<RemoteLeases[Pair.Key];
+        FTransform Local;
+        if(E.bPlaced&&!HeldTransforms.Contains(Pair.Key)&&!bRemoteLease&&LocalTransform(Pair.Key,Local,8))E.Actor->SetActorTransform(Local);
+        else if(E.bPlaced&&!HeldTransforms.Contains(Pair.Key)&&!E.Actor->GetActorTransform().Equals(E.Target,.001)){FTransform T;T.Blend(E.Actor->GetActorTransform(),E.Target,1-FMath::Exp(-Dt*14));E.Actor->SetActorTransform(T);}
         if(auto* A=E.Asset.Get())
         {
             if(A->State==UEidoverseAvatarAsset::EState::Ready&&E.Model.IsValid()){if(E.Model->GetStaticMesh()!=A->StaticMesh){E.Model->SetStaticMesh(A->StaticMesh);E.Model->SetRelativeScale3D(FVector::OneVector);E.Model->EmptyOverrideMaterials();E.Model->SetCollisionProfileName(E.bCollide?TEXT("BlockAll"):TEXT("NoCollision"));bFloraDirty=true;}++LoadedModels;}
@@ -169,6 +186,45 @@ void AEidoverseScene::Tick(float Dt)
     TSet<UEidoverseAvatarAsset*> Used;for(auto& E:Items)if(E.Value.Asset.IsValid())Used.Add(E.Value.Asset.Get());
     for(auto It=Assets.CreateIterator();It;++It)if(!Used.Contains(It.Value())){It.Value()->Cancel();It.RemoveCurrent();}
     if(bFloraDirty&&Loading==0){bFloraDirty=false;BuildFlora(FloraData,SceneOrigin);}
+}
+double AEidoverseScene::ServerNowMs() const
+{
+    return FPlatformTime::Seconds()*1000+ServerClockOffsetMs;
+}
+void AEidoverseScene::ObserveServerTime(double ServerMs)
+{
+    // Messages arrive late, never early: the largest observed offset is the
+    // least-delayed sample. Decay slowly so a clock step is followed.
+    const double Offset=ServerMs-FPlatformTime::Seconds()*1000;
+    if(!bServerClockKnown||Offset>ServerClockOffsetMs||ServerClockOffsetMs-Offset>2000)ServerClockOffsetMs=Offset;
+    else ServerClockOffsetMs-=FMath::Min(5.,ServerClockOffsetMs-Offset);
+    bServerClockKnown=true;
+}
+bool AEidoverseScene::LocalTransform(const FString& Id,FTransform& Out,int32 Depth)
+{
+    const auto* E=Items.Find(Id);
+    if(!E||Depth<=0||!bServerClockKnown)return false;
+    if(!E->MountTo.IsEmpty())
+    {
+        // world = parent ∘ (offset × parent scale, then yaw about wire Y).
+        // Only compose when the parent itself is locally animated; otherwise
+        // the sampled server transform is already exact.
+        FTransform Parent;
+        if(!LocalTransform(E->MountTo,Parent,Depth-1))return false;
+        const double ParentScale=Parent.GetScale3D().X;
+        const FVector Offset=AEidoverseBridge::FromWirePosition(E->MountOffsetWire)*ParentScale;
+        const FQuat Yaw=AEidoverseBridge::FromWireRotation(FQuat(FVector(0,1,0),E->MountYaw));
+        Out=FTransform(Parent.GetRotation()*Yaw,Parent.GetLocation()+Parent.GetRotation().RotateVector(Offset),FVector(ParentScale*E->OwnScale));
+        return true;
+    }
+    if(!E->Motion||!E->MotionBase)return false;
+    EidoMotion::FBase Base;
+    if(!EidoMotion::ReadBase(E->MotionBase,Base))return false;
+    const auto R=EidoMotion::EvalWholeMotion(Base,E->Motion,ServerNowMs());
+    if(!R.bOk)return false;
+    const FQuat Rot=AEidoverseBridge::FromWireRotation(FQuat(R.Quat.X,R.Quat.Y,R.Quat.Z,R.Quat.W));
+    Out=FTransform(Rot.GetNormalized(),SceneOrigin+AEidoverseBridge::FromWirePosition(FVector(R.Pos.X,R.Pos.Y,R.Pos.Z)),E->Target.GetScale3D());
+    return true;
 }
 void AEidoverseScene::EndPlay(const EEndPlayReason::Type Reason)
 {for(auto& A:Assets)A.Value->Cancel();Assets.Empty();for(auto& E:Items)if(E.Value.Actor.IsValid())E.Value.Actor->Destroy();Items.Empty();Super::EndPlay(Reason);}
