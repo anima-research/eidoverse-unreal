@@ -13,6 +13,14 @@
 			"Enabled": true
 		},
 		{
+			"Name": "glTFRuntime",
+			"Enabled": true
+		},
+		{
+			"Name": "Eidoverse",
+			"Enabled": true
+		},
+		{
 			"Name": "ModelingToolsEditorMode",
 			"Enabled": true,
 			"TargetAllowList": [

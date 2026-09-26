@@ -3,7 +3,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 #include "Engine/StaticMesh.h"
 #include "StaticMeshResources.h"
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEidoverseGroundCoverTest,"Underwater.Eidoverse.GroundCover",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEidoverseGroundCoverTest,"Eidoverse.GroundCover",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
 bool FEidoverseGroundCoverTest::RunTest(const FString&)
 {
     auto* Mesh=EidoGroundCover::BuildTuft(GetTransientPackage(),nullptr);

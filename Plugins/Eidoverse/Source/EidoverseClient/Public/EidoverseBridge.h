@@ -73,7 +73,7 @@ struct FEidoverseObjectSim
 
 // Presence/chat plus an opt-in projection of the server's canonical world fold.
 UCLASS(BlueprintType)
-class UNDERWATEROPTICS_API AEidoverseBridge : public AActor
+class EIDOVERSECLIENT_API AEidoverseBridge : public AActor
 {
     GENERATED_BODY()
 public:

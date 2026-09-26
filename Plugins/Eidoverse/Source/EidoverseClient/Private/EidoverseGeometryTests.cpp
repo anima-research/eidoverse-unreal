@@ -10,7 +10,7 @@
 #include "MeshCardBuild.h"
 #include "Misc/Base64.h"
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEidoverseWinding,"Underwater.Eidoverse.GeometryWinding",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEidoverseWinding,"Eidoverse.GeometryWinding",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
 bool FEidoverseWinding::RunTest(const FString&)
 {
     const float V[]={0,0,0, 1,0,0, 0,1,0, 0,0,1, 0,0,1, 0,0,1};

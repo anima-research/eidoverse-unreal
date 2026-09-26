@@ -1,7 +1,7 @@
 #include "EidoverseBridge.h"
 #include "Misc/AutomationTest.h"
 #if WITH_DEV_AUTOMATION_TESTS
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEidoverseLoginSafety,"Underwater.Eidoverse.LoginSafety",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEidoverseLoginSafety,"Eidoverse.LoginSafety",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
 bool FEidoverseLoginSafety::RunTest(const FString&)
 {
     const FString SID=FString::ChrN(64,'a');FString Out;

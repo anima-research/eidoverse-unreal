@@ -2,7 +2,7 @@
 #include "EidoverseAvatar.h"
 #include "Misc/AutomationTest.h"
 #if WITH_DEV_AUTOMATION_TESTS
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEidoverseCoordinates,"Underwater.Eidoverse.Coordinates",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEidoverseCoordinates,"Eidoverse.Coordinates",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
 bool FEidoverseCoordinates::RunTest(const FString&)
 {
     TestTrue(TEXT("ordinary destination accepted"),AEidoverseBridge::IsWorldName(TEXT("commons-2_test")));
@@ -29,7 +29,7 @@ bool FEidoverseCoordinates::RunTest(const FString&)
 #endif
 
 #if WITH_DEV_AUTOMATION_TESTS
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEidoverseSwimming,"Underwater.Eidoverse.Swimming",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEidoverseSwimming,"Eidoverse.Swimming",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
 bool FEidoverseSwimming::RunTest(const FString&)
 {
     const auto Hover=FEidoverseSwimMotion::Evaluate(TEXT("swim"),0,FVector::ZeroVector);
@@ -51,7 +51,7 @@ bool FEidoverseSwimming::RunTest(const FString&)
 #endif
 
 #if WITH_DEV_AUTOMATION_TESTS
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEidoverseAvatarSafety,"Underwater.Eidoverse.AvatarSafety",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEidoverseAvatarSafety,"Eidoverse.AvatarSafety",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
 bool FEidoverseAvatarSafety::RunTest(const FString&)
 {
     const FString Base=TEXT("https://eidoverse.animalabs.ai/library/");FString Url;

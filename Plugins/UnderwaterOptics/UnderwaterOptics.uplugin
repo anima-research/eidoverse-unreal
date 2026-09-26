@@ -3,9 +3,15 @@
   "Version": 1,
   "VersionName": "1.0",
   "FriendlyName": "Underwater Optics",
-  "Description": "Shared water medium, automatic air-volume registry and local-light transmission.",
+  "Description": "Shared water medium, spectral ocean, air-volume registry and local-light transmission.",
   "Category": "Rendering",
   "CanContainContent": false,
-  "Modules": [{"Name": "UnderwaterOptics", "Type": "Runtime", "LoadingPhase": "PostConfigInit"}],
-  "Plugins": [{"Name": "glTFRuntime", "Enabled": true}, {"Name": "ProceduralMeshComponent", "Enabled": true}]
+  "Modules": [
+    {
+      "Name": "UnderwaterOptics",
+      "Type": "Runtime",
+      "LoadingPhase": "PostConfigInit"
+    }
+  ],
+  "Plugins": []
 }

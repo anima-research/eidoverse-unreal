@@ -1,7 +1,7 @@
 #include "EidoverseAvatar.h"
 #include "Misc/AutomationTest.h"
 #if WITH_DEV_AUTOMATION_TESTS
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEidoverseEmissive,"Underwater.Eidoverse.EmissiveLamps",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEidoverseEmissive,"Eidoverse.EmissiveLamps",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
 bool FEidoverseEmissive::RunTest(const FString&)
 {
     TestEqual(TEXT("dark materials do not create lights"),FEidoverseAvatarLamp::InferredIntensity(FLinearColor::Black,1),0.f);

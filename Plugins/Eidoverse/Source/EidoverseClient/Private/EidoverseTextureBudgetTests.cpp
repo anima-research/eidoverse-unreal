@@ -5,7 +5,7 @@
 #include "IImageWrapper.h"
 #include "Modules/ModuleManager.h"
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEidoverseTextureBudget,"Underwater.Eidoverse.TextureBudget",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEidoverseTextureBudget,"Eidoverse.TextureBudget",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
 bool FEidoverseTextureBudget::RunTest(const FString&)
 {
     auto MakeGlb=[](int32 Count,int32 Size)

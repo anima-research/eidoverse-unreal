@@ -46,7 +46,7 @@ struct FEidoverseAvatarLamp
 
 // A version-keyed, session-only shared load. No downloaded files are persisted.
 UCLASS()
-class UNDERWATEROPTICS_API UEidoverseAvatarAsset : public UObject
+class EIDOVERSECLIENT_API UEidoverseAvatarAsset : public UObject
 {
     GENERATED_BODY()
 public:
@@ -89,7 +89,7 @@ private:
 
 // Each participant owns its own pose, while meshes/materials are shared.
 UCLASS()
-class UNDERWATEROPTICS_API UEidoverseAvatarMesh : public UPoseableMeshComponent
+class EIDOVERSECLIENT_API UEidoverseAvatarMesh : public UPoseableMeshComponent
 {
     GENERATED_BODY()
 public:

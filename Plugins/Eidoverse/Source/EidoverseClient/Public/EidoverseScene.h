@@ -29,7 +29,7 @@ struct FEidoverseSceneItem
 
 // Disposable scene projection, never a second persistent fold.
 UCLASS()
-class UNDERWATEROPTICS_API AEidoverseScene : public AActor
+class EIDOVERSECLIENT_API AEidoverseScene : public AActor
 {
     GENERATED_BODY()
 public:
@@ -86,7 +86,7 @@ private:
 // Grounded exploration controls for server-authored land scenes. The aquatic
 // prototype keeps its existing diver/submarine pawn unchanged.
 UCLASS()
-class UNDERWATEROPTICS_API AEidoverseExplorer : public ACharacter
+class EIDOVERSECLIENT_API AEidoverseExplorer : public ACharacter
 {
     GENERATED_BODY()
 public:

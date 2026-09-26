@@ -10,7 +10,7 @@
 #include "IImageWrapper.h"
 #include "Misc/Base64.h"
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEidoverseLitMaterials,"Underwater.Eidoverse.LitMaterials",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEidoverseLitMaterials,"Eidoverse.LitMaterials",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
 bool FEidoverseLitMaterials::RunTest(const FString&)
 {
     auto J=MakeShared<FJsonObject>();auto Version=MakeShared<FJsonObject>();Version->SetStringField(TEXT("version"),TEXT("2.0"));J->SetObjectField(TEXT("asset"),Version);
