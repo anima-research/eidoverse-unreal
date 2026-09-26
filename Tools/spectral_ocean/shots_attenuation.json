@@ -1,0 +1,152 @@
+{
+  "title": "UNDERWATER",
+  "subtitle": "Temperate shelf / rendering & exploration demo",
+  "fps": 30,
+  "resolution": [
+    1920,
+    1080
+  ],
+  "map": "/Game/Underwater/SpectralPrototype/L_SpectralOcean_Prototype",
+  "shots": [
+    {
+      "id": "09_platform",
+      "seconds": 6,
+      "title": "Built for the next iteration",
+      "caption": "A living graphics demo / terrain, water, light and marine ecology.",
+      "focal": 26,
+      "camera": [
+        [
+          0,
+          [
+            2050,
+            3900,
+            1100
+          ],
+          [
+            0,
+            6000,
+            170
+          ]
+        ],
+        [
+          6,
+          [
+            1700,
+            4520,
+            1000
+          ],
+          [
+            0,
+            6000,
+            170
+          ]
+        ]
+      ]
+    },
+    {
+      "id": "12_shallow",
+      "seconds": 2,
+      "focal": 18,
+      "title": "12_shallow",
+      "caption": "",
+      "camera": [
+        [
+          0,
+          [
+            7900,
+            -2150,
+            -300
+          ],
+          [
+            2000,
+            -6000,
+            2200
+          ]
+        ],
+        [
+          2,
+          [
+            7900,
+            -2150,
+            -300
+          ],
+          [
+            2000,
+            -6000,
+            2200
+          ]
+        ]
+      ]
+    },
+    {
+      "id": "13_deep",
+      "seconds": 2,
+      "focal": 18,
+      "title": "13_deep",
+      "caption": "",
+      "camera": [
+        [
+          0,
+          [
+            7900,
+            -2150,
+            -3000
+          ],
+          [
+            2000,
+            -6000,
+            -500
+          ]
+        ],
+        [
+          2,
+          [
+            7900,
+            -2150,
+            -3000
+          ],
+          [
+            2000,
+            -6000,
+            -500
+          ]
+        ]
+      ]
+    },
+    {
+      "id": "14_abyss",
+      "seconds": 2,
+      "focal": 18,
+      "title": "14_abyss",
+      "caption": "",
+      "camera": [
+        [
+          0,
+          [
+            7900,
+            -2150,
+            -9000
+          ],
+          [
+            2000,
+            -6000,
+            -6500
+          ]
+        ],
+        [
+          2,
+          [
+            7900,
+            -2150,
+            -9000
+          ],
+          [
+            2000,
+            -6000,
+            -6500
+          ]
+        ]
+      ]
+    }
+  ]
+}

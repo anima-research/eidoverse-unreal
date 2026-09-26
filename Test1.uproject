@@ -5,6 +5,10 @@
 	"Description": "",
 	"Plugins": [
 		{
+			"Name": "MovieRenderPipeline",
+			"Enabled": true
+		},
+		{
 			"Name": "UnderwaterOptics",
 			"Enabled": true
 		},

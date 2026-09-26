@@ -1,0 +1,96 @@
+// Embedded in M_OceanSurface by update_ocean_surface.py. World units: cm.
+// These are visual details, not a replacement for the shared buoyancy waves.
+struct FOceanSurfaceDetail
+{
+    float Hash(float2 p)
+    {
+        float3 p3=frac(float3(p.xyx)*0.1031);
+        p3+=dot(p3,p3.yzx+33.33);
+        return frac((p3.x+p3.y)*p3.z);
+    }
+    // Quintic value noise with analytic spatial derivatives.
+    float3 Noise(float2 p)
+    {
+        float2 i=floor(p),f=frac(p);
+        float2 u=f*f*f*(f*(f*6.0-15.0)+10.0);
+        float2 du=30.0*f*f*(f*(f-2.0)+1.0);
+        float a=Hash(i),b=Hash(i+float2(1,0));
+        float c=Hash(i+float2(0,1)),d=Hash(i+1.0);
+        float k=a-b-c+d;
+        return float3(a+(b-a)*u.x+(c-a)*u.y+k*u.x*u.y,
+                      du.x*(b-a+k*u.y),du.y*(c-a+k*u.x));
+    }
+    float HullDistance(float3 p,float4 center,float3 x,float3 y)
+    {
+        float3 r=p-center.xyz,z=normalize(cross(x,y));
+        float3 q=float3(dot(r,x),dot(r,y),dot(r,z));
+        float cap=1.0;
+        if(q.x < -1750.0) cap=sqrt(saturate(1.0-pow((q.x+1750.0)/330.0,2)));
+        if(q.x > -80.0) cap=sqrt(saturate(1.0-pow((q.x+80.0)/330.0,2)))*0.98;
+        float side=(length(q.yz/float2(278,263))-cap)*263.0;
+        return max(side,max(-2070.0-q.x,q.x-245.0));
+    }
+    float ContactWeight(float3 p,float4 center,float3 x,float3 y)
+    {
+        float3 q=p-center.xyz;
+        float z=abs(dot(q,normalize(cross(x,y))));
+        // No halo from a submerged hull; fades before its crown leaves the water.
+        return center.a*(1.0-smoothstep(240.0,285.0,z));
+    }
+    float ContactHeight(float3 p,float time,float4 center,float3 x,float3 y)
+    {
+        float dist=HullDistance(p,center,x,y);
+        float weight=ContactWeight(p,center,x,y);
+        float n=Noise(p.xy/190.0+float2(-time*.14,time*.09)).x;
+        float envelope=exp(-max(dist,0.0)/180.0)*smoothstep(-25.0,25.0,dist);
+        // A restrained 0-5 cm heave and outward-running, irregular pressure ripples.
+        return weight*envelope*(2.0+3.0*sin(dist*.0126-time*1.6+n*2.0));
+    }
+    float RenderHeight(float2 p,float time)
+    {
+        // The graded mesh has 1 m cells in the playable area, increasing 7% per
+        // ring beyond 180 m. Filter displacement before the mesh undersamples it.
+        float cell=max(100.0,100.0+max(max(abs(p.x),abs(p.y))-18000.0,0.0)*.07);
+        float height=0.0;
+        #define OCEAN_WAVE(A,L,DX,DY,P) { float k=6.283185307/L; float retain=1.0-smoothstep(L*.32,L*.60,cell); height+=retain*A*sin(k*dot(p,float2(DX,DY))-sqrt(980.0*k)*time+P); }
+        #include "/Plugin/UnderwaterOptics/OceanWaveData.ush"
+        #undef OCEAN_WAVE
+        return height;
+    }
+    float2 SurfaceGradient(float2 p,float time,out float unresolved)
+    {
+        float2 gradient=0.0;
+        unresolved=0.0;
+        #if PIXELSHADER
+        // Per-wave pixel-footprint filtering, including grazing views, before TSR.
+        float2 px=ddx(p),py=ddy(p);
+        #define OCEAN_WAVE(A,L,DX,DY,P) { float k=6.283185307/L; float2 d=float2(DX,DY); float span=k*max(abs(dot(px,d)),abs(dot(py,d))); float keep=exp(-.6*span*span); float phase=k*dot(p,d)-sqrt(980.0*k)*time+P; gradient+=.60*keep*A*k*cos(phase)*d; }
+        #include "/Plugin/UnderwaterOptics/OceanWaveData.ush"
+        #undef OCEAN_WAVE
+        float3 warpA=Noise(p/2100.0+float2(time*.018,13.7));
+        float3 warpB=Noise(p/1730.0+float2(41.3,-time*.014));
+        float3 gust=Noise(p/3700.0+float2(-time*.01,9.2));
+        // Broadband wind waves: warped phase, stochastic wavelengths/directions,
+        // and spatially changing amplitudes prevent an infinite corrugated sheet.
+        [unroll] for(int i=0;i<20;i++)
+        {
+            float fi=float(i);
+            float seed=Hash(float2(fi+7.1,19.3));
+            float angle=.45+(seed-.5)*2.5;
+            if(i%4==0) angle+=1.1;
+            float2 d=float2(cos(angle),sin(angle));
+            float wavelength=2100.0*pow(.79,fi)*(0.85+seed*.3);
+            float k=6.283185307/wavelength;
+            float warp=4.2*warpA.x+2.7*warpB.x;
+            float2 phaseGradient=k*d+4.2*warpA.yz/2100.0+2.7*warpB.yz/1730.0;
+            float phase=k*dot(p,d)-sqrt(980.0*k)*time+seed*31.0+warp;
+            float span=max(abs(dot(px,phaseGradient)),abs(dot(py,phaseGradient)));
+            float keep=exp(-.6*span*span);
+            float strength=.026*(.65+.7*gust.x)*(0.7+seed*.6);
+            gradient+=keep*strength*cos(phase)*phaseGradient/k;
+            unresolved+=(1.0-keep)*strength*strength;
+        }
+        #endif
+        return gradient;
+    }
+};

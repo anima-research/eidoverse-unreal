@@ -6,5 +6,6 @@
   "Description": "Shared water medium, automatic air-volume registry and local-light transmission.",
   "Category": "Rendering",
   "CanContainContent": false,
-  "Modules": [{"Name": "UnderwaterOptics", "Type": "Runtime", "LoadingPhase": "PostConfigInit"}]
+  "Modules": [{"Name": "UnderwaterOptics", "Type": "Runtime", "LoadingPhase": "PostConfigInit"}],
+  "Plugins": [{"Name": "glTFRuntime", "Enabled": true}, {"Name": "ProceduralMeshComponent", "Enabled": true}]
 }

@@ -8,6 +8,7 @@ class UMaterialInterface;
 class UMaterialInstanceDynamic;
 class ULocalLightComponent;
 class UBoxComponent;
+class ASpectralOcean;
 
 UCLASS(BlueprintType)
 class UNDERWATEROPTICS_API AWaterOpticsController : public AActor
@@ -28,6 +29,7 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Ocean") bool bEnableOceanSurface = false;
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Ocean") int32 FloatingPawnCount = 0;
     UFUNCTION(BlueprintPure, Category="Ocean") float GetOceanHeight(FVector WorldPosition) const;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Ocean") TObjectPtr<ASpectralOcean> SpectralOcean;
 
 private:
     TArray<TWeakObjectPtr<UBoxComponent>> AirVolumes;

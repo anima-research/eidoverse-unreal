@@ -21,7 +21,7 @@ noise='''struct N {float h(float3 p){return frac(sin(dot(p,float3(127.1,311.7,74
 materials={}
 for name,(rgb,metal,rough) in DATA['palette'].items():
  mat=unreal.load_asset(ROOT+'/Materials/M_'+name)
- if mat and os.environ.get('ECOLOGY_IMPORT_ONLY'):
+ if mat and (os.environ.get('ECOLOGY_IMPORT_ONLY') or os.environ.get('ECOLOGY_EXPANSION')):
   materials['E_'+name]=mat;continue
  if not mat:mat=AT.create_asset('M_'+name,ROOT+'/Materials',unreal.Material,unreal.MaterialFactoryNew())
  else:
@@ -57,6 +57,7 @@ for name,(rgb,metal,rough) in DATA['palette'].items():
  MEL.layout_material_expressions(mat);MEL.recompile_material(mat);unreal.EditorAssetLibrary.save_loaded_asset(mat)
  materials['E_'+name]=mat
 for item in DATA['meshes']:
+ if os.environ.get('ECOLOGY_EXPANSION') and item['name'] not in ('Sardine','Mackerel','ReefPerch','IndividualSkate','Crab','SeaCucumber','AnemoneCluster','SpongeCluster','ShellHash','BeddingRock','ResearchPlatform'):continue
  if os.environ.get('ECOLOGY_IMPORT_ONLY') and item['name']!=os.environ['ECOLOGY_IMPORT_ONLY']:continue
  task=unreal.AssetImportTask()
  for n,v in [('filename',item['file']),('destination_path',ROOT+'/Meshes'),('destination_name',item['mesh']),('automated',True),('replace_existing',True),('save',True)]:prop(task,n,v)

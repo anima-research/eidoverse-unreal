@@ -1,0 +1,18 @@
+{
+  "title": "UNDERWATER",
+  "subtitle": "Temperate shelf / rendering & exploration demo",
+  "fps": 30,
+  "resolution": [1920, 1080],
+  "map": "/Game/Underwater/Maps/L_Epipelagic",
+  "shots": [
+    {"id":"01_habitat", "seconds":8, "title":"A habitat on the shelf", "caption":"Water-path fog and clear dry interiors inside pressure habitats.", "focal":24, "camera":[[0,[10100,3550,-2240],[8000,1450,-2760]],[8,[10200,2200,-2390],[8000,1450,-2760]]]},
+    {"id":"02_kelp", "seconds":7, "title":"Rooted in the reef", "caption":"Depth-zoned kelp, current-driven sway and suspended marine snow.", "focal":25, "camera":[[0,[5050,-2100,-2130],[3750,-650,-1850]],[7,[4700,-1600,-2070],[3500,-500,-1950]]]},
+    {"id":"03_seabed", "seconds":7, "title":"Detail at every scale", "caption":"Layered sediment, irregular gravel, shell beds and exposed rock.", "focal":26, "torch":260, "camera":[[0,[3550,-3250,-2360],[3990,-2460,-2700]],[7,[4250,-2980,-2390],[4700,-2250,-2720]]]},
+    {"id":"04_benthic", "seconds":6, "title":"Life on the bottom", "caption":"Crabs, sponges, anemones and sea cucumbers inhabit the seabed.", "focal":38, "torch":25, "anchor":"Crab", "anchor_index":52, "camera":[[0,[180,-235,155],[0,0,12]],[6,[290,30,180],[0,0,12]]]},
+    {"id":"05_fish", "seconds":8, "title":"Schools, not rigid formations", "caption":"478 fish / four types / individual steering and fin motion.", "focal":32, "torch":180, "camera":[[0,[4900,-1500,-1470],[4450,-430,-1590]],[8,[4520,-1260,-1490],[4480,-300,-1590]]]},
+    {"id":"06_submarine", "seconds":7, "title":"Exploring by submarine", "caption":"A pressure hull, observation glass and external floodlights.", "focal":24, "camera":[[0,[8200,-2750,-1450],[6000,-3400,-1800]],[7,[7600,-2050,-1410],[6000,-3400,-1800]]]},
+    {"id":"07_surface", "seconds":8, "title":"From depth to daylight", "caption":"A shared wave surface connects the underwater and above-water world.", "focal":23, "sub_surface":true, "camera":[[0,[7900,-2150,-700],[6000,-3350,-950]],[5.8,[7900,-2200,460],[6000,-3350,-80]],[8,[7800,-2250,590],[6000,-3350,20]]]},
+    {"id":"08_boarding", "seconds":8, "title":"A way out of the water", "caption":"A climbable ladder leads to a walkable research-platform deck.", "focal":20, "camera":[[0,[0,5050,-120],[0,5500,140]],[2,[0,5385,-80],[0,5800,310]],[5.8,[0,5395,345],[0,6100,345]],[8,[0,5710,390],[0,6500,370]]]},
+    {"id":"09_platform", "seconds":6, "title":"Built for the next iteration", "caption":"A living graphics demo / terrain, water, light and marine ecology.", "focal":26, "camera":[[0,[2050,3900,1100],[0,6000,170]],[6,[1700,4520,1000],[0,6000,170]]]}
+  ]
+}

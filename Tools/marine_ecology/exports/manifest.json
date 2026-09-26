@@ -125,6 +125,96 @@
       ],
       0.1,
       0.43
+    ],
+    "Mackerel": [
+      [
+        0.2,
+        0.33,
+        0.32
+      ],
+      0.35,
+      0.36
+    ],
+    "Perch": [
+      [
+        0.36,
+        0.29,
+        0.16
+      ],
+      0.12,
+      0.5
+    ],
+    "Deck": [
+      [
+        0.2,
+        0.23,
+        0.22
+      ],
+      0.55,
+      0.68
+    ],
+    "Galvanized": [
+      [
+        0.4,
+        0.44,
+        0.43
+      ],
+      0.8,
+      0.4
+    ],
+    "Safety": [
+      [
+        0.64,
+        0.38,
+        0.045
+      ],
+      0.2,
+      0.55
+    ],
+    "Rubber": [
+      [
+        0.022,
+        0.028,
+        0.028
+      ],
+      0,
+      0.85
+    ],
+    "Sponge": [
+      [
+        0.31,
+        0.22,
+        0.1
+      ],
+      0,
+      0.86
+    ],
+    "Anemone": [
+      [
+        0.39,
+        0.23,
+        0.17
+      ],
+      0,
+      0.65
+    ],
+    "Cucumber": [
+      [
+        0.14,
+        0.1,
+        0.075
+      ],
+      0,
+      0.9
+    ],
+    "Shell": [
+      [
+        0.44,
+        0.39,
+        0.3
+      ],
+      0,
+      0.82
     ]
   },
   "meshes": [
@@ -229,6 +319,72 @@
       "mesh": "SM_MusselCluster",
       "file": "/Users/olena/unrealtest/marine_ecology/exports/SM_MusselCluster.fbx",
       "triangles": 1440
+    },
+    {
+      "name": "Sardine",
+      "mesh": "SM_Sardine",
+      "file": "/Users/olena/unrealtest/marine_ecology/exports/SM_Sardine.fbx",
+      "triangles": 246
+    },
+    {
+      "name": "Mackerel",
+      "mesh": "SM_Mackerel",
+      "file": "/Users/olena/unrealtest/marine_ecology/exports/SM_Mackerel.fbx",
+      "triangles": 251
+    },
+    {
+      "name": "ReefPerch",
+      "mesh": "SM_ReefPerch",
+      "file": "/Users/olena/unrealtest/marine_ecology/exports/SM_ReefPerch.fbx",
+      "triangles": 254
+    },
+    {
+      "name": "IndividualSkate",
+      "mesh": "SM_IndividualSkate",
+      "file": "/Users/olena/unrealtest/marine_ecology/exports/SM_IndividualSkate.fbx",
+      "triangles": 180
+    },
+    {
+      "name": "Crab",
+      "mesh": "SM_Crab",
+      "file": "/Users/olena/unrealtest/marine_ecology/exports/SM_Crab.fbx",
+      "triangles": 868
+    },
+    {
+      "name": "SeaCucumber",
+      "mesh": "SM_SeaCucumber",
+      "file": "/Users/olena/unrealtest/marine_ecology/exports/SM_SeaCucumber.fbx",
+      "triangles": 972
+    },
+    {
+      "name": "AnemoneCluster",
+      "mesh": "SM_AnemoneCluster",
+      "file": "/Users/olena/unrealtest/marine_ecology/exports/SM_AnemoneCluster.fbx",
+      "triangles": 2192
+    },
+    {
+      "name": "SpongeCluster",
+      "mesh": "SM_SpongeCluster",
+      "file": "/Users/olena/unrealtest/marine_ecology/exports/SM_SpongeCluster.fbx",
+      "triangles": 560
+    },
+    {
+      "name": "ShellHash",
+      "mesh": "SM_ShellHash",
+      "file": "/Users/olena/unrealtest/marine_ecology/exports/SM_ShellHash.fbx",
+      "triangles": 1152
+    },
+    {
+      "name": "BeddingRock",
+      "mesh": "SM_BeddingRock",
+      "file": "/Users/olena/unrealtest/marine_ecology/exports/SM_BeddingRock.fbx",
+      "triangles": 320
+    },
+    {
+      "name": "ResearchPlatform",
+      "mesh": "SM_ResearchPlatform",
+      "file": "/Users/olena/unrealtest/marine_ecology/exports/SM_ResearchPlatform.fbx",
+      "triangles": 6096
     }
   ]
 }

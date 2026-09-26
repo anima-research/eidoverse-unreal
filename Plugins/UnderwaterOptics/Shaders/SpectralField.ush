@@ -1,0 +1,38 @@
+#ifndef SPECTRAL_FIELD_INCLUDED
+#define SPECTRAL_FIELD_INCLUDED
+struct FSpectralField
+{
+    Texture2D Ocean0,Ocean1,Ocean2,OceanWake;
+    SamplerState S0,S1,S2,SW;
+    float4 WakeOrigin;
+    float4 Band(Texture2D T,SamplerState S,float2 p,float length,float n,float footprint)
+    {
+        float lod=max(0.0,log2(max(footprint*n/length,1.0)));
+        return Texture2DSampleLevel(T,S,p/length+0.5/n,lod);
+    }
+    float4 Displacement(float2 p,float footprint)
+    {
+        float4 value=Band(Ocean0,S0,p,204800,128,footprint)
+                    +Band(Ocean1,S1,p,12800,128,footprint)
+                    +Band(Ocean2,S2,p,800,64,footprint);
+        float2 uv=(p-WakeOrigin.xy)/max(WakeOrigin.z,1.0)+.5;
+        if(all(uv>0.0)&&all(uv<1.0)&&WakeOrigin.w>.5)
+            value+=Texture2DSampleLevel(OceanWake,SW,uv+.5/128.0,0);
+        value.w=saturate(value.w);
+        return value;
+    }
+    float Height(float2 p)
+    {
+        float2 q=p;
+        [unroll] for(int i=0;i<3;i++)q=p-Displacement(q,1).xy;
+        return Displacement(q,1).z;
+    }
+    float3 Normal(float2 p,float footprint)
+    {
+        float e=max(6.25,footprint*.5);
+        float3 dx=Displacement(p+float2(e,0),footprint).xyz-Displacement(p-float2(e,0),footprint).xyz;
+        float3 dy=Displacement(p+float2(0,e),footprint).xyz-Displacement(p-float2(0,e),footprint).xyz;
+        return normalize(cross(float3(2*e,0,0)+dx,float3(0,2*e,0)+dy));
+    }
+};
+#endif

@@ -1,4 +1,5 @@
 #include "WaterOpticsController.h"
+#include "SpectralOcean.h"
 #include "Components/BoxComponent.h"
 #include "Components/LocalLightComponent.h"
 #include "Components/ExponentialHeightFogComponent.h"
@@ -152,6 +153,7 @@ void AWaterOpticsController::Tick(float DeltaSeconds)
 
 float AWaterOpticsController::GetOceanHeight(FVector WorldPosition) const
 {
+    if (IsValid(SpectralOcean)) return SpectralOcean->GetSurfaceHeight(WorldPosition);
     if (!bEnableOceanSurface || !GetWorld()) return SurfaceZ;
     const double Time = GetWorld()->GetTimeSeconds();
     double Height = SurfaceZ;
@@ -181,7 +183,7 @@ void AWaterOpticsController::UpdateOcean(float DeltaSeconds)
                     const FVector E=Box->GetUnscaledBoxExtent();
                     if (Q.X<E.X && Q.Y<E.Y && Q.Z<E.Z) { bDryRoom=true; break; }
                 }
-        if (bDiver && (bDryRoom || Pawn->GetAttachParentActor()))
+        if (bDiver && (bDryRoom || Pawn->GetAttachParentActor() || Pawn->ActorHasTag(TEXT("SurfaceBoarded"))))
         { FloatingPawns.Remove(Pawn); continue; }
         if (UPawnMovementComponent* Movement=Pawn->GetMovementComponent())
         {

@@ -155,6 +155,102 @@ group='MusselCluster'
 for j in range(18):
  o=sphere('Blue mussel valve',(R.uniform(-15,15),R.uniform(-15,15),R.uniform(2,5)),(3,7,3),'Mussel',10,5);o.rotation_euler.z=R.random()*math.pi
 
+# Expansion meshes keep the original kit intact; individual fish face +X.
+for n,rgb,met,rough in [('Mackerel',(.20,.33,.32),.35,.36),('Perch',(.36,.29,.16),.12,.5),('Deck',(.20,.23,.22),.55,.68),('Galvanized',(.40,.44,.43),.8,.4),('Safety',(.64,.38,.045),.2,.55),('Rubber',(.022,.028,.028),0,.85),('Sponge',(.31,.22,.10),0,.86),('Anemone',(.39,.23,.17),0,.65),('Cucumber',(.14,.10,.075),0,.9),('Shell',(.44,.39,.30),0,.82)]:
+ palette[n]=(rgb,met,rough);m=bpy.data.materials.new('E_'+n);m.diffuse_color=(*rgb,1);mats[n]=m
+for name,length,material,slender in [('Sardine',26,'Silver',.7),('Mackerel',56,'Mackerel',.72),('ReefPerch',38,'Perch',1.35)]:
+ group=name;fish((0,0,0),length,0,material)
+ for o in groups[group]:
+  for vv in o.data.vertices:vv.co.z*=slender
+ if name=='Mackerel':
+  for j in range(5):
+   x=-length*(.24+j*.05)
+   mesh('Dorsal finlet',[(x,0,4),(x-2,0,7),(x-4,0,3)],[(0,1,2)],'Fin')
+ if name=='ReefPerch':
+  for j in range(8):
+   x=-11+j*3
+   mesh('Spiny dorsal ray',[(x,0,7),(x-1,0,13),(x+3,0,8)],[(0,1,2)],'Perch')
+group='IndividualSkate'
+for original in groups['Skate']:
+ copy=original.copy();copy.data=original.data.copy();bpy.context.collection.objects.link(copy);groups.setdefault(group,[]).append(copy)
+
+group='Crab'
+sphere('Low oval carapace',(0,0,8),(15,12,6),'Rockfish')
+for side in (-1,1):
+ for j in range(4):
+  x=8-j*6;tube('Jointed walking leg',[(x,side*8,7),(x-6,side*20,11),(x-12,side*30,1)],[1.7,1.2,.3],'Rockfish',5)
+ tube('Raised claw arm',[(10,side*7,7),(22,side*15,10),(29,side*12,13)],[2,2,2.7],'Rockfish')
+ sphere('Pincer palm',(30,side*12,13),(5,3,3),'Rockfish',10,5)
+ for a in (-1,1):tube('Pincer finger',[(32,side*12+a*2,13),(38,side*12+a*1.5,13),(38,side*12,13)],[1.2,.7,.2],'Rockfish',5)
+ sphere('Stalk eye',(13,side*5,14),(1.4,1.4,1.4),'Eye',8,4)
+group='SeaCucumber'
+o=sphere('Leathery cucumber',(0,0,7),(29,9,8),'Cucumber',24,10)
+for j in range(45):
+ x=R.uniform(-23,23);a=R.uniform(.2,math.pi-.2);tube('Soft papilla',[(x,math.cos(a)*8,7+math.sin(a)*7),(x+1,math.cos(a)*10,7+math.sin(a)*10)],[1,.2],'Cucumber',4)
+group='AnemoneCluster'
+for k in range(4):
+ x,y=R.uniform(-20,20),R.uniform(-20,20);H=R.uniform(12,26)
+ tube('Anemone column',[(x,y,0),(x,y,H*.7),(x,y,H)],[7,5,8],'Anemone',12)
+ for j in range(24):
+  a=j*math.tau/24;rad=R.uniform(10,17)
+  tube('Flexible tentacle',[(x+math.cos(a)*6,y+math.sin(a)*6,H),(x+math.cos(a)*rad,y+math.sin(a)*rad,H+8),(x+math.cos(a)*rad*1.1,y+math.sin(a)*rad*1.1,H+4)],[1,.6,.1],'Anemone',4)
+group='SpongeCluster'
+for k in range(5):
+ x,y=R.uniform(-23,23),R.uniform(-23,23);H=R.uniform(18,50);rad=R.uniform(5,10)
+ # Open osculum: outer/inner rings share a rim, not capped cylinders.
+ v=[];f=[]
+ for z,r in [(0,rad*.8),(H*.5,rad),(H,rad*.75),(H,rad*.52),(H*.25,rad*.45)]:
+  for j in range(14):v.append((x+math.cos(j*math.tau/14)*r,y+math.sin(j*math.tau/14)*r,z))
+ for q in range(4):
+  for j in range(14):f.append((q*14+j,q*14+(j+1)%14,(q+1)*14+(j+1)%14,(q+1)*14+j))
+ mesh('Porous finger sponge',v,f,'Sponge')
+group='ShellHash'
+for k in range(24):
+ o=sphere('Broken shell',(R.uniform(-70,70),R.uniform(-70,70),R.uniform(0,2)),(R.uniform(1.5,4),R.uniform(2,6),.5),'Shell',8,4);o.rotation_euler=(R.uniform(-.4,.4),R.uniform(-.3,.3),R.random()*math.tau)
+group='BeddingRock'
+for j in range(4):
+ bpy.ops.mesh.primitive_ico_sphere_add(subdivisions=2,radius=1);o=bpy.context.object
+ for vv in o.data.vertices:
+  p=vv.co;p.x=p.x*R.uniform(170,240)+j*75;p.y*=R.uniform(90,140);p.z=p.z*28+j*28
+ add(o,'Rock',False)
+
+def box(name,p,scale,material,bevel=0):
+ bpy.ops.mesh.primitive_cube_add(size=1,location=p);o=bpy.context.object;o.name=name;o.scale=scale;bpy.ops.object.transform_apply(location=False,rotation=False,scale=True);add(o,material,False)
+ if bevel:
+  mod=o.modifiers.new('Manufactured edges','BEVEL');mod.width=bevel;mod.segments=2;bpy.context.view_layer.objects.active=o;bpy.ops.object.modifier_apply(modifier=mod.name)
+ return o
+group='ResearchPlatform'
+# 12 x 10 m piled steel research stage. Local Blender Y mirrors into Unreal.
+for x in (-510,510):
+ for y in (-410,410):
+  floor=height(x,6000-y)-40
+  tube('Seabed pile',[(x,y,floor),(x,y,225)],[22,22],'Galvanized',16)
+  tube('Splash-zone sleeve',[(x,y,-110),(x,y,120)],[25,25],'Rubber',16)
+for x in (-510,510):box('Longitudinal I beam',(x,0,190),(25,1000,65),'Galvanized',2)
+for y in (-410,0,410):box('Cross member',(0,y,202),(1200,22,42),'Galvanized',2)
+for j in range(24):box('Anti-slip deck panel',(-575+j*50,0,230),(48.5,1000,20),'Deck',.8)
+# Guardrails with a deliberate ladder gate on the south face (Blender +Y).
+for x in (-590,590):
+ for y in range(-480,481,240):tube('Guardrail upright',[(x,y,241),(x,y,345)],[3,3],'Galvanized',8)
+ for z in (292,345):tube('Side safety rail',[(x,-480,z),(x,480,z)],[3,3],'Galvanized',8)
+for y in (-490,490):
+ for x in (-570,-300,-85,85,300,570):tube('End upright',[(x,y,241),(x,y,345)],[3,3],'Galvanized',8)
+ for z in (292,345):
+  if y<0:tube('Rear safety rail',[(-590,y,z),(590,y,z)],[3,3],'Galvanized',8)
+  else:
+   for side in (-1,1):tube('Ladder gate rail',[(side*85,y,z),(side*590,y,z)],[3,3],'Safety',8)
+# Ladder extends 1.8 m underwater, with curved grab handles and 28 cm rung spacing.
+for x in (-65,65):tube('Boarding ladder stringer',[(x,610,-180),(x,610,300),(x,590,354),(x,535,365),(x,490,330),(x,490,242)],[4]*6,'Safety',12)
+for z in range(-160,241,28):tube('Non-slip ladder rung',[(-65,610,z),(65,610,z)],[3.5,3.5],'Galvanized',10)
+for x in (-510,510):tube('Underwater cross brace',[(x,-410,-300),(x,410,130)],[7,7],'Galvanized',10)
+for x in (-370,370):
+ box('Mooring cleat foot',(x,430,247),(45,24,14),'Galvanized',3);tube('Mooring cleat horns',[(x-36,430,262),(x+36,430,262)],[5,5],'Galvanized',10)
+# Small instrument stand leaves the deck and boarding route open.
+for x in (-460,-160):tube('Instrument canopy post',[(x,-330,240),(x,-330,495)],[5,5],'Galvanized',10)
+box('Weather canopy',(-310,-330,502),(390,250,12),'Deck',3)
+box('Instrument enclosure',(-420,-330,320),(85,65,140),'Deck',5)
+sphere('Amber navigation lamp',(-460,-330,531),(10,10,14),'Safety',12,6)
+
 manifest=[]
 for name,objects in groups.items():
  bpy.ops.object.select_all(action='DESELECT')
