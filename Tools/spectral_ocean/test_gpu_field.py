@@ -25,9 +25,18 @@ for name in nodes:
     inp=unreal.CustomInput();inp.set_editor_property('input_name',name);inputs.append(inp)
 c.set_editor_property('inputs',inputs)
 for n,node in nodes.items():mel.connect_material_expressions(node,'',c,n)
+# Authored analytic waves: the water world's four, in UE cm (wire dir [x,z] -> UE (z,-x)).
+AUTHORED=[(38.0,24.0,(0.3420201,0.9396926),0.0),(23.0,13.7,(0.9063078,0.4226183),1.7),(12.0,7.1,(0.6156615,-0.7880108),3.2),(6.0,3.3,(-0.9781476,0.2079117),0.8)]
+waves=[unreal.Vector4(a,2*math.pi/(l*100),d[1],-d[0]) for a,l,d,_ in AUTHORED]
+phases=[ph+12345.678 for *_,ph in AUTHORED]  # large phase: exercises CPU-side reduction
+ocean.set_authored_waves(waves,phases)
+reduced=[math.fmod(ph,2*math.pi) for ph in phases]
+aw_init=''.join(f'f.AW[{i}]=float4({w.x!r},{w.y!r},{w.z!r},{w.w!r});' for i,w in enumerate(waves))
+aw_init+=''.join(f'f.AW[{i}]=float4(0,0,1,0);' for i in range(len(waves),8))
+aw_init+='f.AWP0=float4(%r,%r,%r,%r);f.AWP1=0;f.AWN=%d;'%(*reduced,len(waves))
 c.set_editor_property('code','''FSpectralField f;
 f.Ocean0=Ocean0;f.Ocean1=Ocean1;f.Ocean2=Ocean2;f.OceanWake=OceanWake;
-f.S0=Ocean0Sampler;f.S1=Ocean1Sampler;f.S2=Ocean2Sampler;f.SW=OceanWakeSampler;f.WakeOrigin=float4(0,0,6400,0);
+f.S0=Ocean0Sampler;f.S1=Ocean1Sampler;f.S2=Ocean2Sampler;f.SW=OceanWakeSampler;f.WakeOrigin=float4(0,0,6400,0);'''+aw_init+'''
 int i=min(int(UV.x*16),15);
 float x=(i<8?float(i)*1700.0-6400.0:float(i-8)*12800.0-25600.25);
 float2 p=float2(x,321.25+float(i)*43.0);
@@ -52,7 +61,10 @@ try:
         assert math.isfinite(error) and error<.5,(i,error,want,str(got))
         errors.append(error)
 finally:unreal.RenderingLibrary.release_render_target2d(rt)
-report={'passed':16,'max_error_cm':max(errors),'simulation_ms_snapshot':ocean.get_editor_property('simulation_milliseconds')}
+authored=[abs(ocean.get_authored_height(unreal.Vector(i*1700-6400 if i<8 else (i-8)*12800-25600.25,321.25+i*43,0))) for i in range(16)]
+assert max(authored)>10,('authored waves did not contribute',authored)
+ocean.set_authored_waves([],[])
+report={'passed':16,'authored_waves':len(waves),'max_authored_cm':max(authored),'max_error_cm':max(errors),'simulation_ms_snapshot':ocean.get_editor_property('simulation_milliseconds')}
 Path('/Users/olena/unrealtest/demo_reel/spectral_gpu_validation.json').write_text(json.dumps(report,indent=2))
 unreal.EditorAssetLibrary.save_loaded_asset(mat)
 unreal.log('SPECTRAL_GPU_VALIDATION_PASS '+json.dumps(report))

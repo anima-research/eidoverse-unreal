@@ -5,6 +5,9 @@ public class EidoverseClient : ModuleRules
     public EidoverseClient(ReadOnlyTargetRules Target) : base(Target)
     {
         PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
+        // Several sources define file-local wire helpers with `using namespace`; unity
+        // blobs would merge them ambiguously. Each file must compile on its own.
+        bUseUnity = false;
         PublicDependencyModuleNames.AddRange(new[] { "Core", "CoreUObject", "Engine", "InputCore", "ProceduralMeshComponent" });
         PrivateDependencyModuleNames.AddRange(new[] {
             "UnderwaterOptics",

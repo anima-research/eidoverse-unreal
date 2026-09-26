@@ -29,6 +29,8 @@ def add_inputs(mat,c):
             i=unreal.CustomInput();prop(i,'input_name',name);inputs.append(i)
     prop(c,'inputs',inputs)
     for name,node in nodes.items():assert mel.connect_material_expressions(node,'',c,name)
+# After (re)installing, run Plugins/UnderwaterOptics/Content/Python/migrate_authored_waves.py:
+# it wires the authored-wave fields (AW/AWP/AWN) that FSpectralField requires.
 field='''FSpectralField field;
 field.Ocean0=Ocean0;field.Ocean1=Ocean1;field.Ocean2=Ocean2;field.OceanWake=OceanWake;
 field.S0=Ocean0Sampler;field.S1=Ocean1Sampler;field.S2=Ocean2Sampler;field.SW=OceanWakeSampler;

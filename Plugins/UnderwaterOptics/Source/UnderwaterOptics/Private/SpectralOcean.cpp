@@ -301,7 +301,53 @@ FVector ASpectralOcean::GetDisplacement(FVector P) const
         if(I>=0&&J>=0&&I<Spectral::WakeN-1&&J<Spectral::WakeN-1)
             D.Z+=FMath::Lerp(FMath::Lerp(Spectral::At(WakeHeight,I,J),Spectral::At(WakeHeight,I+1,J),X-I),FMath::Lerp(Spectral::At(WakeHeight,I,J+1),Spectral::At(WakeHeight,I+1,J+1),X-I),Y-J);
     }
+    D.Z+=GetAuthoredHeight(P);
     return D;
+}
+
+void ASpectralOcean::SetAuthoredWaves(const TArray<FVector4>& Waves, const TArray<double>& Phases)
+{
+    AuthoredWaves.Reset();AuthoredPhases.Reset();
+    for(int32 I=0;I<FMath::Min(Waves.Num(),8);++I)
+    {
+        const FVector4& W=Waves[I];
+        const double Phase=Phases.IsValidIndex(I)?Phases[I]:0;
+        if(!FMath::IsFinite(W.X)||!FMath::IsFinite(W.Y)||!FMath::IsFinite(W.Z)||!FMath::IsFinite(W.W)||!FMath::IsFinite(Phase))continue;
+        AuthoredWaves.Add(W);
+        // Reduce here in double precision; the GPU only sees a small angle.
+        AuthoredPhases.Add(FMath::Fmod(Phase,2*UE_DOUBLE_PI));
+    }
+    AuthoredWaveCount=AuthoredWaves.Num();
+    WriteAuthoredWaves();
+}
+
+float ASpectralOcean::GetAuthoredHeight(FVector P) const
+{
+    double H=0;
+    for(int32 I=0;I<AuthoredWaves.Num();++I)
+    {
+        const FVector4& W=AuthoredWaves[I];
+        // float32 like the shader, so CPU physics and the rendered surface agree.
+        H+=float(W.X)*FMath::Sin(float(W.Y)*(float(P.X)*float(W.Z)+float(P.Y)*float(W.W))+float(AuthoredPhases[I]));
+    }
+    return H;
+}
+
+void ASpectralOcean::WriteAuthoredWaves()
+{
+    if(!Collection||!GetWorld())return;
+    auto* MPC=GetWorld()->GetParameterCollectionInstance(Collection);
+    if(!MPC)return;
+    MPC->SetScalarParameterValue(TEXT("AuthoredWaveCount"),AuthoredWaves.Num());
+    float Phase[8]={0,0,0,0,0,0,0,0};
+    for(int32 I=0;I<8;++I)
+    {
+        const FVector4 W=AuthoredWaves.IsValidIndex(I)?AuthoredWaves[I]:FVector4(0,0,1,0);
+        if(AuthoredPhases.IsValidIndex(I))Phase[I]=AuthoredPhases[I];
+        MPC->SetVectorParameterValue(FName(*FString::Printf(TEXT("AuthoredWave%d"),I)),FLinearColor(W.X,W.Y,W.Z,W.W));
+    }
+    MPC->SetVectorParameterValue(TEXT("AuthoredWavePhase0"),FLinearColor(Phase[0],Phase[1],Phase[2],Phase[3]));
+    MPC->SetVectorParameterValue(TEXT("AuthoredWavePhase1"),FLinearColor(Phase[4],Phase[5],Phase[6],Phase[7]));
 }
 
 float ASpectralOcean::GetSurfaceHeight(FVector P) const
@@ -427,6 +473,7 @@ void ASpectralOcean::Tick(float Dt)
     SetActorLocation(FVector(FMath::GridSnap(Camera.X,100.0),FMath::GridSnap(Camera.Y,100.0),SurfaceZ));
     SurfaceMesh->SetVisibility(CameraDepth<=0);UnderMesh->SetVisibility(CameraDepth>0);
     Bind(SurfaceMID);Bind(UnderMID);Bind(OpticsMID);
+    WriteAuthoredWaves();
     CaptureCountdown-=Dt;
     if(CameraDepth>0&&CaptureCountdown<=0&&GetWorld()->IsGameWorld())
     {

@@ -53,11 +53,21 @@ public:
     UFUNCTION(BlueprintPure, Category="Ocean") float GetSurfaceHeight(FVector Position) const;
     UFUNCTION(BlueprintPure, Category="Ocean") FVector GetDisplacement(FVector Position) const;
     UFUNCTION(BlueprintCallable, Category="Ocean") void InitializeOcean();
+    // Authored analytic waves (eidoverse `water` component) added to the FFT surface,
+    // on the CPU and in SpectralField.ush. Waves: (amplitude cm, wavenumber rad/cm,
+    // dirX, dirY) in UE world; Phases: radians including time/origin, any range.
+    // At most 8. An empty array removes them.
+    UFUNCTION(BlueprintCallable, Category="Ocean") void SetAuthoredWaves(const TArray<FVector4>& Waves, const TArray<double>& Phases);
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Ocean") int32 AuthoredWaveCount=0;
+    UFUNCTION(BlueprintPure, Category="Ocean") float GetAuthoredHeight(FVector Position) const;
     // Synchronous scene-only capture. Restore every camera-dependent render setting
     // before returning; never tick physics or alter the local player camera.
     void WithCaptureView(const FVector& Camera,TFunctionRef<void()> Capture);
 private:
     TArray<FSpectralBand> Bands;
+    TArray<FVector4> AuthoredWaves;
+    TArray<double> AuthoredPhases;
+    void WriteAuthoredWaves();
     UPROPERTY(Transient) TObjectPtr<UMaterialInstanceDynamic> SurfaceMID;
     UPROPERTY(Transient) TObjectPtr<UMaterialInstanceDynamic> UnderMID;
     UPROPERTY(Transient) TObjectPtr<UMaterialInstanceDynamic> OpticsMID;

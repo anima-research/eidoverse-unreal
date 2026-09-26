@@ -5,6 +5,22 @@ struct FSpectralField
     Texture2D Ocean0,Ocean1,Ocean2,OceanWake;
     SamplerState S0,S1,S2,SW;
     float4 WakeOrigin;
+    // Authored analytic waves (eidoverse `water` component), UE world cm:
+    // AW[i]=(amplitude, wavenumber rad/cm, dirX, dirY). Phases already include
+    // time and origin, reduced mod 2pi on the CPU (float32-safe). AWN = count.
+    float4 AW[8];
+    float4 AWP0, AWP1;
+    float AWN;
+    float Authored(float2 p)
+    {
+        float h=0.0;
+        [unroll] for(int i=0;i<8;i++)
+        {
+            float phase=(i<4)?AWP0[i]:AWP1[i-4];
+            if(float(i)<AWN) h+=AW[i].x*sin(AW[i].y*dot(p,AW[i].zw)+phase);
+        }
+        return h;
+    }
     float4 Band(Texture2D T,SamplerState S,float2 p,float length,float n,float footprint)
     {
         float lod=max(0.0,log2(max(footprint*n/length,1.0)));
@@ -18,6 +34,7 @@ struct FSpectralField
         float2 uv=(p-WakeOrigin.xy)/max(WakeOrigin.z,1.0)+.5;
         if(all(uv>0.0)&&all(uv<1.0)&&WakeOrigin.w>.5)
             value+=Texture2DSampleLevel(OceanWake,SW,uv+.5/128.0,0);
+        value.z+=Authored(p);
         value.w=saturate(value.w);
         return value;
     }
