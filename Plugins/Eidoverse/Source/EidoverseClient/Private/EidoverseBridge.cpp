@@ -1,4 +1,8 @@
 #include "EidoverseBridge.h"
+#include "EidoverseUI.h"
+#include "EidoverseScene.h"
+#include "Blueprint/UserWidget.h"
+#include "HAL/IConsoleManager.h"
 #include "EidoverseAvatar.h"
 #include "EidoverseScene.h"
 #include "IWebSocket.h"
@@ -54,11 +58,28 @@ void AEidoverseBridge::BeginPlay(){Super::BeginPlay();if(bAutoConnect)Connect();
 void AEidoverseBridge::EndPlay(const EEndPlayReason::Type Reason)
 {
     CloseChat();
+    if(HUD){HUD->RemoveFromParent();HUD=nullptr;}
     if(ChatOverlay&&GetWorld()&&GetWorld()->GetGameViewport())GetWorld()->GetGameViewport()->RemoveViewportWidgetContent(ChatOverlay.ToSharedRef());
     ChatOverlay.Reset();ChatPanel.Reset();Disconnect();LogoutProduction();Super::EndPlay(Reason);
 }
-void AEidoverseBridge::OpenChat(){if(ChatPanel)ChatPanel->Open();}
+void AEidoverseBridge::OpenChat(){if(HUD)HUD->FocusChat();if(ChatPanel)ChatPanel->Open();}
 void AEidoverseBridge::CloseChat(){if(ChatPanel)ChatPanel->Close();}
+TArray<FString> AEidoverseBridge::GetParticipants() const{TArray<FString> Out;Peers.GetKeys(Out);return Out;}
+bool AEidoverseBridge::Emote(const FString& Name)
+{
+    if(!bJoined||bSpectator||Name.IsEmpty()||Name.Len()>32)return false;
+    for(TCHAR C:Name)if(!FChar::IsAlnum(C)&&C!='_'&&C!='-')return false;
+    PendingEmote=Name;return true;
+}
+FString AEidoverseBridge::HttpBase() const
+{
+    FString Base=Endpoint;
+    if(Base.StartsWith(TEXT("wss://")))Base=TEXT("https://")+Base.Mid(6);
+    else if(Base.StartsWith(TEXT("ws://")))Base=TEXT("http://")+Base.Mid(5);
+    else return FString();
+    Base.RemoveFromEnd(TEXT("/ws"));
+    return Base;
+}
 #if WITH_DEV_AUTOMATION_TESTS
 void AEidoverseBridge::ProbeLocalChatUI(bool bPrivate){if(ChatPanel)ChatPanel->ProbeLocalUI(bPrivate);}
 #endif
@@ -67,6 +88,7 @@ void AEidoverseBridge::AddChatLine(const FString& Sender,const FString& Text,boo
     FEidoverseChatLine Line;Line.Sender=Sender.Left(64);Line.Text=Text.Left(4000);Line.bPrivate=bPrivate;
     ChatHistory.Add(MoveTemp(Line));if(ChatHistory.Num()>150)ChatHistory.RemoveAt(0,ChatHistory.Num()-150);
     if(ChatPanel){ChatPanel->NotifyChatLine(Sender,Text,bPrivate);ChatPanel->RefreshHistory();}
+    if(HUD)HUD->NotifyChatLine(Line.Sender.IsEmpty()?Sender:Sender.Left(64),Text.Left(4000),bPrivate);
     OnChat.Broadcast(Sender,Text);
 }
 void AEidoverseBridge::Status(const FString& Value)
@@ -348,14 +370,30 @@ void AEidoverseBridge::Tick(float DeltaSeconds)
     Super::Tick(DeltaSeconds);const double Now=FPlatformTime::Seconds();
     TickProductionLogin(Now);
     if(!ProductionSession.IsEmpty()&&Now>=ProductionSessionExpires){LogoutProduction();LoginStatus=TEXT("Session expired. Please sign in again.");}
-    if(bShowChatUI&&!ChatPanel&&GetWorld()->GetGameViewport())
+    static IConsoleVariable* LegacyUI=IConsoleManager::Get().RegisterConsoleVariable(TEXT("Eidoverse.UI.Legacy"),0,
+        TEXT("1: use the original Slate chat/login panel instead of the UMG shell (for older test scripts)."),ECVF_Default);
+    if(bShowChatUI&&!HUD&&!ChatPanel&&LegacyUI->GetInt()==0)
+        if(auto* PC=UGameplayStatics::GetPlayerController(this,0))
+        {
+            HUD=CreateWidget<UEidoverseHUD>(PC,HUDClass?HUDClass.Get():UEidoverseHUD::StaticClass());
+            HUD->Bridge=this;HUD->AddToViewport(20);HUD->SetPointerMode(false);
+        }
+    if(HUD)if(auto* Explorer=Cast<AEidoverseExplorer>(UGameplayStatics::GetPlayerPawn(this,0)))
+    {
+        if(Explorer->LocomotionMode!=LastExplorerMode)
+        {
+            if(Explorer->LocomotionMode==TEXT("swim")&&LastExplorerMode==TEXT("walk"))HUD->Hint(TEXT("swimming \u2014 WASD move, Space rise, C / Ctrl dive, Shift faster"),5);
+            LastExplorerMode=Explorer->LocomotionMode;
+        }
+    }
+    if(bShowChatUI&&!HUD&&!ChatPanel&&GetWorld()->GetGameViewport())
     {
         SAssignNew(ChatPanel,SEidoversePanel).Bridge(this);
         ChatOverlay=SNew(SConstraintCanvas)
             +SConstraintCanvas::Slot().Anchors(FAnchors(0,1)).Alignment(FVector2D(0,1)).Offset(FMargin(24,-24,0,0)).AutoSize(true)[ChatPanel.ToSharedRef()];
         GetWorld()->GetGameViewport()->AddViewportWidgetContent(ChatOverlay.ToSharedRef(),20);
     }
-    if(ChatPanel)if(auto* PC=UGameplayStatics::GetPlayerController(this,0))
+    if(ChatPanel&&!HUD)if(auto* PC=UGameplayStatics::GetPlayerController(this,0))
         if(PC->WasInputKeyJustPressed(EKeys::Enter))OpenChat(); // F2 is Unreal's Unlit debug binding.
     if(bWanted&&!bJoined&&RetryAt==0&&Now-OpenedAt>15){Lost(1006);}
     if(bWanted&&RetryAt>0&&Now>=RetryAt){Connect();return;}

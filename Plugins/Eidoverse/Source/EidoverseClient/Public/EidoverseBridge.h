@@ -18,6 +18,7 @@ class UTextureRenderTarget2D;
 class AEidoverseScene;
 class APawn;
 class APostProcessVolume;
+class UEidoverseHUD;
 
 struct FEidoverseSuspendedActor
 {
@@ -101,6 +102,14 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Eidoverse|UI") bool bShowChatUI=true;
     UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse|UI") TArray<FEidoverseChatLine> ChatHistory;
     UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse|UI") FString ChatSendStatus;
+    // The UMG shell (UEidoverseHUD). Set a Widget Blueprint subclass to redesign it.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Eidoverse|UI") TSubclassOf<UEidoverseHUD> HUDClass;
+    UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse|UI") TObjectPtr<UEidoverseHUD> HUD;
+    UFUNCTION(BlueprintPure, Category="Eidoverse") TArray<FString> GetParticipants() const;
+    // Queue a gesture by name (server-validated vocabulary: /defs emotes).
+    UFUNCTION(BlueprintCallable, Category="Eidoverse") bool Emote(const FString& Name);
+    // http(s)://host[:port] of the configured endpoint, for /defs and /library.
+    UFUNCTION(BlueprintPure, Category="Eidoverse") FString HttpBase() const;
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void OpenChat();
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void CloseChat();
     // Session-only consent. Scene captures exclude Slate/HUD/chat and never use the desktop.
@@ -185,6 +194,7 @@ private:
     double RetryAt=0, RetryDelay=1, LastSend=0, LastChat=0, LastFrameTime=-1, OpenedAt=0;
     int64 LastLogSequence=-1;
     bool bWanted=false;
+    FString LastExplorerMode;
     void Status(const FString& Value);
     void ClearPeers();
     void Announce(const FString& Id,const FString& Avatar);
