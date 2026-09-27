@@ -110,6 +110,8 @@ public:
     UFUNCTION(BlueprintPure, Category="Eidoverse") TArray<FString> GetParticipants() const;
     // Queue a gesture by name (server-validated vocabulary: /defs emotes).
     UFUNCTION(BlueprintCallable, Category="Eidoverse") bool Emote(const FString& Name);
+    // Presence-only "composing" signal (never logged). To: whisper recipient, or empty.
+    UFUNCTION(BlueprintCallable, Category="Eidoverse") bool SendTyping(const FString& To);
     // http(s)://host[:port] of the configured endpoint, for /defs and /library.
     UFUNCTION(BlueprintPure, Category="Eidoverse") FString HttpBase() const;
     // General-purpose client (AEidoverseGameMode): show the front door while offline.

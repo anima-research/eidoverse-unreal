@@ -574,7 +574,11 @@ UWidget* UEidoverseHUD::BuildChat()
     Column->AddChildToVerticalBox(Tabs)->SetPadding(FMargin(0, 0, 0, 6));
     ChatLog = WidgetTree->ConstructWidget<UScrollBox>();
     Column->AddChildToVerticalBox(ChatLog)->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+    TypingLine = Label(TEXT(""), 10, FEidoverseTheme::Dim());
+    TypingLine->SetVisibility(ESlateVisibility::Collapsed);
+    Column->AddChildToVerticalBox(TypingLine)->SetPadding(FMargin(2, 4, 0, 0));
     ChatInput = Input(TEXT("say something…  @ to mention · / for commands"));
+    ChatInput->OnTextChanged.AddDynamic(this, &UEidoverseHUD::OnChatChanged);
     ChatInput->OnTextCommitted.AddDynamic(this, &UEidoverseHUD::OnChatCommitted);
     Column->AddChildToVerticalBox(ChatInput)->SetPadding(FMargin(0, 6, 0, 0));
     return Column;
@@ -1028,6 +1032,7 @@ void UEidoverseHUD::RefreshChat()
 {
     if (!ChatLog) return;
     ChatLog->ClearChildren();
+    for (auto It = ButtonIds.CreateIterator(); It; ++It) if (!It->Key.IsValid()) It.RemoveCurrent();
     for (const FLine& L : Lines)
     {
         if ((ChatTab == 1 && !L.bMention) || (ChatTab == 2 && !L.bSystem)) continue;
@@ -1036,7 +1041,14 @@ void UEidoverseHUD::RefreshChat()
         {
             auto* Who = Label((L.bPrivate ? TEXT("→ ") : TEXT("")) + L.Sender, 11, L.bPrivate ? FEidoverseTheme::Private() : FEidoverseTheme::Brand(), true);
             Who->SetAutoWrapText(false);
-            Row->AddChildToHorizontalBox(Who)->SetPadding(FMargin(0, 0, 8, 0));
+            // Click a name to start a mention of them (web chat.js).
+            auto* Name = WidgetTree->ConstructWidget<UButton>();
+            Name->SetStyle(FlatButton(FLinearColor::Transparent, FEidoverseTheme::Hover(), 4));
+            Name->SetContent(Who);
+            Name->SetToolTipText(FText::FromString(TEXT("mention ") + L.Sender));
+            Name->OnClicked.AddDynamic(this, &UEidoverseHUD::OnNameClicked);
+            ButtonIds.Add(Name, FName(*(TEXT("who:@") + L.Sender)));
+            Row->AddChildToHorizontalBox(Name)->SetPadding(FMargin(0, 0, 6, 0));
         }
         auto* Text = Label(L.Text, 11, L.bSystem ? FEidoverseTheme::Dim() : L.bMention ? FEidoverseTheme::Attention() : FEidoverseTheme::Text());
         Row->AddChildToHorizontalBox(Text)->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
@@ -1063,7 +1075,15 @@ void UEidoverseHUD::RefreshPeople(bool bForce)
         Dot->SetAutoWrapText(false);
         Row->AddChildToHorizontalBox(Dot)->SetPadding(FMargin(0, 3, 8, 0));
         Row->AddChildToHorizontalBox(Label(Name + (bYou ? TEXT("  (you)") : TEXT("")), 11));
-        PeopleList->AddChildToVerticalBox(Row)->SetPadding(FMargin(0, 2));
+        if (bYou) { PeopleList->AddChildToVerticalBox(Row)->SetPadding(FMargin(0, 2)); return; }
+        // Click someone to start a private message.
+        auto* Person = WidgetTree->ConstructWidget<UButton>();
+        Person->SetStyle(FlatButton(FLinearColor::Transparent, FEidoverseTheme::Hover(), 5));
+        Person->SetContent(Row);
+        Person->SetToolTipText(FText::FromString(TEXT("whisper to ") + Name));
+        Person->OnClicked.AddDynamic(this, &UEidoverseHUD::OnNameClicked);
+        ButtonIds.Add(Person, FName(*(TEXT("who:/w ") + Name)));
+        PeopleList->AddChildToVerticalBox(Person)->SetPadding(FMargin(0, 1));
     };
     if (Bridge->bJoined) AddRow(Bridge->AssignedIdentity, true);
     for (const FString& N : Names) AddRow(N, false);
@@ -1100,6 +1120,17 @@ void UEidoverseHUD::NativeTick(const FGeometry& Geometry, float Delta)
     UpdateDoor();
     RefreshPeople(false);
     RefreshRail();
+    if (TypingLine)
+    {
+        for (auto It = Typers.CreateIterator(); It; ++It) if (It->Value < Now) It.RemoveCurrent();
+        TArray<FString> Names;
+        Typers.GetKeys(Names);
+        Names.Sort();
+        const FString Text = Names.IsEmpty() ? FString() : Names.Num() == 1 ? Names[0] + TEXT(" is typing…")
+            : Names.Num() == 2 ? Names[0] + TEXT(" and ") + Names[1] + TEXT(" are typing…") : FString::Printf(TEXT("%d people are typing…"), Names.Num());
+        TypingLine->SetText(FText::FromString(Text));
+        TypingLine->SetVisibility(Names.IsEmpty() ? ESlateVisibility::Collapsed : ESlateVisibility::HitTestInvisible);
+    }
     if (HintChip && HintUntil > 0 && Now > HintUntil) { HintChip->SetVisibility(ESlateVisibility::Collapsed); HintUntil = 0; }
     for (int32 I = Toasts.Num() - 1; I >= 0; --I)
         if (Now > Toasts[I].Until) { if (auto* W = Toasts[I].Widget.Get()) W->RemoveFromParent(); Toasts.RemoveAt(I); }
@@ -1226,6 +1257,40 @@ void UEidoverseHUD::NotifyChatLine(const FString& Sender, const FString& Text, b
 
 bool UEidoverseHUD::IsChatFocused() const { return ChatInput && ChatInput->HasKeyboardFocus(); }
 FString UEidoverseHUD::ChatDraft() const { return ChatInput ? ChatInput->GetText().ToString() : FString(); }
+
+void UEidoverseHUD::NoteTyping(const FString& Id)
+{
+    Typers.Add(Id, FPlatformTime::Seconds() + 4);
+}
+
+void UEidoverseHUD::OnChatChanged(const FText& Text)
+{
+    const FString Draft = Text.ToString().TrimStartAndEnd();
+    const double Now = FPlatformTime::Seconds();
+    // Web cadence: at most every 2.5 s while there is a draft; slash commands are not speech.
+    if (!Bridge || Draft.IsEmpty() || (Draft.StartsWith(TEXT("/")) && !Draft.StartsWith(TEXT("/w "))) || Now - LastTypingSent < 2.5) return;
+    LastTypingSent = Now;
+    FString To;
+    if (Draft.StartsWith(TEXT("/w "))) { FString Rest = Draft.Mid(3); Rest.Split(TEXT(" "), &To, nullptr); }
+    Bridge->SendTyping(To);
+}
+
+void UEidoverseHUD::InsertIntoChat(const FString& Text, bool bReplace)
+{
+    FocusChat();
+    if (!ChatInput) return;
+    FString Draft = bReplace ? FString() : ChatInput->GetText().ToString();
+    if (!Draft.IsEmpty() && !Draft.EndsWith(TEXT(" "))) Draft += TEXT(" ");
+    ChatInput->SetText(FText::FromString(Draft + Text));
+}
+
+void UEidoverseHUD::OnNameClicked()
+{
+    const FString Id = ResolveClicked().ToString();
+    if (!Id.StartsWith(TEXT("who:"))) return;
+    const FString Text = Id.Mid(4);
+    InsertIntoChat(Text + TEXT(" "), Text.StartsWith(TEXT("/w ")));
+}
 
 void UEidoverseHUD::AddSystemLine(const FString& Text)
 {
@@ -1504,7 +1569,15 @@ TSharedRef<SWidget> UEidoverseNameplate::RebuildWidget()
         NameText->SetFont(FEidoverseTheme::Font(11, true));
         NameText->SetColorAndOpacity(FSlateColor(FEidoverseTheme::Brand()));
         NameText->SetText(FText::FromString(PendingName));
-        Pill->SetContent(NameText);
+        auto* PillRow = WidgetTree->ConstructWidget<UHorizontalBox>();
+        PillRow->AddChildToHorizontalBox(NameText);
+        TypingDots = WidgetTree->ConstructWidget<UTextBlock>();
+        TypingDots->SetFont(FEidoverseTheme::Font(11, true));
+        TypingDots->SetColorAndOpacity(FSlateColor(FMath::Lerp(FEidoverseTheme::Brand(), FLinearColor::White, .15f)));
+        TypingDots->SetText(FText::FromString(TEXT("  •••")));
+        TypingDots->SetVisibility(ESlateVisibility::Collapsed);
+        PillRow->AddChildToHorizontalBox(TypingDots);
+        Pill->SetContent(PillRow);
         Column->AddChildToVerticalBox(Pill)->SetHorizontalAlignment(HAlign_Center);
     }
     return Super::RebuildWidget();
@@ -1527,6 +1600,13 @@ void UEidoverseNameplate::ShowBubble(const FString& Text, float Seconds)
     BubbleUntil = FPlatformTime::Seconds() + Seconds;
 }
 
+void UEidoverseNameplate::ShowTyping(float Seconds)
+{
+    TakeWidget();
+    TypingDots->SetVisibility(ESlateVisibility::HitTestInvisible);
+    TypingUntil = FPlatformTime::Seconds() + Seconds;
+}
+
 void UEidoverseNameplate::SetDistanceFade(float Alpha)
 {
     SetRenderOpacity(FMath::Clamp(Alpha, 0.f, 1.f));
@@ -1535,6 +1615,11 @@ void UEidoverseNameplate::SetDistanceFade(float Alpha)
 void UEidoverseNameplate::NativeTick(const FGeometry& Geometry, float Delta)
 {
     Super::NativeTick(Geometry, Delta);
+    if (TypingDots && TypingUntil > 0 && FPlatformTime::Seconds() > TypingUntil)
+    {
+        TypingDots->SetVisibility(ESlateVisibility::Collapsed);
+        TypingUntil = 0;
+    }
     if (Bubble && BubbleUntil > 0 && FPlatformTime::Seconds() > BubbleUntil)
     {
         Bubble->SetVisibility(ESlateVisibility::Collapsed);
@@ -1567,5 +1652,36 @@ static FAutoConsoleCommandWithWorld HUDDumpFrames(TEXT("Eidoverse.DumpFrames"), 
                 F->GetCachedWidget().IsValid(), F->Body ? int32(F->Body->GetVisibility()) : -1, C ? *C->GetClass()->GetName() : TEXT("-"),
                 C ? int32(C->GetVisibility()) : -1, C ? *C->GetDesiredSize().ToString() : TEXT("-"), F->Body ? *F->Body->GetBrushColor().ToString() : TEXT("-"));
         }
+    }));
+#endif
+
+#if WITH_DEV_AUTOMATION_TESTS
+// Clicks the newest sender name in the chat log with real Slate mouse events and
+// logs the resulting draft. EIDOVERSE_HUD_NAME_PROBE.
+static FAutoConsoleCommandWithWorld HUDNameProbe(TEXT("Eidoverse.TestHUDNameClick"), TEXT("Click the newest chat sender name."),
+    FConsoleCommandWithWorldDelegate::CreateLambda([](UWorld* World)
+    {
+        TActorIterator<AEidoverseBridge> It(World);
+        UEidoverseHUD* HUD = It ? It->HUD.Get() : nullptr;
+        UScrollBox* Log = HUD ? HUD->GetChatLog() : nullptr;
+        UButton* Target = nullptr;
+        for (int32 I = Log ? Log->GetChildrenCount() - 1 : -1; I >= 0 && !Target; --I)
+            if (auto* Row = Cast<UHorizontalBox>(Log->GetChildAt(I))) if (Row->GetChildrenCount()) Target = Cast<UButton>(Row->GetChildAt(0));
+        if (!Target) { UE_LOG(LogTemp, Warning, TEXT("EIDOVERSE_HUD_NAME_PROBE no name button")); return; }
+        HUD->SetPointerMode(true);
+        const FGeometry G = Target->GetCachedGeometry();
+        const FVector2D At = G.LocalToAbsolute(G.GetLocalSize() * .5f);
+        auto& App = FSlateApplication::Get();
+        TSet<FKey> Down{EKeys::LeftMouseButton};
+        App.SetCursorPos(At);
+        App.ProcessMouseMoveEvent(FPointerEvent(0, At, At, TSet<FKey>(), EKeys::Invalid, 0, FModifierKeysState()));
+        App.ProcessMouseButtonDownEvent(nullptr, FPointerEvent(0, At, At, Down, EKeys::LeftMouseButton, 0, FModifierKeysState()));
+        App.ProcessMouseButtonUpEvent(FPointerEvent(0, At, At, TSet<FKey>(), EKeys::LeftMouseButton, 0, FModifierKeysState()));
+        TWeakObjectPtr<UEidoverseHUD> Weak(HUD);
+        FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([Weak](float)
+        {
+            if (Weak.IsValid()) UE_LOG(LogTemp, Warning, TEXT("EIDOVERSE_HUD_NAME_PROBE draft=[%s] focused=%d"), *Weak->ChatDraft(), Weak->IsChatFocused());
+            return false;
+        }), .3f);
     }));
 #endif

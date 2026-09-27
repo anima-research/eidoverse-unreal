@@ -99,8 +99,12 @@ public:
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void SetPointerMode(bool bPointer);
     UFUNCTION(BlueprintPure, Category="Eidoverse|UI") bool IsPointerMode() const { return bPointerMode; }
     void NotifyChatLine(const FString& Sender, const FString& Text, bool bPrivate);
+    void NoteTyping(const FString& Id);
+    // Open chat with text appended to the draft (e.g. "@name ", "/w name ").
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void InsertIntoChat(const FString& Text, bool bReplace = false);
     bool IsChatFocused() const;
     UFUNCTION(BlueprintPure, Category="Eidoverse|UI") UEidoverseFrame* GetFrame(FName Id) const { return Frames.FindRef(Id); }
+    UScrollBox* GetChatLog() const { return ChatLog; }
     FString ChatDraft() const;
     void ReloadDefs();
 
@@ -145,6 +149,9 @@ private:
     struct FLine { FString Sender, Text; bool bPrivate = false, bSystem = false, bMention = false; };
     TArray<FLine> Lines;
     TArray<FString> SentHistory;
+    TMap<FString, double> Typers;
+    UPROPERTY() TObjectPtr<UTextBlock> TypingLine;
+    double LastTypingSent = 0;
     int32 RecallIndex = -1;
     // World / people / profile
     UPROPERTY() TObjectPtr<UTextBlock> WorldStatus;
@@ -196,6 +203,8 @@ private:
 
     UFUNCTION() void OnRailClicked();
     UFUNCTION() void OnChatCommitted(const FText& Text, ETextCommit::Type Kind);
+    UFUNCTION() void OnChatChanged(const FText& Text);
+    UFUNCTION() void OnNameClicked();
     UFUNCTION() void OnJoinClicked();
     UFUNCTION() void OnLocalCommonsClicked();
     UFUNCTION() void OnSignInClicked();
@@ -225,11 +234,15 @@ public:
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void SetName(const FString& Name);
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void ShowBubble(const FString& Text, float Seconds = 8);
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void SetDistanceFade(float Alpha);
+    // Composing indicator after the name (web: typing dots on the pill).
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void ShowTyping(float Seconds = 4);
 protected:
     virtual TSharedRef<SWidget> RebuildWidget() override;
     virtual void NativeTick(const FGeometry& Geometry, float Delta) override;
 private:
     UPROPERTY() TObjectPtr<UTextBlock> NameText;
+    UPROPERTY() TObjectPtr<UTextBlock> TypingDots;
+    double TypingUntil = 0;
     UPROPERTY() TObjectPtr<UBorder> Bubble;
     UPROPERTY() TObjectPtr<UTextBlock> BubbleText;
     FString PendingName;

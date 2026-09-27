@@ -109,6 +109,13 @@ bool AEidoverseBridge::JoinFromDoor(const FString& Server,const FString& World,c
     Connect();
     return ConnectionStatus!=TEXT("offline")&&!ConnectionStatus.StartsWith(TEXT("refused"));
 }
+bool AEidoverseBridge::SendTyping(const FString& To)
+{
+    if(!bJoined||bSpectator)return false;
+    auto J=MakeShared<FJsonObject>();J->SetStringField(TEXT("type"),TEXT("typing"));
+    if(!To.IsEmpty()&&To.Len()<=64)J->SetStringField(TEXT("to"),To);
+    Send(J);return true;
+}
 FString AEidoverseBridge::HttpBase() const
 {
     FString Base=Endpoint;
@@ -383,6 +390,14 @@ void AEidoverseBridge::Receive(const FString& Message)
         if(Eido::String(*Entry,TEXT("verb"))!=TEXT("say"))return;
         const TSharedPtr<FJsonObject>* Args=nullptr;if(!(*Entry)->TryGetObjectField(TEXT("args"),Args))return;
         FString Sender=Eido::String(*Entry,TEXT("actor")),Text=Eido::String(*Args,TEXT("text")).Left(4000);AddChatLine(Sender,Text);
+    }
+    else if(Type==TEXT("typing")&&bJoined)
+    {
+        // Public composing, or a whisper being composed to us; others' DMs stay private.
+        const FString Id=Eido::String(J,TEXT("id")),To=Eido::String(J,TEXT("to"));
+        if(Id.IsEmpty()||Id==AssignedIdentity||(!To.IsEmpty()&&To!=AssignedIdentity))return;
+        if(HUD)HUD->NoteTyping(Id);
+        if(auto* Peer=Peers.Find(Id))if(auto* Plate=Peer->Plate.Get())if(auto* W=Cast<UEidoverseNameplate>(Plate->GetUserWidgetObject()))W->ShowTyping(4);
     }
     else if(Type==TEXT("whisper")&&bJoined)
     {FString Sender=Eido::String(J,TEXT("from")),Text=Eido::String(J,TEXT("text")).Left(4000);AddChatLine(Sender,Text,true);}

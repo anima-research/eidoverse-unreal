@@ -56,8 +56,14 @@ def tick(dt):
         result['nameplates'] = len(comps)
         result['participants'] = list(b.get_participants())
         unreal.SystemLibrary.execute_console_command(w, 'shot showui')
+        return step('type')
+    if st['step'] == 'type' and since > 1:
+        unreal.SystemLibrary.execute_console_command(w, 'Eidoverse.TestHUDChat')
+        return step('click')
+    if st['step'] == 'click' and since > 3:
+        unreal.SystemLibrary.execute_console_command(w, 'Eidoverse.TestHUDNameClick')
         return step('end')
-    if st['step'] == 'end' and since > 1.5:
+    if st['step'] == 'end' and since > 4:
         done(result.get('nameplates', 0) >= 1)
 
 
