@@ -22,7 +22,7 @@ class APostProcessVolume;
 struct FEidoverseSuspendedActor
 {
     TWeakObjectPtr<AActor> Actor;
-    bool bHidden=false,bTick=false,bCollision=false,bPostProcess=false;
+    bool bHidden=false,bTick=false,bCollision=false,bPostProcess=false,bWaterPostTag=false;
 };
 
 USTRUCT(BlueprintType)

@@ -144,6 +144,8 @@ void AEidoverseScene::ApplyWeather(const TSharedPtr<FJsonObject>& Atmosphere)
         CloudAmount=FMath::Lerp((S?.95f:Prev==TEXT("rain")||Prev==TEXT("overcast")?.8f:Prev==TEXT("fair")?.25f:0.f)*K,CloudAmount,Mix);
     }
     const float Elevation=FMath::Sin((WeatherHour-6)*PI/12),Day=FMath::Clamp(Elevation*3.f,0.f,1.f);
+    SunFactor=Day*(1-CloudAmount*.83);
+    CloudCover=CloudAmount;SunLight=SunFactor;
     if(Sun){Sun->SetWorldRotation(FRotator(-Elevation*75,(WeatherHour-12)*15-35,0));Sun->SetIntensity(3.2f*Day*(1-CloudAmount*.83));Sun->SetLightColor(FMath::Lerp(FLinearColor(1,.44,.24),FLinearColor(1,.98,.94),Day));}
     if(SkyFill)SkyFill->SetIntensity(FMath::Lerp(.06f,.8f,Day)*(1-CloudAmount*.45));
     if(!Clouds)
@@ -155,6 +157,8 @@ void AEidoverseScene::ApplyWeather(const TSharedPtr<FJsonObject>& Atmosphere)
     if(!WeatherFog){WeatherFog=NewObject<UExponentialHeightFogComponent>(this);AddInstanceComponent(WeatherFog);WeatherFog->SetupAttachment(RootComponent);WeatherFog->RegisterComponent();WeatherFog->SetFogHeightFalloff(.05);WeatherFog->SetStartDistance(1000);}
     WeatherFog->SetFogDensity(.0008+CloudAmount*.006+RainAmount*.009);WeatherFog->SetFogInscatteringColor(FMath::Lerp(FLinearColor(.015,.025,.06),FLinearColor(.38,.46,.55),Day));
     for(auto& M:Materials)if(M.Value&&M.Key!=TEXT("glass"))M.Value->SetScalarParameterValue(TEXT("roughnessFactor"),.86-RainAmount*.5);
+    // Aquatic worlds: keep the spectral rig and atmosphere-only sun in step with the weather.
+    if(!WaterRig.IsEmpty())UpdateWaterLighting(true);
 }
 void AEidoverseScene::TickWeather(float Dt)
 {

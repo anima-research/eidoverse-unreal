@@ -323,7 +323,9 @@ void AEidoverseBridge::SendPose()
     const FVector F=ToWirePosition(Pawn->GetActorForwardVector());
     const double Speed=Pawn->GetVelocity().Size()/100.;
     if(P.ContainsNaN()||Q.ContainsNaN()||!FMath::IsFinite(Speed))return;
-    FString Mode=Land?TEXT("walk"):Sub?TEXT("pilot"):TEXT("swim");
+    const auto* Explorer=Cast<AEidoverseExplorer>(Pawn);
+    FString Mode=Explorer?Explorer->LocomotionMode:Sub?TEXT("pilot"):TEXT("swim");
+    const bool bSwimmer=Explorer&&Mode!=TEXT("walk");
     if(!Land&&Pawn->ActorHasTag(TEXT("SurfaceBoarded")))
     {
         Mode=TEXT("walk");
@@ -335,7 +337,7 @@ void AEidoverseBridge::SendPose()
     Data->SetArrayField(TEXT("p"),Eido::Numbers({P.X,P.Y,P.Z}));Data->SetArrayField(TEXT("q"),Eido::Numbers({Q.X,Q.Y,Q.Z,Q.W}));
     Data->SetNumberField(TEXT("yaw"),FMath::Atan2(F.X,F.Z));Data->SetNumberField(TEXT("speed"),Speed);
     Data->SetStringField(TEXT("clip"),Speed>.05?TEXT("walk"):TEXT("idle")); // legacy clients have no swim clip
-    Loc->SetStringField(TEXT("mode"),Mode);Loc->SetStringField(TEXT("body"),Land?TEXT("avatar"):Sub?TEXT("submarine"):TEXT("diver"));
+    Loc->SetStringField(TEXT("mode"),Mode);Loc->SetStringField(TEXT("body"),bSwimmer?TEXT("diver"):Land?TEXT("avatar"):Sub?TEXT("submarine"):TEXT("diver"));
     Loc->SetStringField(TEXT("medium"),(Mode==TEXT("walk")||Mode==TEXT("climb"))?TEXT("air"):TEXT("water"));Data->SetObjectField(TEXT("locomotion"),Loc);
     if(LocalReach)Data->SetObjectField(TEXT("reach"),LocalReach);
     if(!PendingEmote.IsEmpty()){Data->SetStringField(TEXT("emote"),PendingEmote);PendingEmote.Empty();}

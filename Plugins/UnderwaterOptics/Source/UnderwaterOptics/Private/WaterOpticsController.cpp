@@ -35,6 +35,8 @@ void AWaterOpticsController::RefreshRegistry()
     for (TActorIterator<AActor> It(GetWorld()); It; ++It)
     {
         if (*It == this) continue;
+        // Actors a host has suspended (hidden prototype content) contribute nothing.
+        if (It->ActorHasTag(TEXT("EidoverseSuspended"))) continue;
         TArray<UBoxComponent*> Boxes;
         It->GetComponents(Boxes);
         for (UBoxComponent* Box : Boxes)

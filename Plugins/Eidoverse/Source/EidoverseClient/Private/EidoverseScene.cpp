@@ -1,5 +1,7 @@
 #include "EidoverseScene.h"
 #include "EidoverseMotion.h"
+#include "EidoverseWater.h"
+#include "EngineUtils.h"
 #include "EidoverseBridge.h"
 #include "EidoverseAvatar.h"
 #include "Dom/JsonObject.h"
@@ -90,6 +92,8 @@ void AEidoverseScene::ApplyEnvironment(const TSharedPtr<FJsonObject>& Env,const 
 {
     FloraData=Obj(Env,TEXT("flora"));SceneOrigin=Origin;bFloraDirty=true;
     auto T=Obj(Env,TEXT("terrain"));if(!T)return;
+    // Older servers omit `authored`: treat their terrain as authored (unchanged).
+    bTerrainAuthored=true;T->TryGetBoolField(TEXT("authored"),bTerrainAuthored);
     const auto& H=Arr(T,TEXT("heights"));int32 N=int32(Num(T,TEXT("segments")));double Size=Num(T,TEXT("size"));
     if(N<1||N>128||H.Num()!=(N+1)*(N+1)||Size<=0||Size>10000)return;
     if(Terrain)Terrain->DestroyComponent();Terrain=NewObject<UProceduralMeshComponent>(this);AddInstanceComponent(Terrain);Terrain->SetupAttachment(RootComponent);Terrain->SetWorldLocation(Origin);Terrain->bUseAsyncCooking=true;Terrain->RegisterComponent();
@@ -139,6 +143,7 @@ void AEidoverseScene::Apply(const TSharedPtr<FJsonObject>& Message,const FVector
             auto* M=NewObject<UStaticMeshComponent>(A);A->AddInstanceComponent(M);M->SetupAttachment(R);
             M->SetStaticMesh(LoadObject<UStaticMesh>(nullptr,TEXT("/Engine/BasicShapes/Cube.Cube")));M->SetRelativeScale3D(FVector(.25));M->SetMaterial(0,Material(TEXT("trim")));M->SetCollisionEnabled(ECollisionEnabled::NoCollision);M->RegisterComponent();Item.Model=M;
         }
+        ReadComponentData(A,Item,Obj(E,TEXT("data")));
         Items.Add(Id,MoveTemp(Item));
     }
     for(auto& V:Arr(Message,TEXT("transforms")))if(auto T=V->AsObject())if(auto* E=Items.Find(Str(T,TEXT("id"))))
@@ -186,6 +191,7 @@ void AEidoverseScene::Tick(float Dt)
     TSet<UEidoverseAvatarAsset*> Used;for(auto& E:Items)if(E.Value.Asset.IsValid())Used.Add(E.Value.Asset.Get());
     for(auto It=Assets.CreateIterator();It;++It)if(!Used.Contains(It.Value())){It.Value()->Cancel();It.RemoveCurrent();}
     if(bFloraDirty&&Loading==0){bFloraDirty=false;BuildFlora(FloraData,SceneOrigin);}
+    UpdateWater();
 }
 double AEidoverseScene::ServerNowMs() const
 {
@@ -227,7 +233,7 @@ bool AEidoverseScene::LocalTransform(const FString& Id,FTransform& Out,int32 Dep
     return true;
 }
 void AEidoverseScene::EndPlay(const EEndPlayReason::Type Reason)
-{for(auto& A:Assets)A.Value->Cancel();Assets.Empty();for(auto& E:Items)if(E.Value.Actor.IsValid())E.Value.Actor->Destroy();Items.Empty();Super::EndPlay(Reason);}
+{DestroyWater();for(auto& A:Assets)A.Value->Cancel();Assets.Empty();for(auto& E:Items)if(E.Value.Actor.IsValid())E.Value.Actor->Destroy();Items.Empty();Super::EndPlay(Reason);}
 AEidoverseExplorer::AEidoverseExplorer()
 {
     PrimaryActorTick.bCanEverTick=true;GetCapsuleComponent()->InitCapsuleSize(32,88);GetCharacterMovement()->MaxWalkSpeed=400;GetCharacterMovement()->JumpZVelocity=430;
@@ -255,9 +261,74 @@ void AEidoverseExplorer::LookPitch(float Value)
 void AEidoverseExplorer::Tick(float Dt)
 {
     Super::Tick(Dt);auto* PC=Cast<APlayerController>(Controller);if(!PC||!PC->IsLocalController())return;
+    if(TickSwimming(Dt,PC))return;
     if(PC->IsMoveInputIgnored())return;
     FRotator R(0,PC->GetControlRotation().Yaw,0);
     AddMovementInput(R.Vector(),(PC->IsInputKeyDown(EKeys::W)?1:0)-(PC->IsInputKeyDown(EKeys::S)?1:0));
     AddMovementInput(FRotationMatrix(R).GetUnitAxis(EAxis::Y),(PC->IsInputKeyDown(EKeys::D)?1:0)-(PC->IsInputKeyDown(EKeys::A)?1:0));
     if(PC->WasInputKeyJustPressed(EKeys::SpaceBar))Jump();if(PC->WasInputKeyJustReleased(EKeys::SpaceBar))StopJumping();
+}
+
+// Shared swim law (EidoWater::SwimStep, port of shared/water.js) with the
+// browser controller's input mapping (client/lib/controller.js updateSwimming).
+bool AEidoverseExplorer::TickSwimming(float Dt,APlayerController* PC)
+{
+    TActorIterator<AEidoverseScene> SceneIt(GetWorld());
+    AEidoverseScene* Scene=SceneIt?*SceneIt:nullptr;
+    auto* Move=GetCharacterMovement();
+    auto Leave=[&]()
+    {
+        if(bSwimming){bSwimming=false;SwimVelocityWire=FVector::ZeroVector;Move->SetMovementMode(MOVE_Falling);}
+        LocomotionMode=TEXT("walk");
+        return false;
+    };
+    if(!Scene)return Leave();
+    const FVector Origin=Scene->GetSceneOrigin();
+    const double FeetOffset=GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+    FVector Body=AEidoverseBridge::ToWirePosition(GetActorLocation()-Origin-FVector(0,0,FeetOffset));
+    const EidoWater::FParams* Water=Scene->WaterAt(Body+FVector(0,.7,0));
+    if(!Water)return Leave();
+    const bool bInput=!PC->IsMoveInputIgnored();
+    const bool bRise=bInput&&PC->IsInputKeyDown(EKeys::SpaceBar);
+    const bool bDive=bInput&&(PC->IsInputKeyDown(EKeys::C)||PC->IsInputKeyDown(EKeys::LeftControl)||PC->IsInputKeyDown(EKeys::RightControl));
+    const double Time=Scene->WaterTime();
+    // Wading is still walking: hand over only where the floor is deep enough.
+    FHitResult FloorHit;FCollisionQueryParams Query(SCENE_QUERY_STAT(EidoverseSwimFloor),true,this);
+    const FVector Feet=GetActorLocation()-FVector(0,0,FeetOffset);
+    double FloorWire=-1e9;
+    if(GetWorld()->LineTraceSingleByChannel(FloorHit,Feet+FVector(0,0,50),Feet-FVector(0,0,5000),ECC_Visibility,Query))
+        FloorWire=(FloorHit.ImpactPoint.Z-Origin.Z)/100;
+    if(FloorWire>=EidoWater::WaveHeight(*Water,Body.X,Body.Z,Time)-1.1&&!bRise)return Leave();
+
+    if(!bSwimming){bSwimming=true;SwimVelocityWire=AEidoverseBridge::ToWirePosition(Move->Velocity);}
+    Move->DisableMovement();
+    const FRotator View=PC->GetControlRotation();
+    const double Fwd=bInput?(PC->IsInputKeyDown(EKeys::W)?1:0)-(PC->IsInputKeyDown(EKeys::S)?1:0):0;
+    const double Strafe=bInput?(PC->IsInputKeyDown(EKeys::D)?1:0)-(PC->IsInputKeyDown(EKeys::A)?1:0):0;
+    const FRotator Yaw(0,View.Yaw,0);
+    const FVector Horizontal=AEidoverseBridge::ToWirePosition((Yaw.Vector()*Fwd+FRotationMatrix(Yaw).GetUnitAxis(EAxis::Y)*Strafe)*100);
+    EidoWater::FSwimInput Input;
+    // UE pitch is positive looking up: swimming forward follows the view.
+    const double Pitch=FMath::DegreesToRadians(FMath::Clamp(FRotator::NormalizeAxis(View.Pitch),-80.f,80.f));
+    Input.Direction={Horizontal.X,double(bRise)-double(bDive)+Fwd*FMath::Sin(Pitch),Horizontal.Z};
+    Input.bRise=bRise;Input.bDive=bDive;
+    Input.bFast=bInput&&(PC->IsInputKeyDown(EKeys::LeftShift)||PC->IsInputKeyDown(EKeys::RightShift));
+
+    bool bSurface=false;
+    const int32 Steps=FMath::Max(1,FMath::CeilToInt(Dt*60));
+    for(int32 I=0;I<Steps;++I)
+    {
+        const auto R=EidoWater::SwimStep({Body.X,Body.Y,Body.Z},{SwimVelocityWire.X,SwimVelocityWire.Y,SwimVelocityWire.Z},Input,*Water,Dt/Steps,Time);
+        const FVector Target=Origin+AEidoverseBridge::FromWirePosition(FVector(R.Pos.X,R.Pos.Y,R.Pos.Z))+FVector(0,0,FeetOffset);
+        FHitResult Hit;
+        SetActorLocation(Target,true,&Hit);
+        // Blocked by a hull, habitat ceiling or seabed: stop, as the browser's sweep does.
+        if(Hit.bBlockingHit)SwimVelocityWire=FVector::ZeroVector;
+        else SwimVelocityWire=FVector(R.Velocity.X,R.Velocity.Y,R.Velocity.Z);
+        Body=AEidoverseBridge::ToWirePosition(GetActorLocation()-Origin-FVector(0,0,FeetOffset));
+        bSurface=R.bSurface&&!Hit.bBlockingHit;
+    }
+    Move->Velocity=AEidoverseBridge::FromWirePosition(SwimVelocityWire);
+    LocomotionMode=bSurface?TEXT("surface"):TEXT("swim");
+    return true;
 }

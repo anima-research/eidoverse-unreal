@@ -216,9 +216,11 @@ FglTFRuntimeConfig UEidoverseAvatarAsset::ImportConfig()
 FglTFRuntimeStaticMeshConfig UEidoverseAvatarAsset::StaticGeometryConfig()
 {
     FglTFRuntimeStaticMeshConfig Config;
-    // The reflected import basis already converts CCW to UE clockwise faces.
-    // Only a positive-determinant basis would need a separate winding reversal.
-    Config.bReverseWinding=ImportConfig().BasisMatrix.Determinant()>0;
+    // The import basis is a reflection (determinant -1). glTFRuntime keeps the
+    // source index order, so a reflected mesh comes out inside-out: back-face
+    // culled from outside and missed by one-sided complex collision (live trace:
+    // terrain hit from below only). Reverse whenever the basis changes handedness.
+    Config.bReverseWinding=ImportConfig().BasisMatrix.Determinant()<0;
     Config.bAllowCPUAccess=true;
     Config.bBuildLumenCards=true;
     return Config;

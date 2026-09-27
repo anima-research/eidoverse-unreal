@@ -14,6 +14,11 @@ class USkyLightComponent;
 class UExponentialHeightFogComponent;
 class UInstancedStaticMeshComponent;
 class UHierarchicalInstancedStaticMeshComponent;
+class AWaterOpticsController;
+class ASpectralOcean;
+class APostProcessVolume;
+class UBoxComponent;
+namespace EidoWater { struct FParams; }
 
 struct FEidoverseSceneItem
 {
@@ -32,6 +37,10 @@ struct FEidoverseSceneItem
     FString MountTo;
     FVector MountOffsetWire=FVector::ZeroVector;
     double MountYaw=0,OwnScale=1;
+    // Renderer-relevant component data (render-scene entity.data).
+    TSharedPtr<FJsonObject> WaterData;
+    TSharedPtr<FJsonObject> EnvironmentData;
+    TArray<TWeakObjectPtr<UBoxComponent>> AirBoxes;
 };
 
 // Disposable scene projection, never a second persistent fold.
@@ -57,12 +66,29 @@ public:
     UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Eidoverse") int32 FloraCount=0;
     UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Eidoverse") FString WeatherState;
     UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Eidoverse") float WeatherHour=12;
+    UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Eidoverse") float CloudCover=0;
+    UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Eidoverse") float SunLight=1;
     UPROPERTY() TObjectPtr<UDirectionalLightComponent> Sun;
     UPROPERTY() TObjectPtr<USkyLightComponent> SkyFill;
     UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Eidoverse") int32 EntityCount=0;
     UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Eidoverse") int32 LoadedModels=0;
     UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Eidoverse") int32 FailedModels=0;
     UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Eidoverse") FString Diagnostic;
+
+    // Aquatic worlds are realized from `water`/`air`/`environment` components,
+    // never from the world's name (eidoverse-worlds tools/water/README.md).
+    // WaterAt: the volume containing a WIRE position (metres, Y-up), or null in
+    // air, including inside dry boxes. Same rule as shared/water.js mediumAt.
+    const EidoWater::FParams* WaterAt(const FVector& WirePosition) const;
+    // Seconds on the shared wave clock (server epoch wrapped hourly).
+    double WaterTime() const;
+    // True inside any dry box. UE world position.
+    bool DryAt(const FVector& WorldPosition) const;
+    // Authored environment spawn in WIRE coordinates, if any.
+    bool EnvironmentSpawn(FVector& OutWire) const;
+    FVector GetSceneOrigin() const { return SceneOrigin; }
+    UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Eidoverse|Water") int32 WaterVolumeCount=0;
+    UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Eidoverse|Water") int32 AirBoxCount=0;
 private:
     TMap<FString,FEidoverseSceneItem> Items;
     UPROPERTY() TMap<FString,TObjectPtr<UEidoverseAvatarAsset>> Assets;
@@ -94,6 +120,23 @@ private:
     UMaterialInstanceDynamic* Material(const FString& Slot);
     void BuildStructure(AActor* Actor,const TSharedPtr<FJsonObject>& Plan);
     void ApplyEnvironment(const TSharedPtr<FJsonObject>& Env,const FVector& Origin);
+    // Water realization (EidoverseSceneWater.cpp).
+    TSharedPtr<TArray<EidoWater::FParams>> Waters;
+    UPROPERTY() TObjectPtr<AWaterOpticsController> WaterOptics;
+    UPROPERTY() TObjectPtr<ASpectralOcean> Ocean;
+    UPROPERTY() TObjectPtr<APostProcessVolume> WaterPost;
+    bool bTerrainAuthored=true;
+    // Spectral sunlight rig for aquatic worlds (sharp/scattered RGB + upwelling),
+    // following the scene sun; the sun itself then lights only the atmosphere.
+    UPROPERTY() TArray<TObjectPtr<UDirectionalLightComponent>> WaterRig;
+    // Daylight x cloud factor from the last weather update (1 = clear noon).
+    float SunFactor=1;
+    void UpdateWaterLighting(bool bWater);
+    void ReadComponentData(AActor* Actor,FEidoverseSceneItem& Item,const TSharedPtr<FJsonObject>& Data);
+    void UpdateWater();
+    void DestroyWater();
+    void ApplyEnvironmentFloor(const TSharedPtr<FJsonObject>& Environment);
+    TSharedPtr<FJsonObject> CurrentEnvironment() const;
 };
 
 // Grounded exploration controls for server-authored land scenes. The aquatic
@@ -108,8 +151,14 @@ public:
     virtual void EndPlay(const EEndPlayReason::Type Reason) override;
     virtual void SetupPlayerInputComponent(UInputComponent* Input) override;
     virtual void Tick(float DeltaSeconds) override;
+    // walk | swim | surface: reported in presence locomotion.
+    UPROPERTY(Transient,BlueprintReadOnly,Category="Eidoverse") FString LocomotionMode=TEXT("walk");
 private:
     bool bPreviousMouseSmoothing=true;
+    FVector SwimVelocityWire=FVector::ZeroVector;
+    bool bSwimming=false;
+    // Returns true while the shared swim law moved the pawn this frame.
+    bool TickSwimming(float Dt,class APlayerController* PC);
     void LookYaw(float Value);
     void LookPitch(float Value);
 };

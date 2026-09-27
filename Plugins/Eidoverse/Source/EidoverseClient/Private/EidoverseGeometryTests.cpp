@@ -29,7 +29,10 @@ bool FEidoverseWinding::RunTest(const FString&)
     const FVector A(P.VertexPosition(Ix[0])),B(P.VertexPosition(Ix[1])),C(P.VertexPosition(Ix[2]));
     const FVector Normal(N.VertexTangentZ(Ix[0]));
     TestTrue(TEXT("normal maps wire +Z to UE +X"),Normal.Equals(FVector::ForwardVector,.001));
-    TestTrue(TEXT("outward normal agrees with UE clockwise front face"),FVector::DotProduct(FVector::CrossProduct(C-A,B-A).GetSafeNormal(),Normal)>.99);
+    // Front faces must face along the authored normal as UE renders and traces
+    // them: verified live (water world seabed hit from above, visible from above).
+    // The previous expectation (cross(C-A,B-A)) produced inside-out runtime meshes.
+    TestTrue(TEXT("outward normal agrees with the UE front face"),FVector::DotProduct(FVector::CrossProduct(B-A,C-A).GetSafeNormal(),Normal)>.99);
     TestTrue(TEXT("bounds and centimetre scale unchanged"),Mesh->GetBounds().BoxExtent.Equals(FVector(0,50,50),.001));
     TestTrue(TEXT("asymmetric import is on the correct side, not mirrored"),Mesh->GetBounds().Origin.Equals(FVector(0,-50,50),.001));
     const auto Config=UEidoverseAvatarAsset::ImportConfig();

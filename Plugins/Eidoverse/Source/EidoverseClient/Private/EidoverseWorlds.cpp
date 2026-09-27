@@ -53,6 +53,9 @@ void AEidoverseBridge::BeginDynamicScene()
         AActor* A=*It;if(A==this||A==PC||(!A->GetRootComponent()&&!A->IsA<AWaterOpticsController>())||A->IsA<AEidoverseScene>())continue;
         FEidoverseSuspendedActor S;S.Actor=A;S.bHidden=A->IsHidden();S.bTick=A->IsActorTickEnabled();S.bCollision=A->GetActorEnableCollision();
         if(auto* PP=Cast<APostProcessVolume>(A)){S.bPostProcess=PP->bEnabled;PP->bEnabled=false;}
+        // Registries (water optics air boxes/lights, ocean post-process) must not
+        // adopt the suspended prototype's actors while the server world is shown.
+        S.bWaterPostTag=A->Tags.Remove(TEXT("WaterOpticsPostProcess"))>0;A->Tags.AddUnique(TEXT("EidoverseSuspended"));
         SuspendedActors.Add(S);A->SetActorHiddenInGame(true);A->SetActorTickEnabled(false);A->SetActorEnableCollision(false);
     }
     DynamicScene=GetWorld()->SpawnActor<AEidoverseScene>();DynamicScene->SetFlags(RF_Transient);
@@ -91,7 +94,8 @@ void AEidoverseBridge::EndDynamicScene()
     {if(auto* PC=UGameplayStatics::GetPlayerController(this,0))if(PrototypePawn.IsValid())PC->Possess(PrototypePawn.Get());ExplorerPawn->Destroy();}
     ExplorerPawn.Reset();PrototypePawn.Reset();
     for(auto& S:SuspendedActors)if(auto* A=S.Actor.Get())
-    {A->SetActorHiddenInGame(S.bHidden);A->SetActorTickEnabled(S.bTick);A->SetActorEnableCollision(S.bCollision);if(auto* PP=Cast<APostProcessVolume>(A))PP->bEnabled=S.bPostProcess;}
+    {A->SetActorHiddenInGame(S.bHidden);A->SetActorTickEnabled(S.bTick);A->SetActorEnableCollision(S.bCollision);if(auto* PP=Cast<APostProcessVolume>(A))PP->bEnabled=S.bPostProcess;
+     A->Tags.Remove(TEXT("EidoverseSuspended"));if(S.bWaterPostTag)A->Tags.AddUnique(TEXT("WaterOpticsPostProcess"));}
     SuspendedActors.Empty();bSceneDirty=bSceneMoving=bSceneWaiting=false;bDeterministicScenePhysics=false;SceneRequestInterval=.3;
 }
 void AEidoverseBridge::TickDynamicScene(double Now)
@@ -118,6 +122,10 @@ void AEidoverseBridge::ReceiveDynamicScene(const TSharedPtr<FJsonObject>& Messag
         const TSharedPtr<FJsonObject>* Env=nullptr;const TSharedPtr<FJsonObject>* T=nullptr;const TArray<TSharedPtr<FJsonValue>>* H=nullptr;
         double Ground=0;
         if(Message->TryGetObjectField(TEXT("environment"),Env)&&(*Env)->TryGetObjectField(TEXT("terrain"),T)&&(*T)->TryGetArrayField(TEXT("heights"),H)&&!H->IsEmpty())Ground=(*H)[H->Num()/2]->AsNumber()*100;
-        Explorer->SetActorLocation(OriginCentimeters+FVector(0,0,Ground+100));Explorer->GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+        // An authored environment spawn (wire metres, feet) wins over the terrain centre.
+        FVector Spawn;
+        if(DynamicScene->EnvironmentSpawn(Spawn))Explorer->SetActorLocation(OriginCentimeters+FromWirePosition(Spawn)+FVector(0,0,90));
+        else Explorer->SetActorLocation(OriginCentimeters+FVector(0,0,Ground+100));
+        Explorer->GetCharacterMovement()->SetMovementMode(MOVE_Walking);
     }
 }
