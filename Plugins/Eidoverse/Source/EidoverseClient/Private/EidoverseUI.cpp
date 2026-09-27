@@ -1356,3 +1356,71 @@ static FAutoConsoleCommandWithWorld HUDDragProbe(TEXT("Eidoverse.TestHUDDrag"), 
         }), .3f);
     }));
 #endif
+
+// ---------------------------------------------------------------- nameplate
+
+TSharedRef<SWidget> UEidoverseNameplate::RebuildWidget()
+{
+    if (WidgetTree && !WidgetTree->RootWidget)
+    {
+        auto* Column = WidgetTree->ConstructWidget<UVerticalBox>();
+        WidgetTree->RootWidget = Column;
+        Bubble = WidgetTree->ConstructWidget<UBorder>();
+        Bubble->SetBrush(FEidoverseTheme::Rounded(FLinearColor(FColor(8, 20, 28)).CopyWithNewOpacity(.86f), 10, FEidoverseTheme::Brand().CopyWithNewOpacity(.25f), 1));
+        Bubble->SetPadding(FMargin(10, 6));
+        auto* Width = WidgetTree->ConstructWidget<USizeBox>();
+        Width->SetMaxDesiredWidth(260);
+        BubbleText = WidgetTree->ConstructWidget<UTextBlock>();
+        BubbleText->SetFont(FEidoverseTheme::Font(11));
+        BubbleText->SetColorAndOpacity(FSlateColor(FLinearColor(FColor(0xe8, 0xf4, 0xef))));
+        BubbleText->SetAutoWrapText(true);
+        Width->SetContent(BubbleText);
+        Bubble->SetContent(Width);
+        Bubble->SetVisibility(ESlateVisibility::Collapsed);
+        auto* BubbleSlot = Column->AddChildToVerticalBox(Bubble);
+        BubbleSlot->SetHorizontalAlignment(HAlign_Center);
+        BubbleSlot->SetPadding(FMargin(0, 0, 0, 4));
+        auto* Pill = WidgetTree->ConstructWidget<UBorder>();
+        Pill->SetBrush(FEidoverseTheme::Rounded(FLinearColor(FColor(8, 20, 28)).CopyWithNewOpacity(.86f), 9, FEidoverseTheme::Brand().CopyWithNewOpacity(.25f), 1));
+        Pill->SetPadding(FMargin(9, 2));
+        NameText = WidgetTree->ConstructWidget<UTextBlock>();
+        NameText->SetFont(FEidoverseTheme::Font(11, true));
+        NameText->SetColorAndOpacity(FSlateColor(FEidoverseTheme::Brand()));
+        NameText->SetText(FText::FromString(PendingName));
+        Pill->SetContent(NameText);
+        Column->AddChildToVerticalBox(Pill)->SetHorizontalAlignment(HAlign_Center);
+    }
+    return Super::RebuildWidget();
+}
+
+void UEidoverseNameplate::SetName(const FString& Name)
+{
+    PendingName = Name;
+    if (NameText) NameText->SetText(FText::FromString(Name));
+}
+
+void UEidoverseNameplate::ShowBubble(const FString& Text, float Seconds)
+{
+    TakeWidget();
+    // One line of the latest message, as the web bubbles do; long lines are trimmed.
+    FString Line = Text.Replace(TEXT("\n"), TEXT(" "));
+    if (Line.Len() > 160) Line = Line.Left(157) + TEXT("…");
+    BubbleText->SetText(FText::FromString(Line));
+    Bubble->SetVisibility(ESlateVisibility::HitTestInvisible);
+    BubbleUntil = FPlatformTime::Seconds() + Seconds;
+}
+
+void UEidoverseNameplate::SetDistanceFade(float Alpha)
+{
+    SetRenderOpacity(FMath::Clamp(Alpha, 0.f, 1.f));
+}
+
+void UEidoverseNameplate::NativeTick(const FGeometry& Geometry, float Delta)
+{
+    Super::NativeTick(Geometry, Delta);
+    if (Bubble && BubbleUntil > 0 && FPlatformTime::Seconds() > BubbleUntil)
+    {
+        Bubble->SetVisibility(ESlateVisibility::Collapsed);
+        BubbleUntil = 0;
+    }
+}

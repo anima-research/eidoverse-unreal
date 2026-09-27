@@ -48,6 +48,8 @@ struct FEidoversePeer
     TWeakObjectPtr<AActor> Actor;
     TWeakObjectPtr<UStaticMeshComponent> Mesh;
     TWeakObjectPtr<UTextRenderComponent> Label;
+    // Screen-space name pill + speech bubble (UEidoverseNameplate), riding the Label anchor.
+    TWeakObjectPtr<class UWidgetComponent> Plate;
     TArray<FEidoverseSample> Samples;
     FString Mode;
     FString AvatarPath;

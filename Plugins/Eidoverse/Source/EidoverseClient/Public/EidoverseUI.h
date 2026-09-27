@@ -208,3 +208,24 @@ private:
     TMap<TWeakObjectPtr<UButton>, FName> ButtonIds;
     FName ResolveClicked() const;
 };
+
+// Floating name pill + speech bubble over a participant (web: avatar.js label
+// sprite and chat bubbles; --pill-* tokens). Screen-space, constant size.
+UCLASS()
+class EIDOVERSECLIENT_API UEidoverseNameplate : public UUserWidget
+{
+    GENERATED_BODY()
+public:
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void SetName(const FString& Name);
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void ShowBubble(const FString& Text, float Seconds = 8);
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void SetDistanceFade(float Alpha);
+protected:
+    virtual TSharedRef<SWidget> RebuildWidget() override;
+    virtual void NativeTick(const FGeometry& Geometry, float Delta) override;
+private:
+    UPROPERTY() TObjectPtr<UTextBlock> NameText;
+    UPROPERTY() TObjectPtr<UBorder> Bubble;
+    UPROPERTY() TObjectPtr<UTextBlock> BubbleText;
+    FString PendingName;
+    double BubbleUntil = 0;
+};

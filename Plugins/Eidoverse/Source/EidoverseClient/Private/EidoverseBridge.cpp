@@ -1,5 +1,6 @@
 #include "EidoverseBridge.h"
 #include "EidoverseUI.h"
+#include "Components/WidgetComponent.h"
 #include "Misc/ConfigCacheIni.h"
 #include "EidoverseScene.h"
 #include "Blueprint/UserWidget.h"
@@ -125,6 +126,8 @@ void AEidoverseBridge::AddChatLine(const FString& Sender,const FString& Text,boo
     ChatHistory.Add(MoveTemp(Line));if(ChatHistory.Num()>150)ChatHistory.RemoveAt(0,ChatHistory.Num()-150);
     if(ChatPanel){ChatPanel->NotifyChatLine(Sender,Text,bPrivate);ChatPanel->RefreshHistory();}
     if(HUD)HUD->NotifyChatLine(Line.Sender.IsEmpty()?Sender:Sender.Left(64),Text.Left(4000),bPrivate);
+    if(!bPrivate)if(auto* Peer=Peers.Find(Sender))if(auto* Plate=Peer->Plate.Get())
+        if(auto* W=Cast<UEidoverseNameplate>(Plate->GetUserWidgetObject()))W->ShowBubble(Text);
     OnChat.Broadcast(Sender,Text);
 }
 void AEidoverseBridge::Status(const FString& Value)
@@ -215,7 +218,19 @@ void AEidoverseBridge::Announce(const FString& Id,const FString& Avatar)
     auto* Root=NewObject<USceneComponent>(A);A->SetRootComponent(Root);A->AddInstanceComponent(Root);Root->RegisterComponent();
     auto* Mesh=NewObject<UStaticMeshComponent>(A);A->AddInstanceComponent(Mesh);Mesh->SetupAttachment(Root);Mesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);Mesh->SetCastShadow(false);Mesh->SetStaticMesh(DiverProxyMesh);Mesh->SetRelativeScale3D(FVector(.5,.5,1.7));Mesh->RegisterComponent();
     auto* Label=NewObject<UTextRenderComponent>(A);A->AddInstanceComponent(Label);Label->SetupAttachment(Root);Label->SetRelativeLocation(FVector(0,0,210));Label->SetWorldSize(16);Label->SetHorizontalAlignment(EHTA_Center);Label->SetVerticalAlignment(EVRTA_TextBottom);Label->SetCastShadow(false);Label->SetText(FText::FromString(Id));Label->RegisterComponent();
-    FEidoversePeer P;P.Actor=A;P.Mesh=Mesh;P.Label=Label;RequestAvatar(P,Avatar);Peers.Add(Id,MoveTemp(P));RemoteCount=Peers.Num();
+    FEidoversePeer P;P.Actor=A;P.Mesh=Mesh;P.Label=Label;
+    if(HUD)
+    {
+        // The text label stays as the head anchor; the UMG pill is what shows.
+        Label->SetText(FText::GetEmpty());
+        auto* Plate=NewObject<UWidgetComponent>(A);A->AddInstanceComponent(Plate);Plate->SetupAttachment(Label);
+        Plate->SetWidgetSpace(EWidgetSpace::Screen);Plate->SetDrawAtDesiredSize(true);Plate->SetPivot(FVector2D(.5,1));
+        Plate->SetWidgetClass(UEidoverseNameplate::StaticClass());Plate->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+        Plate->RegisterComponent();
+        if(auto* W=Cast<UEidoverseNameplate>(Plate->GetUserWidgetObject()))W->SetName(Id);
+        P.Plate=Plate;
+    }
+    RequestAvatar(P,Avatar);Peers.Add(Id,MoveTemp(P));RemoteCount=Peers.Num();
 }
 void AEidoverseBridge::RequestAvatar(FEidoversePeer& Peer,const FString& Path)
 {
@@ -459,6 +474,14 @@ void AEidoverseBridge::Tick(float DeltaSeconds)
                 Anchor=Bounds.Origin+FVector(0,0,Bounds.BoxExtent.Z+30);
             }
             P.Label->SetWorldLocation(Anchor);
+            if(auto* Plate=P.Plate.Get())if(auto* PC=UGameplayStatics::GetPlayerController(this,0))
+            {
+                // Legible nearby, fading out by 70 m (screen-space pills never shrink).
+                FVector Camera;FRotator Rot;PC->GetPlayerViewPoint(Camera,Rot);
+                const float Metres=FVector::Dist(Camera,Anchor)/100;
+                Plate->SetVisibility(Metres<70);
+                if(auto* W=Cast<UEidoverseNameplate>(Plate->GetUserWidgetObject()))W->SetDistanceFade(FMath::GetMappedRangeValueClamped(FVector2D(40,70),FVector2D(1,0),Metres));
+            }
             if(auto* PC=UGameplayStatics::GetPlayerController(this,0))
             {FVector Camera;FRotator Rot;PC->GetPlayerViewPoint(Camera,Rot);P.Label->SetWorldRotation((Camera-Anchor).Rotation());}
         }
