@@ -1,6 +1,7 @@
 #include "EidoverseScene.h"
 #include "EidoverseMotion.h"
 #include "EidoverseWater.h"
+#include "EidoverseSettings.h"
 #include "EngineUtils.h"
 #include "EidoverseBridge.h"
 #include "EidoverseAvatar.h"
@@ -255,9 +256,9 @@ void AEidoverseExplorer::SetupPlayerInputComponent(UInputComponent* Input)
     Input->BindAxisKey(EKeys::MouseY,this,&AEidoverseExplorer::LookPitch);
 }
 void AEidoverseExplorer::LookYaw(float Value)
-{if(auto* PC=Cast<APlayerController>(Controller))if(!PC->IsLookInputIgnored()){auto R=PC->GetControlRotation();R.Yaw+=Value*1.6f;PC->SetControlRotation(R);}}
+{if(auto* PC=Cast<APlayerController>(Controller))if(!PC->IsLookInputIgnored()){auto R=PC->GetControlRotation();R.Yaw+=Value*1.6f*EidoSettings::LookSensitivity();PC->SetControlRotation(R);}}
 void AEidoverseExplorer::LookPitch(float Value)
-{if(auto* PC=Cast<APlayerController>(Controller))if(!PC->IsLookInputIgnored()){auto R=PC->GetControlRotation();R.Pitch=FMath::Clamp(FMath::UnwindDegrees(R.Pitch)+Value*1.6f,-85.f,85.f);PC->SetControlRotation(R);}}
+{if(auto* PC=Cast<APlayerController>(Controller))if(!PC->IsLookInputIgnored()){auto R=PC->GetControlRotation();R.Pitch=FMath::Clamp(FMath::UnwindDegrees(R.Pitch)+Value*1.6f*EidoSettings::LookSensitivity()*(EidoSettings::InvertLook()?-1:1),-85.f,85.f);PC->SetControlRotation(R);}}
 void AEidoverseExplorer::Tick(float Dt)
 {
     Super::Tick(Dt);auto* PC=Cast<APlayerController>(Controller);if(!PC||!PC->IsLocalController())return;

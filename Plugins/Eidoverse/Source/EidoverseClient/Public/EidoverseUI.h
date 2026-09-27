@@ -100,7 +100,7 @@ public:
     UFUNCTION(BlueprintPure, Category="Eidoverse|UI") bool IsPointerMode() const { return bPointerMode; }
     void NotifyChatLine(const FString& Sender, const FString& Text, bool bPrivate);
     bool IsChatFocused() const;
-    UEidoverseFrame* GetFrame(FName Id) const { return Frames.FindRef(Id); }
+    UFUNCTION(BlueprintPure, Category="Eidoverse|UI") UEidoverseFrame* GetFrame(FName Id) const { return Frames.FindRef(Id); }
     FString ChatDraft() const;
     void ReloadDefs();
 
@@ -170,6 +170,11 @@ private:
     UWidget* BuildWorld();
     UWidget* BuildPeople();
     UWidget* BuildProfile();
+    UWidget* BuildSettings();
+    void RefreshSettings();
+    void ApplyPanelOpacity();
+    TMap<FName, TObjectPtr<UTextBlock>> SettingValues;
+    TArray<TWeakObjectPtr<UBorder>> PanelBorders;
     UWidget* BuildEmoteBar();
     UWidget* BuildHelp();
     UWidget* BuildDoor();
@@ -203,6 +208,7 @@ private:
     UFUNCTION() void OnMenuEntry();
     UFUNCTION() void OnHelpClose();
     UFUNCTION() void OnDoorJoin();
+    UFUNCTION() void OnSettingClicked();
     UFUNCTION() void OnDoorPublic();
     // Buttons carry their target in a tag; the last hovered one identifies the click.
     TMap<TWeakObjectPtr<UButton>, FName> ButtonIds;

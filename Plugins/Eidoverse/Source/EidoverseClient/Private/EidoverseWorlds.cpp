@@ -1,5 +1,6 @@
 #include "EidoverseBridge.h"
 #include "EidoverseScene.h"
+#include "EidoverseSettings.h"
 #include "WaterOpticsController.h"
 #include "Dom/JsonObject.h"
 #include "EngineUtils.h"
@@ -73,7 +74,7 @@ void AEidoverseBridge::BeginDynamicScene()
     // structures and skinned avatars still need hit lighting; software Lumen
     // cannot trace these reliably without baked distance fields.
     const auto* HardwareLumen=IConsoleManager::Get().FindConsoleVariable(TEXT("r.Lumen.HardwareRayTracing"));
-    const bool bLumen=bUseLumenLighting&&IsRayTracingEnabled(GMaxRHIShaderPlatform)&&HardwareLumen&&HardwareLumen->GetInt()!=0;
+    const bool bLumen=bUseLumenLighting&&EidoSettings::Lumen()&&IsRayTracingEnabled(GMaxRHIShaderPlatform)&&HardwareLumen&&HardwareLumen->GetInt()!=0;
     PP->Settings.bOverride_DynamicGlobalIlluminationMethod=true;PP->Settings.DynamicGlobalIlluminationMethod=bLumen?EDynamicGlobalIlluminationMethod::Lumen:EDynamicGlobalIlluminationMethod::ScreenSpace;
     PP->Settings.bOverride_ReflectionMethod=true;PP->Settings.ReflectionMethod=bLumen?EReflectionMethod::Lumen:EReflectionMethod::ScreenSpace;
     PP->Settings.bOverride_LumenRayLightingMode=true;PP->Settings.LumenRayLightingMode=ELumenRayLightingModeOverride::HitLighting;

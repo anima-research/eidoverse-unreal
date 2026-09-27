@@ -70,6 +70,7 @@ def tick(dt):
         result['status'] = b.get_editor_property('connection_status')
         hud.show_frame('people', True)
         hud.show_frame('emotes', True)
+        hud.show_frame('settings', True)
         hud.toast('Toasts look like this', False)
         hud.hint('swimming — WASD move, Space rise, C / Ctrl dive, Shift faster', 6)
         return step('shot-main')
@@ -102,6 +103,11 @@ def tick(dt):
     if st['step'] == 'dragged' and since > 2:
         shot(w, 'ui_dragged')
         hud.reset_layout()
+        hud.show_frame('settings', True)
+        return step('settings')
+    if st['step'] == 'settings' and since > 1.5:
+        shot(w, 'ui_settings')
+        hud.show_frame('settings', False)
         return step('end')
     if st['step'] == 'end' and since > 1.5:
         done(True)

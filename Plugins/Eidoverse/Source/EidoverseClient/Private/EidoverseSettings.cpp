@@ -1,0 +1,60 @@
+#include "EidoverseSettings.h"
+#include "HAL/IConsoleManager.h"
+#include "Misc/ConfigCacheIni.h"
+#include "Engine/UserInterfaceSettings.h"
+
+namespace
+{
+    TAutoConsoleVariable<float> CVarSensitivity(TEXT("Eidoverse.Look.Sensitivity"), 1.f, TEXT("Mouselook sensitivity multiplier."));
+    TAutoConsoleVariable<int32> CVarInvert(TEXT("Eidoverse.Look.InvertY"), 0, TEXT("1: invert vertical mouselook."));
+    TAutoConsoleVariable<int32> CVarPlates(TEXT("Eidoverse.UI.Nameplates"), 1, TEXT("Show names over participants."));
+    TAutoConsoleVariable<int32> CVarBubbles(TEXT("Eidoverse.UI.Bubbles"), 1, TEXT("Show chat bubbles over participants."));
+    TAutoConsoleVariable<float> CVarOpacity(TEXT("Eidoverse.UI.PanelOpacity"), .78f, TEXT("Panel background opacity, 0.3..1."));
+    TAutoConsoleVariable<int32> CVarLumen(TEXT("Eidoverse.World.Lumen"), 1, TEXT("Use hardware Lumen for server worlds when available (next join)."));
+    TAutoConsoleVariable<float> CVarScale(TEXT("Eidoverse.UI.Scale"), 1.f, TEXT("Interface size multiplier for the game viewport, 0.75..1.5."));
+    const TCHAR* Section = TEXT("/Script/EidoverseClient.Settings");
+    const TCHAR* Names[] = {TEXT("Eidoverse.Look.Sensitivity"), TEXT("Eidoverse.Look.InvertY"), TEXT("Eidoverse.UI.Nameplates"),
+                            TEXT("Eidoverse.UI.Bubbles"), TEXT("Eidoverse.UI.PanelOpacity"), TEXT("Eidoverse.UI.Scale"), TEXT("Eidoverse.World.Lumen")};
+}
+
+namespace EidoSettings
+{
+float LookSensitivity() { return FMath::Clamp(CVarSensitivity.GetValueOnGameThread(), .1f, 5.f); }
+bool InvertLook() { return CVarInvert.GetValueOnGameThread() != 0; }
+bool Nameplates() { return CVarPlates.GetValueOnGameThread() != 0; }
+bool Bubbles() { return CVarBubbles.GetValueOnGameThread() != 0; }
+float PanelOpacity() { return FMath::Clamp(CVarOpacity.GetValueOnGameThread(), .3f, 1.f); }
+bool Lumen() { return CVarLumen.GetValueOnGameThread() != 0; }
+float InterfaceScale() { return FMath::Clamp(CVarScale.GetValueOnGameThread(), .75f, 1.5f); }
+
+void Set(const TCHAR* Name, const FString& Value)
+{
+    if (IConsoleVariable* V = IConsoleManager::Get().FindConsoleVariable(Name)) V->Set(*Value, ECVF_SetByGameSetting);
+    Save();
+}
+
+void Load()
+{
+    for (const TCHAR* Name : Names)
+    {
+        FString Value;
+        if (GConfig->GetString(Section, Name, Value, GGameUserSettingsIni))
+            if (IConsoleVariable* V = IConsoleManager::Get().FindConsoleVariable(Name)) V->Set(*Value, ECVF_SetByGameSetting);
+    }
+    ApplyInterfaceScale();
+}
+
+void Save()
+{
+    for (const TCHAR* Name : Names)
+        if (IConsoleVariable* V = IConsoleManager::Get().FindConsoleVariable(Name))
+            GConfig->SetString(Section, Name, *V->GetString(), GGameUserSettingsIni);
+    GConfig->Flush(false, GGameUserSettingsIni);
+}
+
+void ApplyInterfaceScale()
+{
+    // Game-viewport UI only (DPI curve x ApplicationScale); the editor is unaffected.
+    GetMutableDefault<UUserInterfaceSettings>()->ApplicationScale = InterfaceScale();
+}
+}

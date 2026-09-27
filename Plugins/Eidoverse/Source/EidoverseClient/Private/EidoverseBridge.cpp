@@ -1,5 +1,6 @@
 #include "EidoverseBridge.h"
 #include "EidoverseUI.h"
+#include "EidoverseSettings.h"
 #include "Components/WidgetComponent.h"
 #include "Misc/ConfigCacheIni.h"
 #include "EidoverseScene.h"
@@ -126,7 +127,7 @@ void AEidoverseBridge::AddChatLine(const FString& Sender,const FString& Text,boo
     ChatHistory.Add(MoveTemp(Line));if(ChatHistory.Num()>150)ChatHistory.RemoveAt(0,ChatHistory.Num()-150);
     if(ChatPanel){ChatPanel->NotifyChatLine(Sender,Text,bPrivate);ChatPanel->RefreshHistory();}
     if(HUD)HUD->NotifyChatLine(Line.Sender.IsEmpty()?Sender:Sender.Left(64),Text.Left(4000),bPrivate);
-    if(!bPrivate)if(auto* Peer=Peers.Find(Sender))if(auto* Plate=Peer->Plate.Get())
+    if(!bPrivate&&EidoSettings::Bubbles())if(auto* Peer=Peers.Find(Sender))if(auto* Plate=Peer->Plate.Get())
         if(auto* W=Cast<UEidoverseNameplate>(Plate->GetUserWidgetObject()))W->ShowBubble(Text);
     OnChat.Broadcast(Sender,Text);
 }
@@ -479,7 +480,7 @@ void AEidoverseBridge::Tick(float DeltaSeconds)
                 // Legible nearby, fading out by 70 m (screen-space pills never shrink).
                 FVector Camera;FRotator Rot;PC->GetPlayerViewPoint(Camera,Rot);
                 const float Metres=FVector::Dist(Camera,Anchor)/100;
-                Plate->SetVisibility(Metres<70);
+                Plate->SetVisibility(Metres<70&&EidoSettings::Nameplates());
                 if(auto* W=Cast<UEidoverseNameplate>(Plate->GetUserWidgetObject()))W->SetDistanceFade(FMath::GetMappedRangeValueClamped(FVector2D(40,70),FVector2D(1,0),Metres));
             }
             if(auto* PC=UGameplayStatics::GetPlayerController(this,0))

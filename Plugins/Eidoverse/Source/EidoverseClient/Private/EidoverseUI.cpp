@@ -1,5 +1,7 @@
 #include "EidoverseUI.h"
 #include "EidoverseBridge.h"
+#include "EidoverseSettings.h"
+#include "GameFramework/GameUserSettings.h"
 #include "Blueprint/WidgetTree.h"
 #include "Components/Border.h"
 #include "Components/Button.h"
@@ -43,7 +45,7 @@ FLinearColor FEidoverseTheme::Error() { return Hex(0xff8f8f); }
 FLinearColor FEidoverseTheme::Text() { return Hex(0xebebe9); }
 FLinearColor FEidoverseTheme::Dim() { return Hex(0x97979b); }
 FLinearColor FEidoverseTheme::Icon() { return FMath::Lerp(Hex(0xc2c2c6), Brand(), .55f); }
-FLinearColor FEidoverseTheme::Panel() { return Hex(0x051414, .78f); }
+FLinearColor FEidoverseTheme::Panel() { return Hex(0x051414, EidoSettings::PanelOpacity()); }
 FLinearColor FEidoverseTheme::Chip() { return FLinearColor(0, 0, 0, .62f); }
 FLinearColor FEidoverseTheme::Well() { return FLinearColor(0, 0, 0, .4f); }
 FLinearColor FEidoverseTheme::Edge() { return FLinearColor(1, 1, 1, .10f); }
@@ -364,6 +366,7 @@ UEidoverseFrame* UEidoverseHUD::AddFrame(FName Id, const FString& Title, UWidget
     Slot->SetAutoSize(true);
     Frames.Add(Id, F);
     FrameDefaults.Add(Id, {Size, Anchor, Alignment, Offset, bOpen});
+    PanelBorders.Add(F->Body);
     F->OnLayoutChanged = [this]() { SaveLayout(); };
     return F;
 }
@@ -378,6 +381,7 @@ TSharedRef<SWidget> UEidoverseHUD::RebuildWidget()
 
 void UEidoverseHUD::Build()
 {
+    EidoSettings::Load();
     Canvas = WidgetTree->ConstructWidget<UCanvasPanel>();
     WidgetTree->RootWidget = Canvas;
 
@@ -395,6 +399,7 @@ void UEidoverseHUD::Build()
     AddFrame("world", TEXT("World"), BuildWorld(), {380, 400}, {1, 0}, {1, 0}, {-10, 10}, true);
     AddFrame("people", TEXT("People here"), BuildPeople(), {240, 280}, {1, .5f}, {1, .5f}, {-10, 40}, false);
     AddFrame("profile", TEXT("Profile"), BuildProfile(), {300, 170}, {0, 0}, {0, 0}, {62, 60}, false);
+    AddFrame("settings", TEXT("Settings"), BuildSettings(), {320, 390}, {0, 0}, {0, 0}, {62, 280}, false);
     Menu = Cast<UBorder>(BuildMenu());
     Place(Menu, {0, 0}, {0, 0}, {62, 8});
     ToastBox = WidgetTree->ConstructWidget<UVerticalBox>();
@@ -492,6 +497,7 @@ UWidget* UEidoverseHUD::BuildRail()
     auto* Panel = WidgetTree->ConstructWidget<UBorder>();
     Panel->SetBrush(FEidoverseTheme::Rounded(FEidoverseTheme::Panel(), 10, FEidoverseTheme::Edge(), 1));
     Panel->SetPadding(FMargin(3, 4));
+    PanelBorders.Add(Panel);
     auto* Column = WidgetTree->ConstructWidget<UVerticalBox>();
     Panel->SetContent(Column);
     // ∃ leads the rail; its ink is the connection truth.
@@ -499,7 +505,7 @@ UWidget* UEidoverseHUD::BuildRail()
     MarkIcon = RailIcons.FindRef("menu");
     const TPair<FName, const TCHAR*> Entries[] = {
         {"profile", TEXT("Profile")}, {"chat", TEXT("Chat")}, {"world", TEXT("World")},
-        {"emotes", TEXT("Emotes")}, {"people", TEXT("People")}, {"help", TEXT("Search")}};
+        {"emotes", TEXT("Emotes")}, {"people", TEXT("People")}, {"settings", TEXT("Settings")}, {"help", TEXT("Search")}};
     for (const auto& E : Entries) Column->AddChildToVerticalBox(IconButton(E.Value, 20, E.Key));
     return Panel;
 }
@@ -509,6 +515,7 @@ UWidget* UEidoverseHUD::BuildMenu()
     auto* Panel = WidgetTree->ConstructWidget<UBorder>();
     Panel->SetBrush(FEidoverseTheme::Rounded(FEidoverseTheme::Panel(), 10, FEidoverseTheme::Edge(), 1));
     Panel->SetPadding(FMargin(8));
+    PanelBorders.Add(Panel);
     auto* Width = WidgetTree->ConstructWidget<USizeBox>();
     Width->SetWidthOverride(210);
     auto* Column = WidgetTree->ConstructWidget<UVerticalBox>();
@@ -519,7 +526,7 @@ UWidget* UEidoverseHUD::BuildMenu()
     const FEntry Entries[] = {
         {"profile", TEXT("Profile"), TEXT("profile")}, {"chat", TEXT("Chat"), TEXT("chat")},
         {"world", TEXT("World"), TEXT("world")}, {"emotes", TEXT("Emotes"), TEXT("emotes")},
-        {"people", TEXT("People"), TEXT("people here  \u00B7  Tab")}, {"help", TEXT("Search"), TEXT("help  \u00B7  ?")},
+        {"people", TEXT("People"), TEXT("people here  \u00B7  Tab")}, {"settings", TEXT("Settings"), TEXT("settings")}, {"help", TEXT("Search"), TEXT("help  \u00B7  ?")},
         {"pointer", TEXT("Eye"), TEXT("pointer / mouselook  \u00B7  M")},
         {"lock", TEXT("Lock"), TEXT("layout unlocked")}, {"reset", TEXT("Reset"), TEXT("reset layout")}};
     for (const FEntry& E : Entries)
@@ -637,11 +644,121 @@ UWidget* UEidoverseHUD::BuildProfile()
     return Column;
 }
 
+UWidget* UEidoverseHUD::BuildSettings()
+{
+    auto* Scroll = WidgetTree->ConstructWidget<UScrollBox>();
+    auto* Column = WidgetTree->ConstructWidget<UVerticalBox>();
+    Scroll->AddChild(Column);
+    auto Section = [&](const TCHAR* Text) {
+        Column->AddChildToVerticalBox(Label(FString(Text).ToUpper(), 9, FEidoverseTheme::Dim(), true))->SetPadding(FMargin(0, 10, 0, 4));
+    };
+    // Web panel rule: every control operable without a keyboard (steppers, toggles).
+    auto Row = [&](const TCHAR* Name, FName Key, TArray<TPair<FString, FName>> Buttons) {
+        auto* R = WidgetTree->ConstructWidget<UHorizontalBox>();
+        auto* Caption = Label(Name, 11);
+        Caption->SetAutoWrapText(false);
+        R->AddChildToHorizontalBox(Caption)->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+        if (Key != NAME_None)
+        {
+            auto* Value = Label(TEXT(""), 11, FEidoverseTheme::Brand());
+            Value->SetAutoWrapText(false);
+            SettingValues.Add(Key, Value);
+            R->AddChildToHorizontalBox(Value)->SetPadding(FMargin(8, 3, 8, 0));
+        }
+        for (const auto& B : Buttons)
+        {
+            auto* Button = TextButton(B.Key);
+            Button->OnClicked.AddDynamic(this, &UEidoverseHUD::OnSettingClicked);
+            ButtonIds.Add(Button, B.Value);
+            R->AddChildToHorizontalBox(Button)->SetPadding(FMargin(4, 0, 0, 0));
+        }
+        Column->AddChildToVerticalBox(R)->SetPadding(FMargin(0, 3));
+    };
+    Section(TEXT("Interface"));
+    Row(TEXT("Interface size"), "scale", {{TEXT("−"), "set:scale-"}, {TEXT("+"), "set:scale+"}});
+    Row(TEXT("Panel opacity"), "opacity", {{TEXT("−"), "set:opacity-"}, {TEXT("+"), "set:opacity+"}});
+    Row(TEXT("Names over people"), "plates", {{TEXT("toggle"), "set:plates"}});
+    Row(TEXT("Chat bubbles"), "bubbles", {{TEXT("toggle"), "set:bubbles"}});
+    Section(TEXT("Look"));
+    Row(TEXT("Mouse sensitivity"), "sens", {{TEXT("−"), "set:sens-"}, {TEXT("+"), "set:sens+"}});
+    Row(TEXT("Invert vertical"), "invert", {{TEXT("toggle"), "set:invert"}});
+    Section(TEXT("Graphics"));
+    Row(TEXT("Quality"), "quality", {});
+    auto* Levels = WidgetTree->ConstructWidget<UHorizontalBox>();
+    const TCHAR* Names[] = {TEXT("low"), TEXT("medium"), TEXT("high"), TEXT("epic")};
+    for (int32 I = 0; I < 4; ++I)
+    {
+        auto* Button = TextButton(Names[I]);
+        Button->OnClicked.AddDynamic(this, &UEidoverseHUD::OnSettingClicked);
+        ButtonIds.Add(Button, FName(*FString::Printf(TEXT("set:q%d"), I)));
+        Levels->AddChildToHorizontalBox(Button)->SetPadding(FMargin(0, 0, 6, 0));
+    }
+    Column->AddChildToVerticalBox(Levels)->SetPadding(FMargin(0, 2, 0, 4));
+    Row(TEXT("Lumen lighting (next join)"), "lumen", {{TEXT("toggle"), "set:lumen"}});
+    RefreshSettings();
+    return Scroll;
+}
+
+void UEidoverseHUD::RefreshSettings()
+{
+    auto Put = [this](FName Key, const FString& Value) { if (UTextBlock* T = SettingValues.FindRef(Key)) T->SetText(FText::FromString(Value)); };
+    Put("scale", FString::Printf(TEXT("%.0f%%"), EidoSettings::InterfaceScale() * 100));
+    Put("opacity", FString::Printf(TEXT("%.0f%%"), EidoSettings::PanelOpacity() * 100));
+    Put("plates", EidoSettings::Nameplates() ? TEXT("on") : TEXT("off"));
+    Put("bubbles", EidoSettings::Bubbles() ? TEXT("on") : TEXT("off"));
+    Put("sens", FString::Printf(TEXT("%.2g×"), EidoSettings::LookSensitivity()));
+    Put("invert", EidoSettings::InvertLook() ? TEXT("on") : TEXT("off"));
+    Put("lumen", EidoSettings::Lumen() ? TEXT("on") : TEXT("off"));
+    const int32 Level = GEngine && GEngine->GetGameUserSettings() ? GEngine->GetGameUserSettings()->GetOverallScalabilityLevel() : -1;
+    const TCHAR* Names[] = {TEXT("low"), TEXT("medium"), TEXT("high"), TEXT("epic"), TEXT("cinematic")};
+    Put("quality", Level >= 0 && Level <= 4 ? Names[Level] : TEXT("custom"));
+}
+
+void UEidoverseHUD::ApplyPanelOpacity()
+{
+    for (const auto& Weak : PanelBorders)
+        if (UBorder* B = Weak.Get()) B->SetBrush(FEidoverseTheme::Rounded(FEidoverseTheme::Panel(), 10, FEidoverseTheme::Edge(), 1));
+}
+
+void UEidoverseHUD::OnSettingClicked()
+{
+    const FString Id = ResolveClicked().ToString();
+    auto Step = [](const TCHAR* Name, float Current, float Delta, float Min, float Max) {
+        EidoSettings::Set(Name, FString::SanitizeFloat(FMath::Clamp(FMath::RoundToFloat((Current + Delta) * 100) / 100, Min, Max)));
+    };
+    auto Toggle = [](const TCHAR* Name, bool bCurrent) { EidoSettings::Set(Name, bCurrent ? TEXT("0") : TEXT("1")); };
+    if (Id == TEXT("set:scale-") || Id == TEXT("set:scale+"))
+    {
+        Step(TEXT("Eidoverse.UI.Scale"), EidoSettings::InterfaceScale(), Id.EndsWith(TEXT("+")) ? .05f : -.05f, .75f, 1.5f);
+        EidoSettings::ApplyInterfaceScale();
+    }
+    else if (Id == TEXT("set:opacity-") || Id == TEXT("set:opacity+"))
+    {
+        Step(TEXT("Eidoverse.UI.PanelOpacity"), EidoSettings::PanelOpacity(), Id.EndsWith(TEXT("+")) ? .05f : -.05f, .3f, 1.f);
+        ApplyPanelOpacity();
+    }
+    else if (Id == TEXT("set:sens-") || Id == TEXT("set:sens+"))
+        Step(TEXT("Eidoverse.Look.Sensitivity"), EidoSettings::LookSensitivity(), Id.EndsWith(TEXT("+")) ? .1f : -.1f, .1f, 5.f);
+    else if (Id == TEXT("set:plates")) Toggle(TEXT("Eidoverse.UI.Nameplates"), EidoSettings::Nameplates());
+    else if (Id == TEXT("set:bubbles")) Toggle(TEXT("Eidoverse.UI.Bubbles"), EidoSettings::Bubbles());
+    else if (Id == TEXT("set:invert")) Toggle(TEXT("Eidoverse.Look.InvertY"), EidoSettings::InvertLook());
+    else if (Id == TEXT("set:lumen")) Toggle(TEXT("Eidoverse.World.Lumen"), EidoSettings::Lumen());
+    else if (Id.StartsWith(TEXT("set:q")) && GEngine && GEngine->GetGameUserSettings())
+    {
+        UGameUserSettings* S = GEngine->GetGameUserSettings();
+        S->SetOverallScalabilityLevel(FCString::Atoi(*Id.Mid(5)));
+        S->ApplySettings(false);
+    }
+    RefreshSettings();
+}
+
+
 UWidget* UEidoverseHUD::BuildEmoteBar()
 {
     auto* Panel = WidgetTree->ConstructWidget<UBorder>();
     Panel->SetBrush(FEidoverseTheme::Rounded(FEidoverseTheme::Panel(), 10, FEidoverseTheme::Edge(), 1));
     Panel->SetPadding(FMargin(6, 4));
+    PanelBorders.Add(Panel);
     EmoteBar = WidgetTree->ConstructWidget<UHorizontalBox>();
     Panel->SetContent(EmoteBar);
     Emotes = {{TEXT("wave"), true}, {TEXT("cheer"), true}, {TEXT("dance"), true}, {TEXT("point"), true}, {TEXT("salute"), true}, {TEXT("clap"), true}};
@@ -1424,3 +1541,31 @@ void UEidoverseNameplate::NativeTick(const FGeometry& Geometry, float Delta)
         BubbleUntil = 0;
     }
 }
+
+#if WITH_DEV_AUTOMATION_TESTS
+static FAutoConsoleCommandWithWorld HUDDumpFrames(TEXT("Eidoverse.DumpFrames"), TEXT("Log every HUD frame's visibility, slot and geometry."),
+    FConsoleCommandWithWorldDelegate::CreateLambda([](UWorld* World)
+    {
+        TActorIterator<AEidoverseBridge> It(World);
+        UEidoverseHUD* HUD = It ? It->HUD.Get() : nullptr;
+        if (!HUD) return;
+        for (const TCHAR* Id : {TEXT("chat"), TEXT("world"), TEXT("people"), TEXT("profile"), TEXT("settings")})
+        {
+            UEidoverseFrame* F = HUD->GetFrame(Id);
+            if (!F) { UE_LOG(LogTemp, Warning, TEXT("EIDOVERSE_FRAME %s missing"), Id); continue; }
+            const auto* S = Cast<UCanvasPanelSlot>(F->Slot);
+            const FGeometry G = F->GetCachedGeometry();
+            UE_LOG(LogTemp, Warning, TEXT("EIDOVERSE_FRAME %s vis=%d slot=%s anchors=%s size=%s abs=%s body=%d"), Id, int32(F->GetVisibility()),
+                S ? *S->GetPosition().ToString() : TEXT("-"), S ? *S->GetAnchors().Minimum.ToString() : TEXT("-"),
+                *G.GetLocalSize().ToString(), *G.GetAbsolutePosition().ToString(), F->Body != nullptr);
+            UWidget* C = F->Body ? F->Body->GetContent() : nullptr;
+            const TSharedPtr<SWidget> FW = F->GetCachedWidget(), BW = F->Body ? F->Body->GetCachedWidget() : nullptr, CW = C ? C->GetCachedWidget() : nullptr;
+            UE_LOG(LogTemp, Warning, TEXT("EIDOVERSE_FRAME3 %s now=%u framePaint=%u bodyPaint=%u contentPaint=%u parentSlate=%s"), Id, GFrameCounter,
+                FW ? FW->Debug_GetLastPaintFrame() : 0, BW ? BW->Debug_GetLastPaintFrame() : 0, CW ? CW->Debug_GetLastPaintFrame() : 0,
+                FW && FW->GetParentWidget() ? *FW->GetParentWidget()->GetTypeAsString() : TEXT("none"));
+            UE_LOG(LogTemp, Warning, TEXT("EIDOVERSE_FRAME2 %s opacity=%.2f slate=%d bodyvis=%d content=%s contentvis=%d desired=%s bodytint=%s"), Id, F->GetRenderOpacity(),
+                F->GetCachedWidget().IsValid(), F->Body ? int32(F->Body->GetVisibility()) : -1, C ? *C->GetClass()->GetName() : TEXT("-"),
+                C ? int32(C->GetVisibility()) : -1, C ? *C->GetDesiredSize().ToString() : TEXT("-"), F->Body ? *F->Body->GetBrushColor().ToString() : TEXT("-"));
+        }
+    }));
+#endif
