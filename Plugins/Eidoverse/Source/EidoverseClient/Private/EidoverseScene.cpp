@@ -182,7 +182,7 @@ void AEidoverseScene::Tick(float Dt)
         else if(E.bPlaced&&!HeldTransforms.Contains(Pair.Key)&&!E.Actor->GetActorTransform().Equals(E.Target,.001)){FTransform T;T.Blend(E.Actor->GetActorTransform(),E.Target,1-FMath::Exp(-Dt*14));E.Actor->SetActorTransform(T);}
         if(auto* A=E.Asset.Get())
         {
-            if(A->State==UEidoverseAvatarAsset::EState::Ready&&E.Model.IsValid()){if(E.Model->GetStaticMesh()!=A->StaticMesh){E.Model->SetStaticMesh(A->StaticMesh);E.Model->SetRelativeScale3D(FVector::OneVector);E.Model->EmptyOverrideMaterials();E.Model->SetCollisionProfileName(E.bCollide?TEXT("BlockAll"):TEXT("NoCollision"));bFloraDirty=true;}++LoadedModels;}
+            if(A->State==UEidoverseAvatarAsset::EState::Ready&&E.Model.IsValid()){if(E.Model->GetStaticMesh()!=A->StaticMesh){E.Model->SetStaticMesh(A->StaticMesh);E.Model->SetRelativeScale3D(A->bMirrored?FVector(1,-1,1):FVector::OneVector);E.Model->EmptyOverrideMaterials();E.Model->SetCollisionProfileName(E.bCollide?TEXT("BlockAll"):TEXT("NoCollision"));bFloraDirty=true;}++LoadedModels;}
             if(A->State==UEidoverseAvatarAsset::EState::Failed)++FailedModels;
         }
         else if(E.Model.IsValid())++FailedModels;

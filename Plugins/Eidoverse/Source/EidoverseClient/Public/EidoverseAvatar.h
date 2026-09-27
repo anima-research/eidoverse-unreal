@@ -56,6 +56,8 @@ public:
     FString Failure;
     bool bVRM0=false;
     bool bStaticModel=false;
+    // Imported un-mirrored: display with component scale (1,-1,1) (glTF x = UE -Y).
+    bool bMirrored=false;
     // The rooted async job must not belong to a PIE world. Collision meshes
     // still need a world-aware (unrooted) outer for runtime physics cooking.
     TWeakObjectPtr<UObject> StaticMeshOuter;
@@ -69,6 +71,10 @@ public:
     FglTFRuntimeMaterialsConfig MaterialConfig() const;
     static FglTFRuntimeConfig ImportConfig();
     static FglTFRuntimeStaticMeshConfig StaticGeometryConfig();
+    // Mirrored models (node transforms with negative determinant) are imported
+    // un-mirrored; bMirrored then tells the renderer to apply scale (1,-1,1).
+    static bool UnmirrorDocument(const TSharedPtr<FJsonObject>& Document);
+    static bool ReplaceGlbJson(TArray<uint8>& Bytes,const TSharedPtr<FJsonObject>& Document);
     void Start();
     void Cancel();
     static bool ResolveUrl(const FString& Base,const FString& Reference,FString& Out);

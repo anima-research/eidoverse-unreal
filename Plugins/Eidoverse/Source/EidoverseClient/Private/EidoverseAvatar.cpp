@@ -1,6 +1,9 @@
 #include "EidoverseAvatar.h"
 #include "glTFRuntimeAsset.h"
 #include "glTFRuntimeFunctionLibrary.h"
+#include "Serialization/JsonWriter.h"
+#include "Serialization/JsonSerializer.h"
+#include "Policies/CondensedJsonPrintPolicy.h"
 #include "Engine/SkeletalMesh.h"
 #include "Engine/StaticMesh.h"
 #include "PhysicsEngine/BodySetup.h"
@@ -38,6 +41,40 @@ namespace
     {static const FJsonArray Empty;const FJsonArray* A=nullptr;return J&&J->TryGetArrayField(Key,A)?*A:Empty;}
     TSharedPtr<FJsonObject> Object(const TSharedPtr<FJsonObject>& J,const TCHAR* Key)
     {const TSharedPtr<FJsonObject>* O=nullptr;return J&&J->TryGetObjectField(Key,O)?*O:nullptr;}
+
+    // glTF requires renderers to flip winding under a node transform with a
+    // negative determinant; glTFRuntime bakes node transforms into vertices
+    // without doing so. Count mesh nodes whose accumulated transform mirrors.
+    double LinearDeterminant(const TSharedPtr<FJsonObject>& Node)
+    {
+        const FJsonArray& M=Array(Node,TEXT("matrix"));
+        if(M.Num()==16)
+        {
+            auto E=[&](int32 Row,int32 Col){return M[Col*4+Row]->AsNumber();};  // column-major
+            return E(0,0)*(E(1,1)*E(2,2)-E(1,2)*E(2,1))-E(0,1)*(E(1,0)*E(2,2)-E(1,2)*E(2,0))+E(0,2)*(E(1,0)*E(2,1)-E(1,1)*E(2,0));
+        }
+        const FJsonArray& S=Array(Node,TEXT("scale"));
+        return S.Num()==3?S[0]->AsNumber()*S[1]->AsNumber()*S[2]->AsNumber():1.0;  // rotations have det +1
+    }
+    void CountMirrored(const TSharedPtr<FJsonObject>& Doc,int32 Index,double Det,int32 Depth,int32& Mirrored,int32& Normal)
+    {
+        const FJsonArray& Nodes=Array(Doc,TEXT("nodes"));
+        if(Depth>64||!Nodes.IsValidIndex(Index)||!Nodes[Index]->AsObject())return;
+        const auto Node=Nodes[Index]->AsObject();
+        Det*=LinearDeterminant(Node);
+        if(Node->HasField(TEXT("mesh")))(Det<0?Mirrored:Normal)++;
+        for(const auto& C:Array(Node,TEXT("children")))CountMirrored(Doc,int32(C->AsNumber()),Det,Depth+1,Mirrored,Normal);
+    }
+    bool MostlyMirrored(const TSharedPtr<FJsonObject>& Doc)
+    {
+        const FJsonArray& Scenes=Array(Doc,TEXT("scenes"));
+        double SceneIndex=0;Doc->TryGetNumberField(TEXT("scene"),SceneIndex);
+        if(!Scenes.IsValidIndex(int32(SceneIndex))||!Scenes[int32(SceneIndex)]->AsObject())return false;
+        int32 Mirrored=0,Normal=0;
+        for(const auto& R:Array(Scenes[int32(SceneIndex)]->AsObject(),TEXT("nodes")))CountMirrored(Doc,int32(R->AsNumber()),1.0,0,Mirrored,Normal);
+        if(Mirrored&&Normal)UE_LOG(LogTemp,Warning,TEXT("EIDOVERSE model mixes %d mirrored and %d normal mesh nodes; winding follows the majority"),Mirrored,Normal);
+        return Mirrored>Normal;
+    }
     bool FiniteJson(const TSharedPtr<FJsonValue>& V,int Depth)
     {
         if(!V||Depth>32)return false;
@@ -216,20 +253,61 @@ FglTFRuntimeConfig UEidoverseAvatarAsset::ImportConfig()
 FglTFRuntimeStaticMeshConfig UEidoverseAvatarAsset::StaticGeometryConfig()
 {
     FglTFRuntimeStaticMeshConfig Config;
-    // The import basis is a reflection (determinant -1). glTFRuntime keeps the
-    // source index order, so a reflected mesh comes out inside-out: back-face
-    // culled from outside and missed by one-sided complex collision (live trace:
-    // terrain hit from below only). Reverse whenever the basis changes handedness.
-    Config.bReverseWinding=ImportConfig().BasisMatrix.Determinant()<0;
+    // The reflected import basis already converts CCW to UE clockwise faces.
+    // Only a positive-determinant basis would need a separate winding reversal.
+    // Mirrored node transforms are handled in StaticGeometryConfigFor.
+    Config.bReverseWinding=ImportConfig().BasisMatrix.Determinant()>0;
     Config.bAllowCPUAccess=true;
     Config.bBuildLumenCards=true;
     return Config;
+}
+bool UEidoverseAvatarAsset::UnmirrorDocument(const TSharedPtr<FJsonObject>& Doc)
+{
+    // glTF requires flipping winding under mirrored node transforms; glTFRuntime
+    // does not, and also inverts normals there. Import such a model un-mirrored
+    // (one extra mirror root) and let the component's negative scale mirror it
+    // back: Unreal culls, shades and collides negatively scaled meshes correctly.
+    if(!Doc||!MostlyMirrored(Doc))return false;
+    TArray<TSharedPtr<FJsonValue>> Nodes=Array(Doc,TEXT("nodes"));
+    TArray<TSharedPtr<FJsonValue>> Scenes=Array(Doc,TEXT("scenes"));
+    double SceneIndex=0;Doc->TryGetNumberField(TEXT("scene"),SceneIndex);
+    if(!Scenes.IsValidIndex(int32(SceneIndex))||!Scenes[int32(SceneIndex)]->AsObject())return false;
+    auto Scene=Scenes[int32(SceneIndex)]->AsObject();
+    auto Root=MakeShared<FJsonObject>();
+    Root->SetStringField(TEXT("name"),TEXT("eidoverse-unmirror"));
+    Root->SetArrayField(TEXT("scale"),{MakeShared<FJsonValueNumber>(-1),MakeShared<FJsonValueNumber>(1),MakeShared<FJsonValueNumber>(1)});
+    Root->SetArrayField(TEXT("children"),Array(Scene,TEXT("nodes")));
+    Nodes.Add(MakeShared<FJsonValueObject>(Root));
+    Doc->SetArrayField(TEXT("nodes"),Nodes);
+    Scene->SetArrayField(TEXT("nodes"),{MakeShared<FJsonValueNumber>(Nodes.Num()-1)});
+    return true;
+}
+bool UEidoverseAvatarAsset::ReplaceGlbJson(TArray<uint8>& Bytes,const TSharedPtr<FJsonObject>& Doc)
+{
+    if(Bytes.Num()<20)return false;
+    const uint32 JsonLength=Word(Bytes,12);
+    if(20+int64(JsonLength)>Bytes.Num())return false;
+    FString Text;
+    if(!FJsonSerializer::Serialize(Doc.ToSharedRef(),TJsonWriterFactory<TCHAR,TCondensedJsonPrintPolicy<TCHAR>>::Create(&Text)))return false;
+    FTCHARToUTF8 Utf8(*Text);
+    TArray<uint8> Json((const uint8*)Utf8.Get(),Utf8.Length());
+    while(Json.Num()%4)Json.Add(' ');
+    TArray<uint8> Out;
+    Out.Append(Bytes.GetData(),12);
+    const uint32 NewLength=Json.Num(),Type=0x4E4F534A;
+    Out.Append((const uint8*)&NewLength,4);Out.Append((const uint8*)&Type,4);Out.Append(Json);
+    Out.Append(Bytes.GetData()+20+JsonLength,Bytes.Num()-20-JsonLength);
+    const uint32 Total=Out.Num();FMemory::Memcpy(Out.GetData()+8,&Total,4);
+    Bytes=MoveTemp(Out);
+    return true;
 }
 void UEidoverseAvatarAsset::Decode(const TArray<uint8>& Bytes)
 {
     TSharedPtr<FJsonObject> J;FString Error;if(!ValidateGlb(Bytes,J,Error,!bStaticModel)){Fail(Error);return;}
     const auto Config=ImportConfig();
-    Loader=UglTFRuntimeFunctionLibrary::glTFLoadAssetFromData(Bytes,Config);
+    TArray<uint8> Source=Bytes;
+    bMirrored=bStaticModel&&UnmirrorDocument(J)&&ReplaceGlbJson(Source,J);
+    Loader=UglTFRuntimeFunctionLibrary::glTFLoadAssetFromData(bMirrored?Source:Bytes,Config);
     if(!Loader){Fail(TEXT("GLB parser rejected avatar"));return;}
     if(!PrepareLitMaterials(J)){Fail(TEXT("lit avatar material templates missing; cook /Game/Underwater/Avatars"));return;}
     if(bStaticModel)
