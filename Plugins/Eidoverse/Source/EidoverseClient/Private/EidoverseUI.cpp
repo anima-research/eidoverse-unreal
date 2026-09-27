@@ -316,6 +316,13 @@ void UEidoverseHUD::Build()
     HintChip->SetContent(HintText);
     HintChip->SetVisibility(ESlateVisibility::Collapsed);
     Place(HintChip, {.5f, 1}, {.5f, 1}, {0, -24});
+    auto* DoorWidget = BuildDoor();
+    auto* DoorSlot = Canvas->AddChildToCanvas(DoorWidget);
+    DoorSlot->SetAnchors(FAnchors(0, 0, 1, 1));
+    DoorSlot->SetOffsets(FMargin(0));
+    // Toasts stay above the door (join errors are reported there).
+    Canvas->RemoveChild(ToastBox);
+    Place(ToastBox, {1, 1}, {1, 1}, {-10, -10});
     auto* Help = BuildHelp();
     auto* HelpSlot = Canvas->AddChildToCanvas(Help);
     HelpSlot->SetAnchors(FAnchors(0, 0, 1, 1));
@@ -482,6 +489,111 @@ UWidget* UEidoverseHUD::BuildEmoteBar()
     RefreshEmotes();
     Panel->SetVisibility(ESlateVisibility::Collapsed);
     return Panel;
+}
+
+UWidget* UEidoverseHUD::BuildDoor()
+{
+    Door = WidgetTree->ConstructWidget<UBorder>();
+    Door->SetBrushColor(FLinearColor(FColor(5, 14, 16)));
+    Door->SetHorizontalAlignment(HAlign_Center);
+    Door->SetVerticalAlignment(VAlign_Center);
+    auto* Width = WidgetTree->ConstructWidget<USizeBox>();
+    Width->SetWidthOverride(420);
+    auto* Card = WidgetTree->ConstructWidget<UBorder>();
+    Card->SetBrush(FEidoverseTheme::Rounded(FEidoverseTheme::Panel().CopyWithNewOpacity(.95f), 14, FEidoverseTheme::Edge(), 1));
+    Card->SetPadding(FMargin(28, 24));
+    auto* Column = WidgetTree->ConstructWidget<UVerticalBox>();
+    Card->SetContent(Column);
+    Width->SetContent(Card);
+    Door->SetContent(Width);
+
+    auto* Head = WidgetTree->ConstructWidget<UHorizontalBox>();
+    auto* Mark = WidgetTree->ConstructWidget<UImage>();
+    if (UTexture2D* T = FEidoverseTheme::IconTexture(TEXT("Mark"))) Mark->SetBrushFromTexture(T);
+    Mark->SetDesiredSizeOverride(FVector2D(34));
+    Mark->SetColorAndOpacity(FEidoverseTheme::Brand());
+    Head->AddChildToHorizontalBox(Mark)->SetVerticalAlignment(VAlign_Center);
+    auto* Title = Label(TEXT("eidoverse"), 20, FEidoverseTheme::Text(), true);
+    Title->SetAutoWrapText(false);
+    Head->AddChildToHorizontalBox(Title)->SetPadding(FMargin(12, 0, 0, 0));
+    Column->AddChildToVerticalBox(Head);
+    Column->AddChildToVerticalBox(Label(TEXT("A shared place for people and AIs. You have a body; everything you do is a verb the world remembers."), 11, FEidoverseTheme::Dim()))->SetPadding(FMargin(0, 10, 0, 16));
+
+    auto Field = [&](const FString& Caption, const FString& Hint) {
+        Column->AddChildToVerticalBox(Label(Caption.ToUpper(), 9, FEidoverseTheme::Dim(), true))->SetPadding(FMargin(0, 8, 0, 4));
+        UEditableTextBox* Box = Input(Hint);
+        Column->AddChildToVerticalBox(Box);
+        return Box;
+    };
+    DoorName = Field(TEXT("Your name"), TEXT("how others will see you"));
+    DoorWorld = Field(TEXT("World"), TEXT("commons, water, \u2026"));
+    DoorServer = Field(TEXT("Server"), TEXT("wss://eidoverse.animalabs.ai/ws"));
+
+    auto* Row = WidgetTree->ConstructWidget<UWrapBox>();
+    Row->SetInnerSlotPadding(FVector2D(8, 8));
+    auto* Join = TextButton(TEXT("join"), true);
+    Join->OnClicked.AddDynamic(this, &UEidoverseHUD::OnDoorJoin);
+    Row->AddChildToWrapBox(Join);
+    auto* Public = TextButton(TEXT("public server"));
+    Public->OnClicked.AddDynamic(this, &UEidoverseHUD::OnDoorPublic);
+    Row->AddChildToWrapBox(Public);
+    auto* Local = TextButton(TEXT("local commons"));
+    Local->OnClicked.AddDynamic(this, &UEidoverseHUD::OnLocalCommonsClicked);
+    Row->AddChildToWrapBox(Local);
+    Column->AddChildToVerticalBox(Row)->SetPadding(FMargin(0, 16, 0, 0));
+    DoorStatus = Label(TEXT(""), 11, FEidoverseTheme::Attention());
+    Column->AddChildToVerticalBox(DoorStatus)->SetPadding(FMargin(0, 10, 0, 0));
+
+    Column->AddChildToVerticalBox(Label(TEXT("PUBLIC SERVER"), 9, FEidoverseTheme::Dim(), true))->SetPadding(FMargin(0, 18, 0, 4));
+    DoorLogin = Label(TEXT(""), 11, FEidoverseTheme::Dim());
+    Column->AddChildToVerticalBox(DoorLogin);
+    auto* LoginRow = WidgetTree->ConstructWidget<UWrapBox>();
+    LoginRow->SetInnerSlotPadding(FVector2D(8, 8));
+    auto* SignIn = TextButton(TEXT("sign in with Discord"));
+    SignIn->OnClicked.AddDynamic(this, &UEidoverseHUD::OnSignInClicked);
+    LoginRow->AddChildToWrapBox(SignIn);
+    auto* SignOut = TextButton(TEXT("sign out"));
+    SignOut->OnClicked.AddDynamic(this, &UEidoverseHUD::OnSignOutClicked);
+    LoginRow->AddChildToWrapBox(SignOut);
+    Column->AddChildToVerticalBox(LoginRow)->SetPadding(FMargin(0, 8, 0, 0));
+    Column->AddChildToVerticalBox(Label(TEXT("Joining shares your name, avatar and movement. Public chat is stored by the server."), 10, FEidoverseTheme::Dim()))->SetPadding(FMargin(0, 16, 0, 0));
+    Door->SetVisibility(ESlateVisibility::Collapsed);
+    return Door;
+}
+
+void UEidoverseHUD::UpdateDoor()
+{
+    if (!Door || !Bridge) return;
+    const bool bShow = Bridge->bFrontDoor && !Bridge->bJoined;
+    if (bShow && !bDoorFilled)
+    {
+        DoorName->SetText(FText::FromString(Bridge->ParticipantName == TEXT("unreal-diver") ? FString() : Bridge->ParticipantName));
+        DoorWorld->SetText(FText::FromString(Bridge->WorldName));
+        DoorServer->SetText(FText::FromString(Bridge->Endpoint));
+        bDoorFilled = true;
+    }
+    if (bShow != bDoorShown)
+    {
+        bDoorShown = bShow;
+        Door->SetVisibility(bShow ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+        if (bShow) { ShowFrame("world", false); SetPointerMode(true); }
+        else { ShowFrame("chat", true); SetPointerMode(false); bDoorFilled = false; }  // refill with the last world next time
+    }
+    if (!bShow) return;
+    const FString Status = Bridge->ConnectionStatus;
+    DoorStatus->SetText(FText::FromString(Status == TEXT("offline") ? FString() : Status));
+    DoorLogin->SetText(FText::FromString(Bridge->HasProductionSession() ? TEXT("Signed in as ") + Bridge->LoginName : Bridge->LoginStatus));
+}
+
+void UEidoverseHUD::OnDoorJoin()
+{
+    if (!Bridge) return;
+    Bridge->JoinFromDoor(DoorServer->GetText().ToString(), DoorWorld->GetText().ToString(), DoorName->GetText().ToString());
+}
+
+void UEidoverseHUD::OnDoorPublic()
+{
+    DoorServer->SetText(FText::FromString(AEidoverseBridge::ProductionEndpoint));
 }
 
 UWidget* UEidoverseHUD::BuildHelp()
@@ -709,6 +821,7 @@ void UEidoverseHUD::NativeTick(const FGeometry& Geometry, float Delta)
         WorldStatus->SetText(FText::FromString(S));
     }
     if (LoginStatus) LoginStatus->SetText(FText::FromString(Bridge->LoginStatus));
+    UpdateDoor();
     RefreshPeople(false);
     RefreshRail();
     if (HintChip && HintUntil > 0 && Now > HintUntil) { HintChip->SetVisibility(ESlateVisibility::Collapsed); HintUntil = 0; }
@@ -717,6 +830,7 @@ void UEidoverseHUD::NativeTick(const FGeometry& Geometry, float Delta)
 
     // Keys while the game has focus (the chat box handles its own when focused).
     auto* PC = GetOwningPlayer();
+    if (bDoorShown) return;
     if (!PC || (ChatInput && ChatInput->HasKeyboardFocus()) || (WorldName && WorldName->HasKeyboardFocus()) || (ProfileName && ProfileName->HasKeyboardFocus())) return;
     if (PC->WasInputKeyJustPressed(EKeys::Enter)) FocusChat();
     else if (PC->WasInputKeyJustPressed(EKeys::Tab)) ToggleFrame("people");

@@ -110,6 +110,14 @@ public:
     UFUNCTION(BlueprintCallable, Category="Eidoverse") bool Emote(const FString& Name);
     // http(s)://host[:port] of the configured endpoint, for /defs and /library.
     UFUNCTION(BlueprintPure, Category="Eidoverse") FString HttpBase() const;
+    // General-purpose client (AEidoverseGameMode): show the front door while offline.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Eidoverse|UI") bool bFrontDoor=false;
+    static const TCHAR* ProductionEndpoint;
+    // Join from the front door: remembers server/world/name (never credentials).
+    // The public server requires a Discord session; other servers use the configured tokens.
+    UFUNCTION(BlueprintCallable, Category="Eidoverse") bool JoinFromDoor(const FString& Server, const FString& World, const FString& Name);
+    UFUNCTION(BlueprintCallable, Category="Eidoverse") void LoadClientSettings();
+    UFUNCTION(BlueprintCallable, Category="Eidoverse") void SaveClientSettings() const;
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void OpenChat();
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void CloseChat();
     // Session-only consent. Scene captures exclude Slate/HUD/chat and never use the desktop.

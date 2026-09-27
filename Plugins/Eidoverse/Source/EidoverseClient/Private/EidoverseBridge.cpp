@@ -1,5 +1,6 @@
 #include "EidoverseBridge.h"
 #include "EidoverseUI.h"
+#include "Misc/ConfigCacheIni.h"
 #include "EidoverseScene.h"
 #include "Blueprint/UserWidget.h"
 #include "HAL/IConsoleManager.h"
@@ -71,6 +72,41 @@ bool AEidoverseBridge::Emote(const FString& Name)
     for(TCHAR C:Name)if(!FChar::IsAlnum(C)&&C!='_'&&C!='-')return false;
     PendingEmote=Name;return true;
 }
+const TCHAR* AEidoverseBridge::ProductionEndpoint=TEXT("wss://eidoverse.animalabs.ai/ws");
+namespace { const TCHAR* ClientSection=TEXT("/Script/EidoverseClient.ClientSettings"); }
+void AEidoverseBridge::LoadClientSettings()
+{
+    // User-local and non-secret only: server, world, display name.
+    FString Value;
+    Endpoint=GConfig->GetString(ClientSection,TEXT("Server"),Value,GGameUserSettingsIni)&&!Value.IsEmpty()?Value:FString(ProductionEndpoint);
+    WorldName=GConfig->GetString(ClientSection,TEXT("World"),Value,GGameUserSettingsIni)&&IsWorldName(Value)?Value:FString(TEXT("commons"));
+    if(GConfig->GetString(ClientSection,TEXT("Name"),Value,GGameUserSettingsIni)&&!Value.IsEmpty())ParticipantName=Value.Left(64);
+    AvatarLibraryBase=HttpBase()+TEXT("/library/");
+}
+void AEidoverseBridge::SaveClientSettings() const
+{
+    GConfig->SetString(ClientSection,TEXT("Server"),*Endpoint,GGameUserSettingsIni);
+    GConfig->SetString(ClientSection,TEXT("World"),*WorldName,GGameUserSettingsIni);
+    GConfig->SetString(ClientSection,TEXT("Name"),*ParticipantName,GGameUserSettingsIni);
+    GConfig->Flush(false,GGameUserSettingsIni);
+}
+bool AEidoverseBridge::JoinFromDoor(const FString& Server,const FString& World,const FString& Name)
+{
+    const FString S=Server.TrimStartAndEnd(),W=World.TrimStartAndEnd(),N=Name.TrimStartAndEnd().Left(64);
+    if(!IsWorldName(W)){ConnectionStatus=TEXT("World names are letters, numbers, - and _.");return false;}
+    if(N.IsEmpty()&&S!=ProductionEndpoint){ConnectionStatus=TEXT("Choose a name first.");return false;}
+    Disconnect();
+    bRenderDynamicWorld=true;
+    if(S==ProductionEndpoint)
+    {
+        if(!HasProductionSession()){LoginStatus=TEXT("The public server needs a Discord sign-in first.");return false;}
+        WorldName=W;SaveClientSettings();JoinProduction();return true;
+    }
+    Endpoint=S;WorldName=W;ParticipantName=N;AvatarLibraryBase=HttpBase()+TEXT("/library/");
+    SaveClientSettings();
+    Connect();
+    return ConnectionStatus!=TEXT("offline")&&!ConnectionStatus.StartsWith(TEXT("refused"));
+}
 FString AEidoverseBridge::HttpBase() const
 {
     FString Base=Endpoint;
@@ -95,7 +131,8 @@ void AEidoverseBridge::Status(const FString& Value)
 {
     ConnectionStatus=Value;
     UE_LOG(LogTemp,Display,TEXT("EIDOVERSE %s"),*Value);
-    if(GEngine)GEngine->AddOnScreenDebugMessage(uint64(GetUniqueID()),6,FColor::Cyan,TEXT("Eidoverse: ")+Value);
+    // The UMG shell reports status itself (door, system lines, toasts).
+    if(GEngine&&!HUD)GEngine->AddOnScreenDebugMessage(uint64(GetUniqueID()),6,FColor::Cyan,TEXT("Eidoverse: ")+Value);
 }
 void AEidoverseBridge::ClearPeers()
 {

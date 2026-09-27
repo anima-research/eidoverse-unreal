@@ -103,6 +103,14 @@ private:
     UPROPERTY() TObjectPtr<UBorder> HintChip;
     UPROPERTY() TObjectPtr<UTextBlock> HintText;
     UPROPERTY() TObjectPtr<UHorizontalBox> EmoteBar;
+    // Front door (offline): the only thing shown until a world is joined.
+    UPROPERTY() TObjectPtr<UBorder> Door;
+    UPROPERTY() TObjectPtr<UEditableTextBox> DoorName;
+    UPROPERTY() TObjectPtr<UEditableTextBox> DoorServer;
+    UPROPERTY() TObjectPtr<UEditableTextBox> DoorWorld;
+    UPROPERTY() TObjectPtr<UTextBlock> DoorStatus;
+    UPROPERTY() TObjectPtr<UTextBlock> DoorLogin;
+    bool bDoorShown = false, bDoorFilled = false;
     // Chat
     UPROPERTY() TObjectPtr<UScrollBox> ChatLog;
     UPROPERTY() TObjectPtr<UEditableTextBox> ChatInput;
@@ -138,6 +146,8 @@ private:
     UWidget* BuildProfile();
     UWidget* BuildEmoteBar();
     UWidget* BuildHelp();
+    UWidget* BuildDoor();
+    void UpdateDoor();
     UEidoverseFrame* AddFrame(FName Id, const FString& Title, UWidget* Content, FVector2D Size, FVector2D Anchor, FVector2D Alignment, FVector2D Offset, bool bOpen);
     UButton* IconButton(const FString& Icon, float Size, FName Id);
     UButton* TextButton(const FString& Label, bool bPrimary = false);
@@ -166,6 +176,8 @@ private:
     UFUNCTION() void OnEmoteClicked();
     UFUNCTION() void OnMenuEntry();
     UFUNCTION() void OnHelpClose();
+    UFUNCTION() void OnDoorJoin();
+    UFUNCTION() void OnDoorPublic();
     // Buttons carry their target in a tag; the last hovered one identifies the click.
     TMap<TWeakObjectPtr<UButton>, FName> ButtonIds;
     FName ResolveClicked() const;
