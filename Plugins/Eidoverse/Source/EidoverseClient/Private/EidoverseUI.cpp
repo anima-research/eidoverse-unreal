@@ -834,6 +834,9 @@ void UEidoverseHUD::NotifyChatLine(const FString& Sender, const FString& Text, b
     RefreshChat();
 }
 
+bool UEidoverseHUD::IsChatFocused() const { return ChatInput && ChatInput->HasKeyboardFocus(); }
+FString UEidoverseHUD::ChatDraft() const { return ChatInput ? ChatInput->GetText().ToString() : FString(); }
+
 void UEidoverseHUD::AddSystemLine(const FString& Text)
 {
     Lines.Add({TEXT(""), Text, false, true, false});
@@ -997,3 +1000,38 @@ void UEidoverseHUD::OnChatTabAll() { ChatTab = 0; RefreshChat(); }
 void UEidoverseHUD::OnChatTabMentions() { ChatTab = 1; RefreshChat(); }
 void UEidoverseHUD::OnChatTabSystem() { ChatTab = 2; RefreshChat(); }
 void UEidoverseHUD::OnHelpClose() { ToggleHelp(); }
+
+#if WITH_DEV_AUTOMATION_TESTS
+#include "EngineUtils.h"
+#include "HAL/IConsoleManager.h"
+// Drives the real keyboard path: Enter opens chat, characters type, Enter sends,
+// and focus returns to the game. Logs EIDOVERSE_HUD_CHAT_PROBE; the message goes
+// to whichever server the bridge is joined to (use an isolated preview).
+static FAutoConsoleCommandWithWorld HUDChatProbe(TEXT("Eidoverse.TestHUDChat"), TEXT("Type and send a chat line through the UMG shell with synthetic key events."),
+    FConsoleCommandWithWorldDelegate::CreateLambda([](UWorld* World)
+    {
+        if (!World || !World->IsGameWorld()) return;
+        TActorIterator<AEidoverseBridge> It(World);
+        if (!It || !It->HUD) { UE_LOG(LogTemp, Warning, TEXT("EIDOVERSE_HUD_CHAT_PROBE no hud")); return; }
+        TWeakObjectPtr<UEidoverseHUD> Weak(It->HUD);
+        auto Key = [](const FKey& K) {
+            FSlateApplication::Get().ProcessKeyDownEvent(FKeyEvent(K, FModifierKeysState(), 0, false, 0, 0));
+            FSlateApplication::Get().ProcessKeyUpEvent(FKeyEvent(K, FModifierKeysState(), 0, false, 0, 0));
+        };
+        Weak->SetPointerMode(false);
+        Key(EKeys::Enter);  // polled by the HUD on its next tick
+        FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([Weak, Key](float) mutable
+        {
+            UEidoverseHUD* HUD = Weak.Get();
+            if (!HUD) return false;
+            const bool bFocused = HUD->IsChatFocused();
+            for (TCHAR C : FString(TEXT("typed through the UMG shell")))
+                FSlateApplication::Get().ProcessKeyCharEvent(FCharacterEvent(C, FModifierKeysState(), 0, false));
+            const FString Typed = HUD->ChatDraft();
+            Key(EKeys::Enter);
+            UE_LOG(LogTemp, Warning, TEXT("EIDOVERSE_HUD_CHAT_PROBE focused=%d typed=%d cleared=%d gameFocus=%d"), bFocused,
+                Typed == TEXT("typed through the UMG shell"), HUD->ChatDraft().IsEmpty(), !HUD->IsChatFocused());
+            return false;
+        }), .5f);
+    }));
+#endif

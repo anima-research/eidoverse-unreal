@@ -81,6 +81,8 @@ public:
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void SetPointerMode(bool bPointer);
     UFUNCTION(BlueprintPure, Category="Eidoverse|UI") bool IsPointerMode() const { return bPointerMode; }
     void NotifyChatLine(const FString& Sender, const FString& Text, bool bPrivate);
+    bool IsChatFocused() const;
+    FString ChatDraft() const;
     void ReloadDefs();
 
 protected:

@@ -92,6 +92,13 @@ def tick(dt):
         result['http_base'] = b.http_base()
         return step('finish')
     if st['step'] == 'finish' and since > 2:
+        hud.toggle_help()
+        unreal.SystemLibrary.execute_console_command(w, 'Eidoverse.TestHUDChat')
+        return step('keyboard')
+    if st['step'] == 'keyboard' and since > 3:
+        shot(w, 'ui_keyboard_chat')
+        return step('end')
+    if st['step'] == 'end' and since > 1.5:
         done(True)
 
 
