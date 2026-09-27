@@ -39,6 +39,7 @@ struct FEidoverseSceneItem
     double MountYaw=0,OwnScale=1;
     // Renderer-relevant component data (render-scene entity.data).
     TSharedPtr<FJsonObject> WaterData;
+    FString Lib, Kind;
     TSharedPtr<FJsonObject> EnvironmentData;
     TArray<TWeakObjectPtr<UBoxComponent>> AirBoxes;
 };
@@ -87,6 +88,8 @@ public:
     // Authored environment spawn in WIRE coordinates, if any.
     bool EnvironmentSpawn(FVector& OutWire) const;
     FVector GetSceneOrigin() const { return SceneOrigin; }
+    // Entities as projected: id -> library path (or kind for lights/structures), sorted by id.
+    void GetEntities(TArray<TPair<FString, FString>>& Out) const;
     UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Eidoverse|Water") int32 WaterVolumeCount=0;
     UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Eidoverse|Water") int32 AirBoxCount=0;
 private:

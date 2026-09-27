@@ -16,6 +16,7 @@ class UHorizontalBox;
 class UWrapBox;
 class UTexture2D;
 class UEidoverseFrame;
+class UWidgetSwitcher;
 
 // The native client's UMG shell, matching the web client's chrome (rail, ∃ menu,
 // frames, emote bar, toasts, hint bar, help overlay). Every widget builds its
@@ -40,6 +41,7 @@ struct EIDOVERSECLIENT_API FEidoverseTheme
     static FSlateBrush Rounded(const FLinearColor& Fill, float Radius = 10, const FLinearColor& Outline = FLinearColor::Transparent, float Width = 0);
     static FSlateFontInfo Font(int32 Size, bool bBold = false);
     static UTexture2D* IconTexture(const FString& Name);
+    static FButtonStyle Button(const FLinearColor& Normal, const FLinearColor& Hovered, float Radius = 6, const FLinearColor& Outline = FLinearColor::Transparent);
 };
 
 // A titled, closable window: small-caps title chip above a rounded teal panel.
@@ -102,6 +104,10 @@ public:
     void NoteTyping(const FString& Id);
     // Open chat with text appended to the draft (e.g. "@name ", "/w name ").
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void InsertIntoChat(const FString& Text, bool bReplace = false);
+    // World frame: select a section (0 here, 1 avatar, 2 sky, 3 ground, 4 scene) and run
+    // the same actions its buttons do (e.g. "sky:preset:dusk", "sky:apply", "ground:apply").
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void SelectWorldTab(int32 Tab);
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void WorldAction(const FString& Action);
     bool IsChatFocused() const;
     UFUNCTION(BlueprintPure, Category="Eidoverse|UI") UEidoverseFrame* GetFrame(FName Id) const { return Frames.FindRef(Id); }
     UScrollBox* GetChatLog() const { return ChatLog; }
@@ -175,6 +181,42 @@ private:
     UWidget* BuildMenu();
     UWidget* BuildChat();
     UWidget* BuildWorld();
+    // World frame sections (EidoverseUIWorld.cpp): here / avatar / sky / ground / scene.
+    UWidget* BuildWorldHere();
+    UWidget* BuildWorldAvatar();
+    UWidget* BuildWorldSky();
+    UWidget* BuildWorldGround();
+    UWidget* BuildWorldScene();
+    void RefreshWorldPanels();
+    void LoadThumb(const FString& Name);
+    UButton* ActionButton(const FString& Text, const FString& Id, bool bPrimary = false);
+    UPROPERTY() TObjectPtr<UWidgetSwitcher> WorldPages;
+    UPROPERTY() TArray<TObjectPtr<UButton>> WorldTabs;
+    int32 WorldTab = 0;
+    UPROPERTY() TObjectPtr<UWrapBox> AvatarGrid;
+    UPROPERTY() TObjectPtr<UTextBlock> AvatarNote;
+    UPROPERTY() TMap<FString, TObjectPtr<UTexture2D>> Thumbs;
+    TMap<FString, TWeakObjectPtr<UImage>> ThumbImages;
+    TSet<FString> ThumbRequested;
+    int32 AvatarHash = 0;
+    TSharedPtr<class FJsonObject> SkyDraft, SkySource;
+    bool bSkyDirty = false;
+    UPROPERTY() TObjectPtr<UTextBlock> SkyState;
+    UPROPERTY() TObjectPtr<UTextBlock> SkyNote;
+    UPROPERTY() TObjectPtr<UWrapBox> SkyPresets;
+    UPROPERTY() TArray<TObjectPtr<UButton>> OwnerButtons;
+    FString GroundShape = TEXT("hills"), GroundTint = TEXT("meadow"), GrassHeight = TEXT("meadow"), GrassDensity = TEXT("normal");
+    int32 GroundSeed = 7;
+    UPROPERTY() TObjectPtr<UTextBlock> GroundState;
+    UPROPERTY() TObjectPtr<UTextBlock> GroundNote;
+    UPROPERTY() TObjectPtr<UWrapBox> GroundShapes;
+    UPROPERTY() TObjectPtr<UWrapBox> GroundTints;
+    UPROPERTY() TObjectPtr<UWrapBox> GroundPlantings;
+    int32 GroundDefsHash = 0;
+    UPROPERTY() TObjectPtr<UVerticalBox> SceneList;
+    UPROPERTY() TObjectPtr<UTextBlock> SceneNote;
+    double NextSceneRefresh = 0;
+    int32 SceneHash = 0;
     UWidget* BuildPeople();
     UWidget* BuildProfile();
     UWidget* BuildSettings();
@@ -205,6 +247,7 @@ private:
     UFUNCTION() void OnChatCommitted(const FText& Text, ETextCommit::Type Kind);
     UFUNCTION() void OnChatChanged(const FText& Text);
     UFUNCTION() void OnNameClicked();
+    UFUNCTION() void OnWorldClicked();
     UFUNCTION() void OnJoinClicked();
     UFUNCTION() void OnLocalCommonsClicked();
     UFUNCTION() void OnSignInClicked();

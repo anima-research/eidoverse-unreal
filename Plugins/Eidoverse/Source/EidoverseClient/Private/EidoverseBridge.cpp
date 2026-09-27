@@ -178,18 +178,49 @@ void AEidoverseBridge::Connect()
     const uint32 G=Generation;TWeakObjectPtr<AEidoverseBridge> Weak(this);
     Socket->OnConnected().AddLambda([Weak,G](){Eido::Dispatch(Weak,[G](AEidoverseBridge& B){
         if(B.Generation!=G)return;
-        auto J=MakeShared<FJsonObject>();J->SetStringField(TEXT("type"),TEXT("join"));J->SetStringField(TEXT("world"),B.WorldName);
-        J->SetStringField(TEXT("id"),B.ParticipantName);J->SetStringField(TEXT("avatar"),B.AvatarPath);J->SetBoolField(TEXT("spectate"),B.bSpectator);
-        if(!B.HasProductionSession()||B.Endpoint!=TEXT("wss://eidoverse.animalabs.ai/ws"))
-        {
-            if(!B.JoinToken.IsEmpty())J->SetStringField(TEXT("token"),B.JoinToken);
-            if(!B.IdentityToken.IsEmpty())J->SetStringField(TEXT("agentToken"),B.IdentityToken);
-        }
-        B.Send(J);B.Status(TEXT("joining"));});});
+        B.SendJoin();B.Status(TEXT("joining"));});});
     Socket->OnMessage().AddLambda([Weak,G](const FString& M){if(M.Len()>8*1024*1024)return;Eido::Dispatch(Weak,[G,M](AEidoverseBridge& B){if(B.Generation==G)B.Receive(M);});});
     Socket->OnClosed().AddLambda([Weak,G](int32 Code,const FString&,bool){Eido::Dispatch(Weak,[G,Code](AEidoverseBridge& B){if(B.Generation==G)B.Lost(Code);});});
     Socket->OnConnectionError().AddLambda([Weak,G](const FString&){Eido::Dispatch(Weak,[G](AEidoverseBridge& B){if(B.Generation==G)B.Lost(1006);});});
     Status(TEXT("connecting"));Socket->Connect();
+}
+void AEidoverseBridge::SendJoin()
+{
+    auto J=MakeShared<FJsonObject>();J->SetStringField(TEXT("type"),TEXT("join"));J->SetStringField(TEXT("world"),WorldName);
+    J->SetStringField(TEXT("id"),ParticipantName);J->SetStringField(TEXT("avatar"),AvatarPath);J->SetBoolField(TEXT("spectate"),bSpectator);
+    if(!HasProductionSession()||Endpoint!=ProductionEndpoint)
+    {
+        if(!JoinToken.IsEmpty())J->SetStringField(TEXT("token"),JoinToken);
+        if(!IdentityToken.IsEmpty())J->SetStringField(TEXT("agentToken"),IdentityToken);
+    }
+    Send(J);
+}
+bool AEidoverseBridge::ChangeAvatar(const FString& Path)
+{
+    if(!bJoined||!Socket||!Socket->IsConnected()||Path.IsEmpty()||Path.Len()>256)return false;
+    // A join on a joined socket is travel to the same world: the server re-announces
+    // us wearing the new body. The rendered world stays; only presence is rebuilt.
+    AvatarPath=Path;bRejoining=true;SendJoin();return true;
+}
+void AEidoverseBridge::ReadRights(const TSharedPtr<FJsonObject>& Rights)
+{
+    WorldRole.Empty();bWorldOpen=false;bCanGenerate=false;
+    if(!Rights)return;
+    Rights->TryGetStringField(TEXT("role"),WorldRole);
+    Rights->TryGetBoolField(TEXT("open"),bWorldOpen);
+    bCanGenerate=true;Rights->TryGetBoolField(TEXT("gen"),bCanGenerate);
+}
+bool AEidoverseBridge::SendVerb(const FString& Verb,const TSharedRef<FJsonObject>& Args)
+{
+    if(!bJoined||bSpectator||!Socket||!Socket->IsConnected()||Verb.IsEmpty())return false;
+    auto J=MakeShared<FJsonObject>();J->SetStringField(TEXT("type"),TEXT("verb"));J->SetStringField(TEXT("verb"),Verb);J->SetObjectField(TEXT("args"),Args);
+    Send(J);return true;
+}
+bool AEidoverseBridge::SendVerbJson(const FString& Verb,const FString& ArgsJson)
+{
+    TSharedPtr<FJsonObject> Args;
+    if(!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(ArgsJson),Args)||!Args)return false;
+    return SendVerb(Verb,Args.ToSharedRef());
 }
 void AEidoverseBridge::Lost(int32 Code)
 {
@@ -347,8 +378,18 @@ void AEidoverseBridge::Receive(const FString& Message)
     {
         AssignedIdentity=Eido::String(J,TEXT("you"));if(AssignedIdentity.IsEmpty())return;
         ClearPeers();LastFrameTime=-1;bJoined=true;RetryDelay=1;RetryAt=0;
+        const TSharedPtr<FJsonObject>* Rights=nullptr;ReadRights(J->TryGetObjectField(TEXT("yourRights"),Rights)?*Rights:nullptr);
+        AvatarChoices.Reset();
+        const TArray<TSharedPtr<FJsonValue>>* Avatars=nullptr;
+        if(J->TryGetArrayField(TEXT("avatars"),Avatars))for(const auto& V:*Avatars)if(const auto O=V->AsObject())
+        {
+            FEidoverseAvatarChoice C;O->TryGetStringField(TEXT("name"),C.Name);O->TryGetStringField(TEXT("path"),C.Path);
+            if(!C.Name.IsEmpty()&&!C.Path.IsEmpty()&&AvatarChoices.Num()<256)AvatarChoices.Add(C);
+        }
         double SceneVersion=0;bSceneSupported=J->TryGetNumberField(TEXT("renderSceneVersion"),SceneVersion)&&SceneVersion==1;
-        if(bRenderDynamicWorld&&bSceneSupported)BeginDynamicScene();
+        // An avatar change re-joins the same world: keep the rendered scene and the pawn.
+        if(bRejoining&&DynamicScene){bRejoining=false;}
+        else if(bRenderDynamicWorld&&bSceneSupported)BeginDynamicScene();
         else if(bRenderDynamicWorld)WorldRenderStatus=TEXT("Server needs the dynamic-scene update. Local prototype remains active.");
         const TSharedPtr<FJsonObject>* Sim=nullptr;const TSharedPtr<FJsonObject>* Epoch=nullptr;
         bDeterministicScenePhysics=J->TryGetObjectField(TEXT("sim"),Sim)&&(*Sim)->TryGetObjectField(TEXT("epoch"),Epoch);
@@ -391,6 +432,8 @@ void AEidoverseBridge::Receive(const FString& Message)
         const TSharedPtr<FJsonObject>* Args=nullptr;if(!(*Entry)->TryGetObjectField(TEXT("args"),Args))return;
         FString Sender=Eido::String(*Entry,TEXT("actor")),Text=Eido::String(*Args,TEXT("text")).Left(4000);AddChatLine(Sender,Text);
     }
+    else if(Type==TEXT("your-rights")&&bJoined)
+    {const TSharedPtr<FJsonObject>* Rights=nullptr;if(J->TryGetObjectField(TEXT("rights"),Rights))ReadRights(*Rights);}
     else if(Type==TEXT("typing")&&bJoined)
     {
         // Public composing, or a whisper being composed to us; others' DMs stay private.

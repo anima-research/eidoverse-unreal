@@ -113,7 +113,17 @@ void AEidoverseBridge::TickDynamicScene(double Now)
 void AEidoverseBridge::ReceiveDynamicScene(const TSharedPtr<FJsonObject>& Message)
 {
     FString Name;if(!DynamicScene||!Message->TryGetStringField(TEXT("world"),Name)||Name!=WorldName)return;
-    bSceneWaiting=false;Message->TryGetBoolField(TEXT("moving"),bSceneMoving);DynamicScene->Apply(Message,OriginCentimeters,AvatarLibraryBase);
+    bSceneWaiting=false;Message->TryGetBoolField(TEXT("moving"),bSceneMoving);
+    {
+        // Keep the folded sky/grass args for the owner panels (sent only when changed).
+        const TSharedPtr<FJsonObject>* Env=nullptr;
+        if(Message->TryGetObjectField(TEXT("environment"),Env))
+        {
+            const TSharedPtr<FJsonObject>* O=nullptr;
+            WorldSky=(*Env)->TryGetObjectField(TEXT("sky"),O)?*O:nullptr;
+            WorldGrass=(*Env)->TryGetObjectField(TEXT("grass"),O)?*O:nullptr;
+        }
+    }DynamicScene->Apply(Message,OriginCentimeters,AvatarLibraryBase);
     if(Message->HasField(TEXT("error"))){bSceneMoving=false;return;}
     double Interval=300;if(Message->TryGetNumberField(TEXT("updateIntervalMs"),Interval)&&FMath::IsFinite(Interval))SceneRequestInterval=FMath::Clamp(Interval/1000.,.066,.3);
     const TSharedPtr<FJsonObject>* Sim=nullptr;

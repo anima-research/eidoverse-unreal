@@ -122,7 +122,7 @@ void AEidoverseScene::Apply(const TSharedPtr<FJsonObject>& Message,const FVector
         auto* Old=Items.Find(Id);if(Old&&Old->Revision==Revision)continue;
         if(Old&&Old->Actor.IsValid())Old->Actor->Destroy();Items.Remove(Id);if(Items.Num()>=512)continue;
         AActor* A=GetWorld()->SpawnActor<AActor>();A->SetFlags(RF_Transient);A->Tags.Add(FName(*Id));auto* R=NewObject<USceneComponent>(A);A->AddInstanceComponent(R);A->SetRootComponent(R);R->RegisterComponent();
-        FEidoverseSceneItem Item;Item.Actor=A;Item.Revision=Revision;Item.Interact=Obj(E,TEXT("interact"));Item.bCollide=Str(E,TEXT("collide"))!=TEXT("none");
+        FEidoverseSceneItem Item;Item.Actor=A;Item.Revision=Revision;Item.Lib=Str(E,TEXT("lib"));Item.Kind=Str(E,TEXT("kind"));Item.Interact=Obj(E,TEXT("interact"));Item.bCollide=Str(E,TEXT("collide"))!=TEXT("none");
         if(auto Plan=Obj(E,TEXT("structure")))BuildStructure(A,Plan);
         else if(Str(E,TEXT("kind"))==TEXT("light"))
         {

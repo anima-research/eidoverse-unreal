@@ -137,6 +137,11 @@ namespace
     }
 }
 
+FButtonStyle FEidoverseTheme::Button(const FLinearColor& Normal, const FLinearColor& Hovered, float Radius, const FLinearColor& Outline)
+{
+    return FlatButton(Normal, Hovered, Radius, Outline);
+}
+
 // ---------------------------------------------------------------- frame
 
 void UEidoverseFrame::SetContent(UWidget* Content)
@@ -396,7 +401,7 @@ void UEidoverseHUD::Build()
     Place(BuildRail(), {0, 0}, {0, 0}, {8, 8});
     Place(BuildEmoteBar(), {.5f, 0}, {.5f, 0}, {0, 10});
     AddFrame("chat", TEXT("Chat"), BuildChat(), {520, 300}, {0, 1}, {0, 1}, {10, -10}, true);
-    AddFrame("world", TEXT("World"), BuildWorld(), {380, 400}, {1, 0}, {1, 0}, {-10, 10}, true);
+    AddFrame("world", TEXT("World"), BuildWorld(), {400, 470}, {1, 0}, {1, 0}, {-10, 10}, true);
     AddFrame("people", TEXT("People here"), BuildPeople(), {240, 280}, {1, .5f}, {1, .5f}, {-10, 40}, false);
     AddFrame("profile", TEXT("Profile"), BuildProfile(), {300, 170}, {0, 0}, {0, 0}, {62, 60}, false);
     AddFrame("settings", TEXT("Settings"), BuildSettings(), {320, 390}, {0, 0}, {0, 0}, {62, 280}, false);
@@ -584,7 +589,7 @@ UWidget* UEidoverseHUD::BuildChat()
     return Column;
 }
 
-UWidget* UEidoverseHUD::BuildWorld()
+UWidget* UEidoverseHUD::BuildWorldHere()
 {
     auto* Scroll = WidgetTree->ConstructWidget<UScrollBox>();
     auto* Column = WidgetTree->ConstructWidget<UVerticalBox>();
@@ -1120,6 +1125,8 @@ void UEidoverseHUD::NativeTick(const FGeometry& Geometry, float Delta)
     UpdateDoor();
     RefreshPeople(false);
     RefreshRail();
+    static double NextWorldRefresh = 0;
+    if (IsFrameOpen("world") && Now >= NextWorldRefresh) { NextWorldRefresh = Now + .2; RefreshWorldPanels(); }
     if (TypingLine)
     {
         for (auto It = Typers.CreateIterator(); It; ++It) if (It->Value < Now) It.RemoveCurrent();

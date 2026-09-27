@@ -37,6 +37,14 @@ struct FEidoverseChatLine
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FEidoverseChat, const FString&, Sender, const FString&, Text);
 
+USTRUCT(BlueprintType)
+struct FEidoverseAvatarChoice
+{
+    GENERATED_BODY()
+    UPROPERTY(BlueprintReadOnly, Category="Eidoverse") FString Name;
+    UPROPERTY(BlueprintReadOnly, Category="Eidoverse") FString Path;
+};
+
 struct FEidoverseSample
 {
     double Time=0;
@@ -112,6 +120,23 @@ public:
     UFUNCTION(BlueprintCallable, Category="Eidoverse") bool Emote(const FString& Name);
     // Presence-only "composing" signal (never logged). To: whisper recipient, or empty.
     UFUNCTION(BlueprintCallable, Category="Eidoverse") bool SendTyping(const FString& To);
+
+    // Rights (snapshot yourRights, live your-rights): visitor | builder | owner.
+    // An ownerless ("open") world makes everyone a builder. The server still decides.
+    UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse|Rights") FString WorldRole;
+    UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse|Rights") bool bWorldOpen=false;
+    UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse|Rights") bool bCanGenerate=false;
+    UFUNCTION(BlueprintPure, Category="Eidoverse|Rights") bool CanBuild() const { return bJoined&&!bSpectator&&(bWorldOpen||WorldRole==TEXT("builder")||WorldRole==TEXT("owner")); }
+    UFUNCTION(BlueprintPure, Category="Eidoverse|Rights") bool IsOwner() const { return bJoined&&!bSpectator&&(WorldRole==TEXT("owner")); }
+    // Authoring verbs (sky, terrain, grass, spawn, place, remove, comp, ...). Refusals arrive as 'error'.
+    bool SendVerb(const FString& Verb,const TSharedRef<FJsonObject>& Args);
+    UFUNCTION(BlueprintCallable, Category="Eidoverse") bool SendVerbJson(const FString& Verb,const FString& ArgsJson);
+    // Avatars offered by the server (snapshot 'avatars'); switching re-joins in place (web mybody.js).
+    UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse|Avatars") TArray<FEidoverseAvatarChoice> AvatarChoices;
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|Avatars") bool ChangeAvatar(const FString& Path);
+    // Folded world environment args as last projected (render-scene environment.sky / grass).
+    TSharedPtr<FJsonObject> WorldSky, WorldGrass;
+    AEidoverseScene* GetScene() const { return DynamicScene; }
     // http(s)://host[:port] of the configured endpoint, for /defs and /library.
     UFUNCTION(BlueprintPure, Category="Eidoverse") FString HttpBase() const;
     // General-purpose client (AEidoverseGameMode): show the front door while offline.
@@ -207,6 +232,9 @@ private:
     int64 LastLogSequence=-1;
     bool bWanted=false;
     FString LastExplorerMode;
+    bool bRejoining=false;
+    void SendJoin();
+    void ReadRights(const TSharedPtr<FJsonObject>& Rights);
     void Status(const FString& Value);
     void ClearPeers();
     void Announce(const FString& Id,const FString& Avatar);

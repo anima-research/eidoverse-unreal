@@ -363,3 +363,11 @@ void AEidoverseScene::UpdateWater()
             SafeRatio(W.Scatter.X, ReferenceScatter.X), SafeRatio(W.Scatter.Y, ReferenceScatter.Y), SafeRatio(W.Scatter.Z, ReferenceScatter.Z), 0));
     }
 }
+
+void AEidoverseScene::GetEntities(TArray<TPair<FString, FString>>& Out) const
+{
+    Out.Reset();
+    for (const auto& Pair : Items)
+        Out.Add({Pair.Key, !Pair.Value.Lib.IsEmpty() ? Pair.Value.Lib : Pair.Value.Kind});
+    Out.Sort([](const TPair<FString, FString>& A, const TPair<FString, FString>& B) { return A.Key < B.Key; });
+}
