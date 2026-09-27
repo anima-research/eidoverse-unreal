@@ -10,7 +10,7 @@ import json
 import unreal
 unreal.EditorPythonScripting.set_keep_python_script_alive(True)
 
-PORT = 19350
+PORT = 8993
 editor = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem)
 level = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
 if not editor.get_game_world():
@@ -97,6 +97,11 @@ def tick(dt):
         return step('keyboard')
     if st['step'] == 'keyboard' and since > 3:
         shot(w, 'ui_keyboard_chat')
+        unreal.SystemLibrary.execute_console_command(w, 'Eidoverse.TestHUDDrag')
+        return step('dragged')
+    if st['step'] == 'dragged' and since > 2:
+        shot(w, 'ui_dragged')
+        hud.reset_layout()
         return step('end')
     if st['step'] == 'end' and since > 1.5:
         done(True)

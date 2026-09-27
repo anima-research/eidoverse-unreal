@@ -55,10 +55,24 @@ public:
     UPROPERTY(BlueprintAssignable, Category="Eidoverse|UI") FClosed OnClosed;
     // Content goes here (built by the owning HUD).
     void SetContent(UWidget* Content);
+    // Drag by the title row, resize from the bottom-right corner (web frames.js).
+    bool bLocked = false;
+    TFunction<void()> OnLayoutChanged;
+    // Canvas-local top-left; converts the slot to top-left anchoring first.
+    void SetLayout(FVector2D Position, FVector2D Size);
+    bool GetLayout(FVector2D& Position, FVector2D& Size) const;
 protected:
     virtual TSharedRef<SWidget> RebuildWidget() override;
+    virtual FReply NativeOnMouseButtonDown(const FGeometry& Geometry, const FPointerEvent& Event) override;
+    virtual FReply NativeOnMouseMove(const FGeometry& Geometry, const FPointerEvent& Event) override;
+    virtual FReply NativeOnMouseButtonUp(const FGeometry& Geometry, const FPointerEvent& Event) override;
 private:
     UFUNCTION() void HandleClose();
+    UPROPERTY() TObjectPtr<class USizeBox> SizeBox;
+    enum class EDrag : uint8 { None, Move, Resize } Drag = EDrag::None;
+    FVector2D DragMouse = FVector2D::ZeroVector, DragPosition = FVector2D::ZeroVector, DragSize = FVector2D::ZeroVector;
+    bool MakeTopLeft();
+    FVector2D CanvasPoint(const FPointerEvent& Event) const;
 };
 
 UCLASS()
@@ -74,6 +88,10 @@ public:
     UFUNCTION(BlueprintPure, Category="Eidoverse|UI") bool IsFrameOpen(FName Id) const;
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void ToggleHelp();
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void ToggleMenu();
+    // Frame layout (position, size, open) persists per user; lock stops dragging.
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void SetLayoutLocked(bool bLocked);
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void ResetLayout();
+    UFUNCTION(BlueprintPure, Category="Eidoverse|UI") bool IsLayoutLocked() const { return bLayoutLocked; }
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void FocusChat();
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void Toast(const FString& Text, bool bAttention = false);
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void Hint(const FString& Text, float Seconds = 4);
@@ -82,6 +100,7 @@ public:
     UFUNCTION(BlueprintPure, Category="Eidoverse|UI") bool IsPointerMode() const { return bPointerMode; }
     void NotifyChatLine(const FString& Sender, const FString& Text, bool bPrivate);
     bool IsChatFocused() const;
+    UEidoverseFrame* GetFrame(FName Id) const { return Frames.FindRef(Id); }
     FString ChatDraft() const;
     void ReloadDefs();
 
@@ -111,6 +130,13 @@ private:
     UPROPERTY() TObjectPtr<UTextBlock> DoorStatus;
     UPROPERTY() TObjectPtr<UTextBlock> DoorLogin;
     bool bDoorShown = false, bDoorFilled = false;
+    // Layout
+    struct FFrameDefault { FVector2D Size, Anchor, Alignment, Offset; bool bOpen = false; };
+    TMap<FName, FFrameDefault> FrameDefaults;
+    bool bLayoutLocked = false, bSuppressLayoutSave = false;
+    UPROPERTY() TObjectPtr<UTextBlock> LockLabel;
+    void LoadLayout();
+    void SaveLayout();
     // Chat
     UPROPERTY() TObjectPtr<UScrollBox> ChatLog;
     UPROPERTY() TObjectPtr<UEditableTextBox> ChatInput;

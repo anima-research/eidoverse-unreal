@@ -29,6 +29,7 @@
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "Styling/CoreStyle.h"
+#include "Misc/ConfigCacheIni.h"
 
 // ---------------------------------------------------------------- theme
 
@@ -171,10 +172,12 @@ TSharedRef<SWidget> UEidoverseFrame::RebuildWidget()
         Close->SetContent(X);
         Close->OnClicked.AddDynamic(this, &UEidoverseFrame::HandleClose);
         Head->AddChildToHorizontalBox(Close)->SetPadding(FMargin(0, 0, 4, 0));
+        Head->SetCursor(EMouseCursor::CardinalCross);  // drag handle
         Root->AddChildToVerticalBox(Head)->SetPadding(FMargin(8, 0, 0, 2));
         auto* Size = WidgetTree->ConstructWidget<USizeBox>();
         Size->SetWidthOverride(PanelSize.X);
         Size->SetHeightOverride(PanelSize.Y);
+        SizeBox = Size;
         Body = WidgetTree->ConstructWidget<UBorder>();
         Body->SetBrush(FEidoverseTheme::Rounded(FEidoverseTheme::Panel(), 10, FEidoverseTheme::Edge(), 1));
         Body->SetPadding(FMargin(12));
@@ -184,10 +187,96 @@ TSharedRef<SWidget> UEidoverseFrame::RebuildWidget()
     return Super::RebuildWidget();
 }
 
+namespace { constexpr float FrameHeader = 24, ResizeCorner = 18; const FVector2D MinFrame(200, 120); }
+
+FVector2D UEidoverseFrame::CanvasPoint(const FPointerEvent& Event) const
+{
+    const UWidget* Parent = GetParent();
+    return Parent ? Parent->GetCachedGeometry().AbsoluteToLocal(Event.GetScreenSpacePosition()) : Event.GetScreenSpacePosition();
+}
+
+bool UEidoverseFrame::MakeTopLeft()
+{
+    auto* Canvas = Cast<UCanvasPanelSlot>(Slot);
+    if (!Canvas || !GetParent()) return false;
+    const FAnchors A = Canvas->GetAnchors();
+    if (A.Minimum == FVector2D::ZeroVector && A.Maximum == FVector2D::ZeroVector && Canvas->GetAlignment() == FVector2D::ZeroVector) return true;
+    const FVector2D TopLeft = GetParent()->GetCachedGeometry().AbsoluteToLocal(GetCachedGeometry().GetAbsolutePosition());
+    Canvas->SetAnchors(FAnchors(0, 0));
+    Canvas->SetAlignment(FVector2D::ZeroVector);
+    Canvas->SetPosition(TopLeft);
+    return true;
+}
+
+void UEidoverseFrame::SetLayout(FVector2D Position, FVector2D Size)
+{
+    auto* Canvas = Cast<UCanvasPanelSlot>(Slot);
+    if (!Canvas) return;
+    Canvas->SetAnchors(FAnchors(0, 0));
+    Canvas->SetAlignment(FVector2D::ZeroVector);
+    Canvas->SetPosition(Position);
+    PanelSize = FVector2D(FMath::Max(Size.X, MinFrame.X), FMath::Max(Size.Y, MinFrame.Y));
+    if (SizeBox) { SizeBox->SetWidthOverride(PanelSize.X); SizeBox->SetHeightOverride(PanelSize.Y); }
+}
+
+bool UEidoverseFrame::GetLayout(FVector2D& Position, FVector2D& Size) const
+{
+    const auto* Canvas = Cast<UCanvasPanelSlot>(Slot);
+    if (!Canvas || Canvas->GetAnchors().Minimum != FVector2D::ZeroVector || Canvas->GetAlignment() != FVector2D::ZeroVector) return false;
+    Position = Canvas->GetPosition();
+    Size = PanelSize;
+    return true;
+}
+
+FReply UEidoverseFrame::NativeOnMouseButtonDown(const FGeometry& Geometry, const FPointerEvent& Event)
+{
+    if (bLocked || Event.GetEffectingButton() != EKeys::LeftMouseButton || !MakeTopLeft()) return Super::NativeOnMouseButtonDown(Geometry, Event);
+    const FVector2D Local = Geometry.AbsoluteToLocal(Event.GetScreenSpacePosition()), Extent = Geometry.GetLocalSize();
+    if (Local.X > Extent.X - ResizeCorner && Local.Y > Extent.Y - ResizeCorner) Drag = EDrag::Resize;
+    else if (Local.Y < FrameHeader) Drag = EDrag::Move;
+    else return Super::NativeOnMouseButtonDown(Geometry, Event);
+    DragMouse = CanvasPoint(Event);
+    DragPosition = Cast<UCanvasPanelSlot>(Slot)->GetPosition();
+    DragSize = PanelSize;
+    return FReply::Handled().CaptureMouse(TakeWidget());
+}
+
+FReply UEidoverseFrame::NativeOnMouseMove(const FGeometry& Geometry, const FPointerEvent& Event)
+{
+    if (Drag == EDrag::None) return Super::NativeOnMouseMove(Geometry, Event);
+    const FVector2D Delta = CanvasPoint(Event) - DragMouse;
+    const FVector2D Bounds = GetParent() ? GetParent()->GetCachedGeometry().GetLocalSize() : FVector2D(1e6);
+    if (Drag == EDrag::Move)
+    {
+        const FVector2D Extent = GetCachedGeometry().GetLocalSize();
+        FVector2D P = DragPosition + Delta;
+        // Keep the title reachable: never fully off screen.
+        P.X = FMath::Clamp(P.X, 40 - Extent.X, Bounds.X - 40);
+        P.Y = FMath::Clamp(P.Y, 0.0, Bounds.Y - FrameHeader);
+        Cast<UCanvasPanelSlot>(Slot)->SetPosition(P);
+    }
+    else
+    {
+        const FVector2D Max = Bounds - DragPosition - FVector2D(0, FrameHeader);
+        SetLayout(DragPosition, FVector2D(FMath::Clamp(DragSize.X + Delta.X, MinFrame.X, FMath::Max(MinFrame.X, Max.X)),
+                                          FMath::Clamp(DragSize.Y + Delta.Y, MinFrame.Y, FMath::Max(MinFrame.Y, Max.Y))));
+    }
+    return FReply::Handled();
+}
+
+FReply UEidoverseFrame::NativeOnMouseButtonUp(const FGeometry& Geometry, const FPointerEvent& Event)
+{
+    if (Drag == EDrag::None) return Super::NativeOnMouseButtonUp(Geometry, Event);
+    Drag = EDrag::None;
+    if (OnLayoutChanged) OnLayoutChanged();
+    return FReply::Handled().ReleaseMouseCapture();
+}
+
 void UEidoverseFrame::HandleClose()
 {
     SetVisibility(ESlateVisibility::Collapsed);
     OnClosed.Broadcast();
+    if (OnLayoutChanged) OnLayoutChanged();
 }
 
 // ---------------------------------------------------------------- HUD helpers
@@ -267,13 +356,15 @@ UEidoverseFrame* UEidoverseHUD::AddFrame(FName Id, const FString& Title, UWidget
     F->Title = FText::FromString(Title);
     F->PanelSize = Size;
     F->SetContent(Content);
-    F->SetVisibility(bOpen ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
+    F->SetVisibility(bOpen ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
     auto* Slot = Canvas->AddChildToCanvas(F);
     Slot->SetAnchors(FAnchors(Anchor.X, Anchor.Y));
     Slot->SetAlignment(Alignment);
     Slot->SetPosition(Offset);
     Slot->SetAutoSize(true);
     Frames.Add(Id, F);
+    FrameDefaults.Add(Id, {Size, Anchor, Alignment, Offset, bOpen});
+    F->OnLayoutChanged = [this]() { SaveLayout(); };
     return F;
 }
 
@@ -328,6 +419,72 @@ void UEidoverseHUD::Build()
     HelpSlot->SetAnchors(FAnchors(0, 0, 1, 1));
     HelpSlot->SetOffsets(FMargin(0));
     RefreshRail();
+    LoadLayout();
+}
+
+namespace { const TCHAR* LayoutSection = TEXT("/Script/EidoverseClient.Layout"); }
+
+void UEidoverseHUD::SaveLayout()
+{
+    if (bSuppressLayoutSave) return;
+    for (const auto& Pair : Frames)
+    {
+        FVector2D P, Size;
+        const bool bMoved = Pair.Value && Pair.Value->GetLayout(P, Size);
+        const FString Value = bMoved ? FString::Printf(TEXT("%.0f,%.0f,%.0f,%.0f,%d"), P.X, P.Y, Size.X, Size.Y, IsFrameOpen(Pair.Key) ? 1 : 0)
+                                     : FString::Printf(TEXT(",,,,%d"), IsFrameOpen(Pair.Key) ? 1 : 0);
+        GConfig->SetString(LayoutSection, *Pair.Key.ToString(), *Value, GGameUserSettingsIni);
+    }
+    GConfig->SetBool(LayoutSection, TEXT("Locked"), bLayoutLocked, GGameUserSettingsIni);
+    GConfig->Flush(false, GGameUserSettingsIni);
+}
+
+void UEidoverseHUD::LoadLayout()
+{
+    TGuardValue<bool> Guard(bSuppressLayoutSave, true);
+    bool bLocked = false;
+    GConfig->GetBool(LayoutSection, TEXT("Locked"), bLocked, GGameUserSettingsIni);
+    SetLayoutLocked(bLocked);
+    for (const auto& Pair : Frames)
+    {
+        FString Value;
+        if (!Pair.Value || !GConfig->GetString(LayoutSection, *Pair.Key.ToString(), Value, GGameUserSettingsIni)) continue;
+        TArray<FString> Parts;
+        Value.ParseIntoArray(Parts, TEXT(","), false);
+        if (Parts.Num() != 5) continue;
+        if (!Parts[0].IsEmpty())
+            Pair.Value->SetLayout(FVector2D(FCString::Atof(*Parts[0]), FCString::Atof(*Parts[1])), FVector2D(FCString::Atof(*Parts[2]), FCString::Atof(*Parts[3])));
+        ShowFrame(Pair.Key, Parts[4] == TEXT("1"));
+    }
+}
+
+void UEidoverseHUD::SetLayoutLocked(bool bLocked)
+{
+    bLayoutLocked = bLocked;
+    for (const auto& Pair : Frames) if (Pair.Value) Pair.Value->bLocked = bLocked;
+    if (LockLabel) LockLabel->SetText(FText::FromString(bLocked ? TEXT("layout locked") : TEXT("layout unlocked")));
+    SaveLayout();
+}
+
+void UEidoverseHUD::ResetLayout()
+{
+    {
+        TGuardValue<bool> Guard(bSuppressLayoutSave, true);
+        for (const auto& Pair : Frames)
+        {
+            const FFrameDefault* D = FrameDefaults.Find(Pair.Key);
+            auto* CanvasSlot = Pair.Value ? Cast<UCanvasPanelSlot>(Pair.Value->Slot) : nullptr;
+            if (!D || !CanvasSlot) continue;
+            Pair.Value->SetLayout(FVector2D::ZeroVector, D->Size);
+            CanvasSlot->SetAnchors(FAnchors(D->Anchor.X, D->Anchor.Y));
+            CanvasSlot->SetAlignment(D->Alignment);
+            CanvasSlot->SetPosition(D->Offset);
+            ShowFrame(Pair.Key, D->bOpen);
+        }
+        GConfig->EmptySection(LayoutSection, GGameUserSettingsIni);
+    }
+    SetLayoutLocked(false);
+    Toast(TEXT("Layout reset."));
 }
 
 UWidget* UEidoverseHUD::BuildRail()
@@ -363,7 +520,8 @@ UWidget* UEidoverseHUD::BuildMenu()
         {"profile", TEXT("Profile"), TEXT("profile")}, {"chat", TEXT("Chat"), TEXT("chat")},
         {"world", TEXT("World"), TEXT("world")}, {"emotes", TEXT("Emotes"), TEXT("emotes")},
         {"people", TEXT("People"), TEXT("people here  \u00B7  Tab")}, {"help", TEXT("Search"), TEXT("help  \u00B7  ?")},
-        {"pointer", TEXT("Eye"), TEXT("pointer / mouselook  \u00B7  M")}};
+        {"pointer", TEXT("Eye"), TEXT("pointer / mouselook  \u00B7  M")},
+        {"lock", TEXT("Lock"), TEXT("layout unlocked")}, {"reset", TEXT("Reset"), TEXT("reset layout")}};
     for (const FEntry& E : Entries)
     {
         auto* B = WidgetTree->ConstructWidget<UButton>();
@@ -376,6 +534,7 @@ UWidget* UEidoverseHUD::BuildMenu()
         Row->AddChildToHorizontalBox(Img)->SetVerticalAlignment(VAlign_Center);
         auto* Text = Label(E.Text, 11);
         Text->SetAutoWrapText(false);
+        if (E.Id == "lock") LockLabel = Text;
         Row->AddChildToHorizontalBox(Text)->SetPadding(FMargin(10, 0, 0, 0));
         auto* Pad = WidgetTree->ConstructWidget<UBorder>();
         Pad->SetBrushColor(FLinearColor::Transparent);
@@ -576,8 +735,8 @@ void UEidoverseHUD::UpdateDoor()
     {
         bDoorShown = bShow;
         Door->SetVisibility(bShow ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
-        if (bShow) { ShowFrame("world", false); SetPointerMode(true); }
-        else { ShowFrame("chat", true); SetPointerMode(false); bDoorFilled = false; }  // refill with the last world next time
+        if (bShow) { SetPointerMode(true); }
+        else { SetPointerMode(false); bDoorFilled = false; LoadLayout(); }  // refill with the last world next time
     }
     if (!bShow) return;
     const FString Status = Bridge->ConnectionStatus;
@@ -994,8 +1153,9 @@ void UEidoverseHUD::ShowFrame(FName Id, bool bShow)
     if (Id == "emotes") { if (EmoteBar && EmoteBar->GetParent()) EmoteBar->GetParent()->SetVisibility(bShow ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed); return; }
     if (Id == "help") { if (bShow != (HelpOverlay->GetVisibility() != ESlateVisibility::Collapsed)) ToggleHelp(); return; }
     if (Id == "pointer") { SetPointerMode(!bPointerMode); return; }
-    if (UEidoverseFrame* F = Frames.FindRef(Id).Get()) F->SetVisibility(bShow ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
+    if (UEidoverseFrame* F = Frames.FindRef(Id).Get()) F->SetVisibility(bShow ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
     if (Id == "people") RefreshPeople(true);
+    if (!bDoorShown) SaveLayout();
 }
 
 void UEidoverseHUD::ToggleFrame(FName Id)
@@ -1084,7 +1244,9 @@ void UEidoverseHUD::OnRailClicked()
 void UEidoverseHUD::OnMenuEntry()
 {
     const FName Id = ResolveClicked();
-    if (Id != NAME_None) ToggleFrame(Id);
+    if (Id == "lock") SetLayoutLocked(!bLayoutLocked);
+    else if (Id == "reset") ResetLayout();
+    else if (Id != NAME_None) ToggleFrame(Id);
     ToggleMenu();
 }
 void UEidoverseHUD::OnEmoteClicked()
@@ -1147,5 +1309,50 @@ static FAutoConsoleCommandWithWorld HUDChatProbe(TEXT("Eidoverse.TestHUDChat"), 
                 Typed == TEXT("typed through the UMG shell"), HUD->ChatDraft().IsEmpty(), !HUD->IsChatFocused());
             return false;
         }), .5f);
+    }));
+#endif
+
+#if WITH_DEV_AUTOMATION_TESTS
+// Drags the chat frame by its title with synthetic Slate mouse events and
+// reports the slot move and the persisted layout. EIDOVERSE_HUD_DRAG_PROBE.
+static FAutoConsoleCommandWithWorld HUDDragProbe(TEXT("Eidoverse.TestHUDDrag"), TEXT("Drag the chat frame through real Slate mouse events."),
+    FConsoleCommandWithWorldDelegate::CreateLambda([](UWorld* World)
+    {
+        TActorIterator<AEidoverseBridge> It(World);
+        UEidoverseHUD* HUD = It ? It->HUD.Get() : nullptr;
+        UEidoverseFrame* Frame = HUD ? HUD->GetFrame("chat") : nullptr;
+        if (!Frame) { UE_LOG(LogTemp, Warning, TEXT("EIDOVERSE_HUD_DRAG_PROBE no frame")); return; }
+        HUD->SetPointerMode(true);
+        const FGeometry G = Frame->GetCachedGeometry();
+        const FVector2D Grab = G.LocalToAbsolute(FVector2D(G.GetLocalSize().X * .5f, 8));
+        const FVector2D Before = G.GetAbsolutePosition();
+        const FVector2D Delta(200, -150);
+        auto Event = [](const FVector2D& At, const FVector2D& Last, bool bDown) {
+            TSet<FKey> Pressed; if (bDown) Pressed.Add(EKeys::LeftMouseButton);
+            return FPointerEvent(0, At, Last, Pressed, EKeys::LeftMouseButton, 0, FModifierKeysState());
+        };
+        auto& App = FSlateApplication::Get();
+        App.SetCursorPos(Grab);
+        App.ProcessMouseButtonDownEvent(nullptr, Event(Grab, Grab, true));
+        for (int32 I = 1; I <= 10; ++I)
+        {
+            const FVector2D At = Grab + Delta * (I / 10.f), Last = Grab + Delta * ((I - 1) / 10.f);
+            App.SetCursorPos(At);
+            App.ProcessMouseMoveEvent(Event(At, Last, true));
+        }
+        App.ProcessMouseButtonUpEvent(Event(Grab + Delta, Grab + Delta, false));
+        TWeakObjectPtr<UEidoverseFrame> Weak(Frame);
+        FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([Weak, Before, Delta](float)
+        {
+            if (!Weak.IsValid()) return false;
+            const FVector2D After = Weak->GetCachedGeometry().GetAbsolutePosition();
+            FVector2D P, S;
+            const bool bSaved = Weak->GetLayout(P, S);
+            FString Stored;
+            GConfig->GetString(TEXT("/Script/EidoverseClient.Layout"), TEXT("chat"), Stored, GGameUserSettingsIni);
+            UE_LOG(LogTemp, Warning, TEXT("EIDOVERSE_HUD_DRAG_PROBE moved=(%.0f,%.0f) expected=(%.0f,%.0f) topleft=%d stored=%s"),
+                After.X - Before.X, After.Y - Before.Y, Delta.X, Delta.Y, bSaved, *Stored);
+            return false;
+        }), .3f);
     }));
 #endif
