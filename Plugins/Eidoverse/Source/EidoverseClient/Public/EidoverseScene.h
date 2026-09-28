@@ -91,6 +91,8 @@ public:
     FVector GetSceneOrigin() const { return SceneOrigin; }
     // Entities as projected: id -> library path (or kind for lights/structures), sorted by id.
     void GetEntities(TArray<TPair<FString, FString>>& Out) const;
+    // Projection revision of an entity (changes with its lib/kind/components/data), or empty.
+    FString GetEntityRevision(const FString& Id) const;
     // Build mode (EidoverseSceneBuild.cpp). Wire pose of an entity as last projected;
     // bAnimated when motion or a mount drives it (placing would fight the server).
     bool GetEntityPose(const FString& Id, FVector& OutWirePos, double& OutYaw, double& OutScale, FString& OutLib, bool& bAnimated) const;

@@ -96,3 +96,9 @@ void AEidoverseScene::TickGhost()
     M->SetRelativeScale3D(GhostAsset->bMirrored ? FVector(1, -1, 1) : FVector::OneVector);
     for (int32 I = 0; I < M->GetNumMaterials(); ++I) M->SetMaterial(I, GhostMaterial);
 }
+
+FString AEidoverseScene::GetEntityRevision(const FString& Id) const
+{
+    const FEidoverseSceneItem* E = Items.Find(Id);
+    return E ? E->Revision : FString();
+}

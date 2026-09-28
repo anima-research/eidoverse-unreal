@@ -137,6 +137,13 @@ public:
     // Folded world environment args as last projected (render-scene environment.sky / grass).
     TSharedPtr<FJsonObject> WorldSky, WorldGrass;
     AEidoverseScene* GetScene() const { return DynamicScene; }
+    // One entity's authored component bag ({type:'inspect'}, docs/NATIVE-WORLD-RENDERING.md).
+    UFUNCTION(BlueprintCallable, Category="Eidoverse") bool RequestInspect(const FString& Id);
+    UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse") FString InspectedId;
+    UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse") int32 InspectSerial=0;
+    // The last reply's comp bag as JSON (empty until one arrives; "{}" when none).
+    UFUNCTION(BlueprintPure, Category="Eidoverse") FString GetInspectedComponents() const;
+    TSharedPtr<FJsonObject> InspectReply;
     // http(s)://host[:port] of the configured endpoint, for /defs and /library.
     UFUNCTION(BlueprintPure, Category="Eidoverse") FString HttpBase() const;
     // General-purpose client (AEidoverseGameMode): show the front door while offline.

@@ -173,7 +173,16 @@ UWidget* UEidoverseHUD::BuildWorldScene()
     auto* Scroll = WidgetTree->ConstructWidget<UScrollBox>();
     SceneList = WidgetTree->ConstructWidget<UVerticalBox>();
     Scroll->AddChild(SceneList);
-    Column->AddChildToVerticalBox(Scroll)->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+    // The list keeps to the top; the inspector below gets the rest.
+    auto* ListBox = WidgetTree->ConstructWidget<USizeBox>();
+    ListBox->SetMaxDesiredHeight(150);
+    ListBox->SetContent(Scroll);
+    Column->AddChildToVerticalBox(ListBox);
+    Column->AddChildToVerticalBox(Label(TEXT("SELECTED"), 9, FEidoverseTheme::Dim(), true))->SetPadding(FMargin(0, 10, 0, 4));
+    auto* InspectScroll = WidgetTree->ConstructWidget<UScrollBox>();
+    SceneInspector = WidgetTree->ConstructWidget<UVerticalBox>();
+    InspectScroll->AddChild(SceneInspector);
+    Column->AddChildToVerticalBox(InspectScroll)->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
     return Column;
 }
 
@@ -316,7 +325,8 @@ void UEidoverseHUD::RefreshWorldPanels()
         NextSceneRefresh = Now + 1;
         TArray<TPair<FString, FString>> Entities;
         if (AEidoverseScene* Scene = Bridge->GetScene()) Scene->GetEntities(Entities);
-        int32 SHash = GetTypeHash(bBuild);
+        const FString Selected = GetSelectedEntity();
+        int32 SHash = HashCombine(GetTypeHash(bBuild), GetTypeHash(Selected));
         for (const auto& E : Entities) SHash = HashCombine(SHash, GetTypeHash(E.Key));
         if (SHash != SceneHash)
         {
@@ -325,12 +335,13 @@ void UEidoverseHUD::RefreshWorldPanels()
             for (const auto& E : Entities)
             {
                 auto* Row = WidgetTree->ConstructWidget<UHorizontalBox>();
-                auto* Name = Label(Leaf(E.Value).IsEmpty() ? E.Key : Leaf(E.Value), 11);
+                auto* Name = Label(Leaf(E.Value).IsEmpty() ? E.Key : Leaf(E.Value), 11, E.Key == Selected ? FEidoverseTheme::Brand() : FEidoverseTheme::Text(), E.Key == Selected);
                 Name->SetAutoWrapText(false);
                 Row->AddChildToHorizontalBox(Name)->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
                 auto* Id = Label(E.Key, 9, FEidoverseTheme::Dim());
                 Id->SetAutoWrapText(false);
                 Row->AddChildToHorizontalBox(Id)->SetPadding(FMargin(6, 2, 6, 0));
+                Row->AddChildToHorizontalBox(ActionButton(TEXT("inspect"), TEXT("scene:select:") + E.Key))->SetPadding(FMargin(0, 0, 4, 0));
                 if (bBuild) Row->AddChildToHorizontalBox(ActionButton(TEXT("remove"), TEXT("scene:remove:") + E.Key));
                 SceneList->AddChildToVerticalBox(Row)->SetPadding(FMargin(0, 2));
             }
@@ -338,6 +349,7 @@ void UEidoverseHUD::RefreshWorldPanels()
                 : FString::Printf(TEXT("%d things here%s"), Entities.Num(), bBuild ? TEXT("") : TEXT("  ·  view only"))));
         }
     }
+    if (SceneInspector && WorldTab == 4) RefreshInspector(Now);
 }
 
 void UEidoverseHUD::SelectWorldTab(int32 Tab)
@@ -439,6 +451,8 @@ void UEidoverseHUD::WorldAction(const FString& Action)
             else Refused(TEXT("only the owner can plant"));
         }
     }
+    else if (Id.StartsWith(TEXT("scene:select:"))) { SelectEntity(Id.Mid(13)); SceneHash = 0; NextSceneRefresh = 0; }
+    else if (Id.StartsWith(TEXT("comp:"))) { InspectorAction(Id); return; }
     else if (Id.StartsWith(TEXT("scene:remove:")))
     {
         auto Args = MakeShared<FJsonObject>(); Args->SetStringField(TEXT("id"), Id.Mid(13));

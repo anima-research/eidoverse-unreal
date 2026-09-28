@@ -122,6 +122,9 @@ public:
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") bool PlaceGhost();
     // World transform of the ghost (identity when none).
     UFUNCTION(BlueprintPure, Category="Eidoverse|UI") FTransform GetGhostTransform() const;
+    // Component authoring (scene inspector): data as JSON text, any JSON value; an
+    // empty Json removes the component. Sends the `comp` verb; the server decides.
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") bool SetComponentJson(const FString& Id, const FString& Type, const FString& Json);
     bool IsChatFocused() const;
     UFUNCTION(BlueprintPure, Category="Eidoverse|UI") UEidoverseFrame* GetFrame(FName Id) const { return Frames.FindRef(Id); }
     UScrollBox* GetChatLog() const { return ChatLog; }
@@ -247,6 +250,18 @@ private:
     UPROPERTY() TObjectPtr<UWrapBox> GroundPlantings;
     int32 GroundDefsHash = 0;
     UPROPERTY() TObjectPtr<UVerticalBox> SceneList;
+    // Scene inspector (EidoverseUIInspect.cpp): the selected entity's components.
+    UPROPERTY() TObjectPtr<UVerticalBox> SceneInspector;
+    UPROPERTY() TObjectPtr<UTextBlock> InspectPose;
+    UPROPERTY() TObjectPtr<class UMultiLineEditableTextBox> CompEditor;
+    UPROPERTY() TObjectPtr<UEditableTextBox> CompTypeInput;
+    FString InspectingId, InspectingRevision, EditingComp;
+    bool bAddingComp = false;
+    int32 InspectHash = 0;
+    double ReinspectAt = 0;
+    void RefreshInspector(double Now);
+    void RebuildInspector();
+    void InspectorAction(const FString& Action);
     UPROPERTY() TObjectPtr<UTextBlock> SceneNote;
     double NextSceneRefresh = 0;
     int32 SceneHash = 0;

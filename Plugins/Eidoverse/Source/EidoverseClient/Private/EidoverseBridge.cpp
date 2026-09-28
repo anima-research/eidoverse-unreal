@@ -109,6 +109,19 @@ bool AEidoverseBridge::JoinFromDoor(const FString& Server,const FString& World,c
     Connect();
     return ConnectionStatus!=TEXT("offline")&&!ConnectionStatus.StartsWith(TEXT("refused"));
 }
+bool AEidoverseBridge::RequestInspect(const FString& Id)
+{
+    if(!bJoined||Id.IsEmpty()||Id.Len()>128)return false;
+    auto J=MakeShared<FJsonObject>();J->SetStringField(TEXT("type"),TEXT("inspect"));J->SetStringField(TEXT("id"),Id);
+    Send(J);return true;
+}
+FString AEidoverseBridge::GetInspectedComponents() const
+{
+    const TSharedPtr<FJsonObject>* Comp=nullptr;
+    if(!InspectReply||!InspectReply->TryGetObjectField(TEXT("comp"),Comp))return FString();
+    FString Out;auto W=TJsonWriterFactory<TCHAR,TCondensedJsonPrintPolicy<TCHAR>>::Create(&Out);
+    FJsonSerializer::Serialize((*Comp).ToSharedRef(),W);return Out;
+}
 bool AEidoverseBridge::SendTyping(const FString& To)
 {
     if(!bJoined||bSpectator)return false;
@@ -481,6 +494,7 @@ void AEidoverseBridge::Receive(const FString& Message)
     }
     else if(Type==TEXT("your-rights")&&bJoined)
     {const TSharedPtr<FJsonObject>* Rights=nullptr;if(J->TryGetObjectField(TEXT("rights"),Rights))ReadRights(*Rights);}
+    else if(Type==TEXT("inspect")&&bJoined){InspectedId=Eido::String(J,TEXT("id"));InspectReply=J;++InspectSerial;}
     else if(Type==TEXT("typing")&&bJoined)
     {
         // Public composing, or a whisper being composed to us; others' DMs stay private.
