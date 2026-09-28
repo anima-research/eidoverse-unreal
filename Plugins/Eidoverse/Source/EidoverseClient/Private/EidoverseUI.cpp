@@ -405,6 +405,7 @@ void UEidoverseHUD::Build()
     AddFrame("people", TEXT("People here"), BuildPeople(), {240, 280}, {1, .5f}, {1, .5f}, {-10, 40}, false);
     AddFrame("profile", TEXT("Profile"), BuildProfile(), {300, 170}, {0, 0}, {0, 0}, {62, 60}, false);
     AddFrame("settings", TEXT("Settings"), BuildSettings(), {320, 390}, {0, 0}, {0, 0}, {62, 280}, false);
+    AddFrame("build", TEXT("Build"), BuildBuild(), {360, 470}, {0, 0}, {0, 0}, {400, 60}, false);
     Menu = Cast<UBorder>(BuildMenu());
     Place(Menu, {0, 0}, {0, 0}, {62, 8});
     ToastBox = WidgetTree->ConstructWidget<UVerticalBox>();
@@ -510,7 +511,7 @@ UWidget* UEidoverseHUD::BuildRail()
     MarkIcon = RailIcons.FindRef("menu");
     const TPair<FName, const TCHAR*> Entries[] = {
         {"profile", TEXT("Profile")}, {"chat", TEXT("Chat")}, {"world", TEXT("World")},
-        {"emotes", TEXT("Emotes")}, {"people", TEXT("People")}, {"settings", TEXT("Settings")}, {"help", TEXT("Search")}};
+        {"emotes", TEXT("Emotes")}, {"people", TEXT("People")}, {"build", TEXT("Build")}, {"settings", TEXT("Settings")}, {"help", TEXT("Search")}};
     for (const auto& E : Entries) Column->AddChildToVerticalBox(IconButton(E.Value, 20, E.Key));
     return Panel;
 }
@@ -531,7 +532,7 @@ UWidget* UEidoverseHUD::BuildMenu()
     const FEntry Entries[] = {
         {"profile", TEXT("Profile"), TEXT("profile")}, {"chat", TEXT("Chat"), TEXT("chat")},
         {"world", TEXT("World"), TEXT("world")}, {"emotes", TEXT("Emotes"), TEXT("emotes")},
-        {"people", TEXT("People"), TEXT("people here  \u00B7  Tab")}, {"settings", TEXT("Settings"), TEXT("settings")}, {"help", TEXT("Search"), TEXT("help  \u00B7  ?")},
+        {"people", TEXT("People"), TEXT("people here  \u00B7  Tab")}, {"build", TEXT("Build"), TEXT("build  \u00B7  B")}, {"settings", TEXT("Settings"), TEXT("settings")}, {"help", TEXT("Search"), TEXT("help  \u00B7  ?")},
         {"pointer", TEXT("Eye"), TEXT("pointer / mouselook  \u00B7  M")},
         {"lock", TEXT("Lock"), TEXT("layout unlocked")}, {"reset", TEXT("Reset"), TEXT("reset layout")}};
     for (const FEntry& E : Entries)
@@ -1145,7 +1146,12 @@ void UEidoverseHUD::NativeTick(const FGeometry& Geometry, float Delta)
     // Keys while the game has focus (the chat box handles its own when focused).
     auto* PC = GetOwningPlayer();
     if (bDoorShown) return;
-    if (!PC || (ChatInput && ChatInput->HasKeyboardFocus()) || (WorldName && WorldName->HasKeyboardFocus()) || (ProfileName && ProfileName->HasKeyboardFocus())) return;
+    // Any focused text field is typing: no world keys.
+    const TSharedPtr<SWidget> Focused = FSlateApplication::Get().GetKeyboardFocusedWidget();
+    const bool bTyping = Focused.IsValid() && (Focused->GetType() == TEXT("SEditableText") || Focused->GetType() == TEXT("SMultiLineEditableText"));
+    if (!PC || bTyping) { if (!bTyping) return; TickBuild(Now); return; }
+    TickBuild(Now);
+    if (PC->WasInputKeyJustPressed(EKeys::B)) ToggleFrame("build");
     if (PC->WasInputKeyJustPressed(EKeys::Enter)) FocusChat();
     else if (PC->WasInputKeyJustPressed(EKeys::Tab)) ToggleFrame("people");
     else if (PC->WasInputKeyJustPressed(EKeys::M)) SetPointerMode(!bPointerMode);

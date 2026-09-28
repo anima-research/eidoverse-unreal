@@ -7,6 +7,7 @@ class FJsonObject;
 class UEidoverseAvatarAsset;
 class UProceduralMeshComponent;
 class UMaterialInstanceDynamic;
+class UMaterialInterface;
 class UStaticMeshComponent;
 class UStaticMesh;
 class UDirectionalLightComponent;
@@ -90,6 +91,12 @@ public:
     FVector GetSceneOrigin() const { return SceneOrigin; }
     // Entities as projected: id -> library path (or kind for lights/structures), sorted by id.
     void GetEntities(TArray<TPair<FString, FString>>& Out) const;
+    // Build mode (EidoverseSceneBuild.cpp). Wire pose of an entity as last projected;
+    // bAnimated when motion or a mount drives it (placing would fight the server).
+    bool GetEntityPose(const FString& Id, FVector& OutWirePos, double& OutYaw, double& OutScale, FString& OutLib, bool& bAnimated) const;
+    // Selection overlay on one entity's meshes (empty Id clears).
+    void SetSelected(const FString& Id);
+    FString GetSelected() const { return SelectedId; }
     UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Eidoverse|Water") int32 WaterVolumeCount=0;
     UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Eidoverse|Water") int32 AirBoxCount=0;
 private:
@@ -129,6 +136,8 @@ private:
     UPROPERTY() TObjectPtr<ASpectralOcean> Ocean;
     UPROPERTY() TObjectPtr<APostProcessVolume> WaterPost;
     bool bTerrainAuthored=true;
+    FString SelectedId;
+    UPROPERTY() TObjectPtr<UMaterialInterface> SelectionMaterial;
     // Spectral sunlight rig for aquatic worlds (sharp/scattered RGB + upwelling),
     // following the scene sun; the sun itself then lights only the atmosphere.
     UPROPERTY() TArray<TObjectPtr<UDirectionalLightComponent>> WaterRig;

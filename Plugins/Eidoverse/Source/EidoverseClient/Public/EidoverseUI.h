@@ -108,6 +108,13 @@ public:
     // the same actions its buttons do (e.g. "sky:preset:dusk", "sky:apply", "ground:apply").
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void SelectWorldTab(int32 Tab);
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void WorldAction(const FString& Action);
+    // Build mode (EidoverseUIBuild.cpp): same actions as its buttons and keys, e.g.
+    // "build:spawn:<lib path>", "build:turn:15", "build:raise:0.25", "build:remove", "build:undo".
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void BuildAction(const FString& Action);
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void SelectEntity(const FString& Id);
+    UFUNCTION(BlueprintPure, Category="Eidoverse|UI") FString GetSelectedEntity() const;
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void SearchLibrary(const FString& Query);
+    UFUNCTION(BlueprintPure, Category="Eidoverse|UI") FString GetLastSpawnedEntity() const { return LastSpawned; }
     bool IsChatFocused() const;
     UFUNCTION(BlueprintPure, Category="Eidoverse|UI") UEidoverseFrame* GetFrame(FName Id) const { return Frames.FindRef(Id); }
     UScrollBox* GetChatLog() const { return ChatLog; }
@@ -189,6 +196,22 @@ private:
     UWidget* BuildWorldScene();
     void RefreshWorldPanels();
     void LoadThumb(const FString& Name);
+    void LoadImage(const FString& Url, const FString& Key);
+    UWidget* BuildBuild();
+    void TickBuild(double Now);
+    void RefreshBuild();
+    void PaintLibrary(const TArray<TSharedPtr<FJsonValue>>& Items);
+    bool PlaceSelected(TFunctionRef<void(FVector& Pos, double& Yaw, double& Scale)> Edit);
+    UPROPERTY() TObjectPtr<UEditableTextBox> BuildSearch;
+    UPROPERTY() TObjectPtr<UWrapBox> BuildResults;
+    UPROPERTY() TObjectPtr<UTextBlock> BuildSelected;
+    UPROPERTY() TObjectPtr<UTextBlock> BuildNote;
+    double SearchAt = 0;
+    FString PendingQuery, LastQuery;
+    bool bSearchPending = false;
+    TArray<TPair<FString, FString>> UndoStack;  // inverse verb, args JSON
+    TMap<FString, FString> LibNames;
+    FString LastSpawned;
     UButton* ActionButton(const FString& Text, const FString& Id, bool bPrimary = false);
     UPROPERTY() TObjectPtr<UWidgetSwitcher> WorldPages;
     UPROPERTY() TArray<TObjectPtr<UButton>> WorldTabs;
@@ -248,6 +271,8 @@ private:
     UFUNCTION() void OnChatChanged(const FText& Text);
     UFUNCTION() void OnNameClicked();
     UFUNCTION() void OnWorldClicked();
+    UFUNCTION() void OnBuildClicked();
+    UFUNCTION() void OnBuildSearchChanged(const FText& Text);
     UFUNCTION() void OnJoinClicked();
     UFUNCTION() void OnLocalCommonsClicked();
     UFUNCTION() void OnSignInClicked();

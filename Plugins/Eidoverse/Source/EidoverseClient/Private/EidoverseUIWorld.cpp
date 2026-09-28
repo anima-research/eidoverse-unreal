@@ -180,31 +180,46 @@ UWidget* UEidoverseHUD::BuildWorldScene()
 void UEidoverseHUD::LoadThumb(const FString& Name)
 {
     const FString Base = HttpBase();
-    if (Base.IsEmpty() || ThumbRequested.Contains(Name)) return;
-    ThumbRequested.Add(Name);
+    if (Base.IsEmpty()) return;
+    LoadImage(Base + TEXT("/thumb/") + FGenericPlatformHttp::UrlEncode(Name) + TEXT(".png"), Name);
+}
+
+void UEidoverseHUD::LoadImage(const FString& Url, const FString& Key)
+{
+    if (ThumbRequested.Contains(Key)) return;
+    ThumbRequested.Add(Key);
     auto Request = FHttpModule::Get().CreateRequest();
-    Request->SetURL(Base + TEXT("/thumb/") + FGenericPlatformHttp::UrlEncode(Name) + TEXT(".png"));
+    Request->SetURL(Url);
     Request->SetVerb(TEXT("GET"));
     Request->SetTimeout(10);
     TWeakObjectPtr<UEidoverseHUD> Weak(this);
-    Request->OnProcessRequestComplete().BindLambda([Weak, Name](FHttpRequestPtr, FHttpResponsePtr Response, bool bOk)
+    Request->OnProcessRequestComplete().BindLambda([Weak, Key](FHttpRequestPtr, FHttpResponsePtr Response, bool bOk)
     {
         UEidoverseHUD* Self = Weak.Get();
-        // No thumbnail yet is normal (the first viewer contributes it on the web).
-        if (!Self || !bOk || !Response || Response->GetResponseCode() != 200 || Response->GetContent().Num() > 512 * 1024) return;
+        // Missing images are normal (thumbnails are contributed by viewers).
+        if (!Self || !bOk || !Response || Response->GetResponseCode() != 200 || Response->GetContent().Num() > 1024 * 1024) return;
         IImageWrapperModule& Images = FModuleManager::LoadModuleChecked<IImageWrapperModule>(TEXT("ImageWrapper"));
-        TSharedPtr<IImageWrapper> Png = Images.CreateImageWrapper(EImageFormat::PNG);
+        const TArray<uint8>& Bytes = Response->GetContent();
+        const EImageFormat Format = Images.DetectImageFormat(Bytes.GetData(), Bytes.Num());
+        if (Format != EImageFormat::PNG && Format != EImageFormat::JPEG) return;
+        TSharedPtr<IImageWrapper> Image = Images.CreateImageWrapper(Format);
         TArray<uint8> Pixels;
-        if (!Png || !Png->SetCompressed(Response->GetContent().GetData(), Response->GetContent().Num()) || Png->GetWidth() > 1024 || Png->GetHeight() > 1024 ||
-            !Png->GetRaw(ERGBFormat::BGRA, 8, Pixels)) return;
-        UTexture2D* T = UTexture2D::CreateTransient(Png->GetWidth(), Png->GetHeight(), PF_B8G8R8A8);
+        if (!Image || !Image->SetCompressed(Bytes.GetData(), Bytes.Num()) || Image->GetWidth() > 2048 || Image->GetHeight() > 2048 ||
+            !Image->GetRaw(ERGBFormat::BGRA, 8, Pixels)) return;
+        UTexture2D* T = UTexture2D::CreateTransient(Image->GetWidth(), Image->GetHeight(), PF_B8G8R8A8);
         if (!T) return;
         void* Data = T->GetPlatformData()->Mips[0].BulkData.Lock(LOCK_READ_WRITE);
         FMemory::Memcpy(Data, Pixels.GetData(), Pixels.Num());
         T->GetPlatformData()->Mips[0].BulkData.Unlock();
         T->UpdateResource();
-        Self->Thumbs.Add(Name, T);
-        if (UImage* Img = Self->ThumbImages.FindRef(Name).Get()) { Img->SetBrushFromTexture(T); Img->SetDesiredSizeOverride(FVector2D(64)); }
+        Self->Thumbs.Add(Key, T);
+        if (UImage* Img = Self->ThumbImages.FindRef(Key).Get())
+        {
+            const FVector2D Size = Img->GetDesiredSize();
+            Img->SetBrushFromTexture(T);
+            Img->SetColorAndOpacity(FLinearColor::White);
+            Img->SetDesiredSizeOverride(Size.X > 1 ? Size : FVector2D(64));
+        }
     });
     Request->ProcessRequest();
 }
@@ -234,7 +249,7 @@ void UEidoverseHUD::RefreshWorldPanels()
             auto* Card = WidgetTree->ConstructWidget<UVerticalBox>();
             auto* Img = WidgetTree->ConstructWidget<UImage>();
             Img->SetDesiredSizeOverride(FVector2D(64));
-            if (UTexture2D* T = Thumbs.FindRef(C.Name)) Img->SetBrushFromTexture(T);
+            if (UTexture2D* T = Thumbs.FindRef(C.Name)) { Img->SetBrushFromTexture(T); Img->SetDesiredSizeOverride(FVector2D(64)); }
             else { Img->SetColorAndOpacity(FLinearColor(1, 1, 1, .06f)); LoadThumb(C.Name); }
             ThumbImages.Add(C.Name, Img);
             Card->AddChildToVerticalBox(Img)->SetHorizontalAlignment(HAlign_Center);
