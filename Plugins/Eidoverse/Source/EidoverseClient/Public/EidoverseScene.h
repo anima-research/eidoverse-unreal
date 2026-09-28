@@ -165,7 +165,21 @@ public:
     virtual void Tick(float DeltaSeconds) override;
     // walk | swim | surface: reported in presence locomotion.
     UPROPERTY(Transient,BlueprintReadOnly,Category="Eidoverse") FString LocomotionMode=TEXT("walk");
+    // Follow camera (web controller.js updateFollowCamera): the wheel dollies from
+    // 16 m behind the body through into first person, with hysteresis.
+    UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Eidoverse") TObjectPtr<class USpringArmComponent> Boom;
+    UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Eidoverse") TObjectPtr<class UCameraComponent> Eyes;
+    UPROPERTY(Transient,BlueprintReadOnly,Category="Eidoverse") float CameraDistance=4.2f;
+    UPROPERTY(Transient,BlueprintReadOnly,Category="Eidoverse") bool bFirstPerson=false;
+    // Measured body velocity (cm/s), including shared-law swimming which moves the
+    // actor directly and leaves CharacterMovement's velocity at zero.
+    UPROPERTY(Transient,BlueprintReadOnly,Category="Eidoverse") FVector BodyVelocity=FVector::ZeroVector;
+    UFUNCTION(BlueprintCallable,Category="Eidoverse") void SetCameraDistance(float Meters);
+    UFUNCTION(BlueprintCallable,Category="Eidoverse") void Zoom(float Notches);
 private:
+    FVector LastBodyLocation=FVector::ZeroVector;
+    bool bHasLastBodyLocation=false;
+    void UpdateCamera(float Dt,class APlayerController* PC);
     bool bPreviousMouseSmoothing=true;
     FVector SwimVelocityWire=FVector::ZeroVector;
     bool bSwimming=false;

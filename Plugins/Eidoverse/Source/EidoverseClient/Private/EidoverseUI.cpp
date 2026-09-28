@@ -987,20 +987,20 @@ void UEidoverseHUD::RefreshHelp()
         }
     };
     HelpBody->AddChildToVerticalBox(Label(TEXT("KEYS"), 9, FEidoverseTheme::Dim(), true))->SetPadding(FMargin(0, 0, 0, 6));
-    TArray<TPair<FString, FString>> Keys;
-    const TArray<TSharedPtr<FJsonValue>>* KeyRows = nullptr;
-    if (Help && Help->TryGetArrayField(TEXT("keys"), KeyRows))
-        for (const auto& V : *KeyRows)
-        {
-            const TArray<TSharedPtr<FJsonValue>>* Pair = nullptr;
-            if (V->TryGetArray(Pair) && Pair->Num() >= 2) Keys.Add({(*Pair)[0]->AsString(), (*Pair)[1]->AsString()});
-        }
-    if (Keys.IsEmpty())
-        Keys = {{TEXT("Move"), TEXT("<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>")},
-                {TEXT("Swim"), TEXT("<kbd>Space</kbd> rise · <kbd>C</kbd> dive · <kbd>Shift</kbd> faster")},
-                {TEXT("Chat"), TEXT("<kbd>Enter</kbd> to open")}};
-    // The native client's own pointer model (the web's drag-to-look has no equivalent here).
-    Keys.Add({TEXT("Pointer"), TEXT("<kbd>M</kbd> toggles mouselook and the pointer · <kbd>Esc</kbd> closes panels, frees the pointer")});
+    // The key table is the native client's own (the server's describes the web
+    // client's controls); the world's title, welcome and prose still come from /defs.
+    const TArray<TPair<FString, FString>> Keys = {
+        {TEXT("Move"), TEXT("<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> \u00B7 the mouse looks around \u00B7 <kbd>Space</kbd> jumps")},
+        {TEXT("Swim"), TEXT("<kbd>WASD</kbd> follows your view \u00B7 <kbd>Space</kbd> rise \u00B7 <kbd>C</kbd> / <kbd>Ctrl</kbd> dive \u00B7 <kbd>Shift</kbd> faster")},
+        {TEXT("Use"), TEXT("<kbd>E</kbd> uses the thing you look at \u00B7 <kbd>F</kbd> punts it")},
+        {TEXT("Chat"), TEXT("<kbd>Enter</kbd> to open \u00B7 click a name to mention \u00B7 <kbd>/</kbd> commands \u00B7 <kbd>\u2191</kbd> recalls \u00B7 <kbd>Esc</kbd> back to the world")},
+        {TEXT("People"), TEXT("<kbd>Tab</kbd> people here \u00B7 click someone to whisper")},
+        {TEXT("Emotes"), TEXT("number keys play the emote bar, in its order")},
+        {TEXT("Camera"), TEXT("the mouse wheel zooms from behind your body into first person")},
+        {TEXT("Pointer"), TEXT("<kbd>M</kbd> switches between mouselook and a pointer for panels \u00B7 <kbd>Esc</kbd> frees the pointer")},
+        {TEXT("Build"), TEXT("<kbd>B</kbd> build panel \u00B7 click a thing to select \u00B7 <kbd>Q</kbd>/<kbd>E</kbd> turn \u00B7 <kbd>R</kbd>/<kbd>F</kbd> raise \u00B7 <kbd>,</kbd> <kbd>.</kbd> size \u00B7 arrows nudge \u00B7 <kbd>Del</kbd> remove \u00B7 <kbd>Ctrl</kbd>+<kbd>Z</kbd> undo")},
+        {TEXT("Panels"), TEXT("drag a panel by its title, resize from its corner \u00B7 lock or reset in the \u2203 menu \u00B7 <kbd>F1</kbd> hides the interface \u00B7 <kbd>?</kbd> this help")},
+    };
     for (const auto& K : Keys)
     {
         auto* Row = WidgetTree->ConstructWidget<UHorizontalBox>();

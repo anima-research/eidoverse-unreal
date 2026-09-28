@@ -72,7 +72,7 @@ bool AEidoverseBridge::Emote(const FString& Name)
 {
     if(!bJoined||bSpectator||Name.IsEmpty()||Name.Len()>32)return false;
     for(TCHAR C:Name)if(!FChar::IsAlnum(C)&&C!='_'&&C!='-')return false;
-    PendingEmote=Name;return true;
+    PendingEmote=Name;SelfBody.ActiveEmote=Name;SelfBody.EmoteUntil=FPlatformTime::Seconds()+2.5;return true;
 }
 const TCHAR* AEidoverseBridge::ProductionEndpoint=TEXT("wss://eidoverse.animalabs.ai/ws");
 namespace { const TCHAR* ClientSection=TEXT("/Script/EidoverseClient.ClientSettings"); }
@@ -148,6 +148,7 @@ void AEidoverseBridge::Status(const FString& Value)
 void AEidoverseBridge::ClearPeers()
 {
     for(auto& P:Peers)if(P.Value.Actor.IsValid())P.Value.Actor->Destroy();Peers.Empty();RemoteCount=0;LoadedAvatarCount=0;
+    if(SelfBody.AvatarMesh.IsValid())SelfBody.AvatarMesh->DestroyComponent();if(SelfBody.Mesh.IsValid())SelfBody.Mesh->DestroyComponent();SelfBody=FEidoversePeer();
     for(auto& A:AvatarCache)if(A.Value)A.Value->Cancel();AvatarCache.Empty();
 }
 void AEidoverseBridge::Disconnect()
@@ -249,7 +250,8 @@ bool AEidoverseBridge::Whisper(const FString& To,const FString& Text)
 }
 void AEidoverseBridge::Announce(const FString& Id,const FString& Avatar)
 {
-    if(Id.IsEmpty()||Id==AssignedIdentity||Id.Len()>64)return;
+    if(Id==AssignedIdentity&&!Id.IsEmpty()){if(!Avatar.IsEmpty()&&Avatar!=SelfBody.AvatarPath)RequestAvatar(SelfBody,Avatar);return;}
+    if(Id.IsEmpty()||Id.Len()>64)return;
     if(auto* Old=Peers.Find(Id)){if(Old->Actor.IsValid())Old->Actor->Destroy();Peers.Remove(Id);}
     if(Peers.Num()>=256)return;
     AActor* A=GetWorld()->SpawnActor<AActor>();if(!A)return;
@@ -326,6 +328,9 @@ void AEidoverseBridge::TickAvatars(double Time)
             if(!P.AvatarMesh->EmissiveLights.IsEmpty())Lamps.Add({P.AvatarMesh.Get(),FVector::DistSquared(Eye,P.Actor->GetActorLocation()),!P.bSubmarine});
         }
     }
+    TickSelfBody(Time);
+    if(SelfBody.AvatarMesh.IsValid()&&!SelfBody.AvatarMesh->EmissiveLights.IsEmpty())
+        Lamps.Add({SelfBody.AvatarMesh.Get(),0.,SelfBody.AvatarMesh->IsVisible()});
     Lamps.StableSort([](const FLampCandidate& A,const FLampCandidate& B){return A.Distance<B.Distance;});
     int32 Budget=4; // Real shadowed lights, not one unbounded light per remote user.
     const float Day=DynamicScene?FMath::Clamp(FMath::Sin((DynamicScene->WeatherHour-6)*PI/12)*3.f,0.f,1.f):0;
@@ -336,6 +341,45 @@ void AEidoverseBridge::TickAvatars(double Time)
         if(Enable)Budget-=Count;
         Candidate.Mesh->UpdateEmissiveLights(Time,Day,Enable);
     }
+}
+void AEidoverseBridge::TickSelfBody(double Time)
+{
+    auto* Explorer=Cast<AEidoverseExplorer>(UGameplayStatics::GetPlayerPawn(this,0));
+    auto* Asset=SelfBody.AvatarAsset.Get();
+    if(SelfBody.AvatarMesh.IsValid()&&SelfBody.AvatarMesh->GetOwner()!=Explorer){SelfBody.AvatarMesh->DestroyComponent();SelfBody.AvatarMesh.Reset();}
+    if(SelfBody.Mesh.IsValid()&&SelfBody.Mesh->GetOwner()!=Explorer){SelfBody.Mesh->DestroyComponent();SelfBody.Mesh.Reset();}
+    if(!Explorer)return;
+    // No wearable body (none named, still loading, or failed): the diver proxy peers see.
+    const bool bReady=Asset&&Asset->State==UEidoverseAvatarAsset::EState::Ready;
+    if(!bReady&&DiverProxyMesh&&(!Asset||Asset->State==UEidoverseAvatarAsset::EState::Failed))
+    {
+        if(!SelfBody.Mesh.IsValid())
+        {
+            auto* Proxy=NewObject<UStaticMeshComponent>(Explorer);Explorer->AddInstanceComponent(Proxy);Proxy->SetupAttachment(Explorer->GetRootComponent());
+            Proxy->SetCollisionEnabled(ECollisionEnabled::NoCollision);Proxy->SetStaticMesh(DiverProxyMesh);Proxy->SetRelativeScale3D(FVector(.5,.5,1.7));
+            Proxy->RegisterComponent();SelfBody.Mesh=Proxy;
+        }
+        SelfBody.Mesh->SetVisibility(!Explorer->bFirstPerson);
+    }
+    else if(SelfBody.Mesh.IsValid())SelfBody.Mesh->SetVisibility(false);
+    if(!bReady)return;
+    if(!SelfBody.AvatarMesh.IsValid())
+    {
+        auto* M=NewObject<UEidoverseAvatarMesh>(Explorer);Explorer->AddInstanceComponent(M);
+        M->SetupAttachment(Explorer->GetRootComponent());M->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+        M->SetRelativeLocation(FVector(0,0,-88));M->RegisterComponent();SelfBody.AvatarMesh=M;SelfBody.Actor=Explorer;
+    }
+    auto* M=SelfBody.AvatarMesh.Get();
+    if(M->Avatar!=Asset)M->SetAvatar(Asset);
+    // Don't render the inside of your own head (controller.js updateFollowCamera).
+    M->SetVisibility(!Explorer->bFirstPerson,true);
+    const FVector Velocity=Explorer->BodyVelocity/100.;
+    const FVector Local=Explorer->GetActorQuat().UnrotateVector(Velocity);
+    const float Speed=Velocity.Size();
+    M->Animate(Explorer->LocomotionMode,Speed,Local,Time);
+    const double Now=FPlatformTime::Seconds();
+    if(Speed>.05)SelfBody.EmoteUntil=0;
+    if(Now<SelfBody.EmoteUntil)M->ApplyGesture(SelfBody.ActiveEmote,Time);
 }
 void AEidoverseBridge::Pose(const FString& Id,const TSharedPtr<FJsonObject>& Data,double Time)
 {
@@ -400,6 +444,8 @@ void AEidoverseBridge::Receive(const FString& Message)
         const TArray<TSharedPtr<FJsonValue>>* Present=nullptr;
         if(J->TryGetArrayField(TEXT("present"),Present))for(auto& V:*Present)
         {const TSharedPtr<FJsonObject>* Person=nullptr;if(!V->TryGetObject(Person))continue;const FString Id=Eido::String(*Person,TEXT("id"));Announce(Id,Eido::String(*Person,TEXT("avatar")));const TSharedPtr<FJsonObject>* P=nullptr;if((*Person)->TryGetObjectField(TEXT("pose"),P))Pose(Id,*P,Now);}
+        // The roster normally names my body; fall back to what I asked to wear.
+        if(!SelfBody.AvatarAsset.IsValid()&&!AvatarPath.IsEmpty()&&SelfBody.AvatarPath!=AvatarPath)RequestAvatar(SelfBody,AvatarPath);
         Status(TEXT("joined ")+WorldName+TEXT(" as ")+AssignedIdentity);
         bool Recording=false;if(J->TryGetBoolField(TEXT("recording"),Recording)&&Recording)Status(TEXT("joined; server is recording movement and chat"));
     }
@@ -413,6 +459,7 @@ void AEidoverseBridge::Receive(const FString& Message)
         if(!J->TryGetNumberField(TEXT("v"),Version)||!FMath::IsFinite(Version)||Version<0||Version>9e15)return;
         for(auto& P:Peers)
         {FString Base=P.Value.AvatarPath;int32 Query;if(Base.FindChar('?',Query))Base=Base.Left(Query);if(Base==Path)RequestAvatar(P.Value,Path+FString::Printf(TEXT("?v=%.0f"),Version));}
+        {FString Base=SelfBody.AvatarPath;int32 Query;if(Base.FindChar('?',Query))Base=Base.Left(Query);if(Base==Path)RequestAvatar(SelfBody,Path+FString::Printf(TEXT("?v=%.0f"),Version));}
     }
     else if(Type==TEXT("leave"))
     {const FString Id=Eido::String(J,TEXT("id"));if(auto* P=Peers.Find(Id))if(P->Actor.IsValid())P->Actor->Destroy();Peers.Remove(Id);RemoteCount=Peers.Num();}
@@ -454,7 +501,7 @@ void AEidoverseBridge::SendPose()
     const FVector P=ToWirePosition(Pawn->GetActorLocation()-OriginCentimeters-(Land?FVector(0,0,88):FVector::ZeroVector));
     const FQuat Q=ToWireRotation(Pawn->GetActorQuat().GetNormalized());
     const FVector F=ToWirePosition(Pawn->GetActorForwardVector());
-    const double Speed=Pawn->GetVelocity().Size()/100.;
+    const double Speed=(Cast<AEidoverseExplorer>(Pawn)?Cast<AEidoverseExplorer>(Pawn)->BodyVelocity:Pawn->GetVelocity()).Size()/100.;
     if(P.ContainsNaN()||Q.ContainsNaN()||!FMath::IsFinite(Speed))return;
     const auto* Explorer=Cast<AEidoverseExplorer>(Pawn);
     FString Mode=Explorer?Explorer->LocomotionMode:Sub?TEXT("pilot"):TEXT("swim");

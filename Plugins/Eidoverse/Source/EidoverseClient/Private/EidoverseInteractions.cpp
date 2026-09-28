@@ -1,4 +1,5 @@
 #include "EidoverseBridge.h"
+#include "EidoverseUI.h"
 #include "EidoverseScene.h"
 #include "EidoverseAvatar.h"
 #include "Dom/JsonObject.h"
@@ -137,10 +138,15 @@ void AEidoverseBridge::TickInteractions(float Dt,double Now)
     }
     ActivePhysicsObjects=ObjectSims.Num();
     auto* PC=UGameplayStatics::GetPlayerController(this,0);if(!PC||PC->IsMoveInputIgnored()||bSpectator)return;
+    // Editing keys win while something is selected in build mode (web build.js priority).
+    if(HUD&&HUD->IsFrameOpen(TEXT("build"))&&!HUD->GetSelectedEntity().IsEmpty())return;
     if(PC->WasInputKeyJustPressed(EKeys::E)||PC->WasInputKeyJustPressed(EKeys::F))
     {
         FVector Eye;FRotator R;PC->GetPlayerViewPoint(Eye,R);FHitResult Hit;FCollisionQueryParams Q;Q.bTraceComplex=true;if(PC->GetPawn())Q.AddIgnoredActor(PC->GetPawn());
-        if(GetWorld()->LineTraceSingleByChannel(Hit,Eye,Eye+R.Vector()*300,ECC_Visibility,Q))
+        // Reach is 3 m from the head; in third person the camera sits behind it, so the
+        // aim ray runs through the view but the distance is measured from the body.
+        const FVector Head=PC->GetPawn()?PC->GetPawn()->GetActorLocation()+FVector(0,0,57):Eye;
+        if(GetWorld()->LineTraceSingleByChannel(Hit,Eye,Eye+R.Vector()*(300+FVector::Dist(Eye,Head)),ECC_Visibility,Q)&&FVector::Dist(Hit.ImpactPoint,Head)<=300)
         {FString Id=DynamicScene->EntityId(Hit.GetActor());if(!Id.IsEmpty()){if(PC->WasInputKeyJustPressed(EKeys::F))PuntEntity(Id);else {FString Action=TEXT("use");const TArray<TSharedPtr<FJsonValue>>* Actions=nullptr;auto Info=DynamicScene->Interaction(Id);if(Info&&Info->TryGetArrayField(TEXT("actions"),Actions)&&Actions->Num())Action=(*Actions)[0]->AsString();UseEntity(Id,Action);}}}
     }
 }

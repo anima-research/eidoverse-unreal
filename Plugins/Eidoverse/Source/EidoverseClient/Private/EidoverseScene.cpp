@@ -12,6 +12,8 @@
 #include "Components/PointLightComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Camera/CameraComponent.h"
+#include "GameFramework/SpringArmComponent.h"
+#include "EidoverseUI.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/PlayerController.h"
@@ -239,7 +241,60 @@ AEidoverseExplorer::AEidoverseExplorer()
 {
     PrimaryActorTick.bCanEverTick=true;GetCapsuleComponent()->InitCapsuleSize(32,88);GetCharacterMovement()->MaxWalkSpeed=400;GetCharacterMovement()->JumpZVelocity=430;
     GetCharacterMovement()->MaxAcceleration=6000;GetCharacterMovement()->BrakingDecelerationWalking=7000;
-    auto* Camera=CreateDefaultSubobject<UCameraComponent>(TEXT("Eyes"));Camera->SetupAttachment(GetRootComponent());Camera->SetRelativeLocation(FVector(0,0,72));Camera->bUsePawnControlRotation=true;bUseControllerRotationYaw=true;
+    // The boom pivots at the head (1.45 m above the feet; the capsule centre is 88 cm up).
+    Boom=CreateDefaultSubobject<USpringArmComponent>(TEXT("Boom"));Boom->SetupAttachment(GetRootComponent());
+    Boom->SetRelativeLocation(FVector(0,0,57));Boom->bUsePawnControlRotation=false;Boom->bInheritPitch=Boom->bInheritYaw=Boom->bInheritRoll=false;
+    Boom->SetUsingAbsoluteRotation(true);Boom->bDoCollisionTest=true;Boom->ProbeSize=18;Boom->ProbeChannel=ECC_Camera;
+    Boom->bEnableCameraLag=true;Boom->CameraLagSpeed=14;Boom->TargetArmLength=CameraDistance*100;
+    Eyes=CreateDefaultSubobject<UCameraComponent>(TEXT("Eyes"));Eyes->SetupAttachment(Boom,USpringArmComponent::SocketName);Eyes->bUsePawnControlRotation=false;
+    // Third person: the body turns toward where it walks, not where you look.
+    bUseControllerRotationYaw=false;GetCharacterMovement()->bOrientRotationToMovement=true;GetCharacterMovement()->RotationRate=FRotator(0,690,0);
+}
+void AEidoverseExplorer::SetCameraDistance(float Meters)
+{
+    CameraDistance=FMath::Clamp(Meters,0.f,16.f);
+    const bool bWas=bFirstPerson;
+    // Hysteresis: enter first person under 0.4 m, leave past 0.7 m (controller.js wheel).
+    bFirstPerson=bWas?CameraDistance<0.7f:CameraDistance<0.4f;
+    if(bFirstPerson!=bWas)
+    {
+        bUseControllerRotationYaw=bFirstPerson;GetCharacterMovement()->bOrientRotationToMovement=!bFirstPerson;
+        for(TActorIterator<AEidoverseBridge> It(GetWorld());It;++It)if(It->HUD)It->HUD->Hint(bFirstPerson?TEXT("first person"):TEXT("third person"),1.5f);
+    }
+}
+void AEidoverseExplorer::Zoom(float Notches)
+{
+    // One wheel notch is ~100 deltaY in the browser, times 0.004 there.
+    if(Notches!=0)SetCameraDistance(CameraDistance-Notches*.4f);
+}
+void AEidoverseExplorer::UpdateCamera(float Dt,APlayerController* PC)
+{
+    const FRotator View=PC->GetControlRotation();
+    if(bFirstPerson)
+    {
+        // Eye slightly ahead of the head joint so the face never clips the near plane.
+        Boom->TargetArmLength=0;Boom->bDoCollisionTest=false;Boom->bEnableCameraLag=false;
+        Boom->SocketOffset=FVector::ZeroVector;Boom->SetWorldRotation(View);
+        Eyes->SetRelativeLocationAndRotation(FVector(16,0,0),FRotator::ZeroRotator);
+        return;
+    }
+    // Web camPitch rests at 0.32 rad above the look direction: the orbit sits a little
+    // high and looks down at the head; mouse pitch moves both together.
+    const float OrbitPitch=FMath::Clamp(FRotator::NormalizeAxis(View.Pitch)-FMath::RadiansToDegrees(.32f),-85.f,80.f);
+    Boom->SetWorldRotation(FRotator(OrbitPitch,View.Yaw,0));
+    Boom->TargetArmLength=CameraDistance*100;Boom->bDoCollisionTest=true;Boom->bEnableCameraLag=true;
+    // Shoulder offset so the body doesn't sit dead-centre over what you aim at.
+    const float Shoulder=FMath::Clamp(CameraDistance*.16f,0.f,.62f)*100;
+    Boom->SocketOffset=FVector(0,Shoulder,0);
+    Eyes->SetRelativeLocationAndRotation(FVector::ZeroVector,FRotator::ZeroRotator);
+    // Aim at a point half the shoulder over and 10 cm under the head, like the browser.
+    const FVector Focus=Boom->GetComponentLocation()+FRotationMatrix(FRotator(0,View.Yaw,0)).GetUnitAxis(EAxis::Y)*Shoulder*.5f-FVector(0,0,10);
+    Eyes->SetWorldRotation((Focus-Eyes->GetComponentLocation()).Rotation());
+    // Never under the floor.
+    FHitResult Floor;FCollisionQueryParams Q(SCENE_QUERY_STAT(EidoverseCameraFloor),false,this);
+    const FVector Cam=Eyes->GetComponentLocation();
+    if(GetWorld()->LineTraceSingleByChannel(Floor,Cam+FVector(0,0,200),Cam-FVector(0,0,35),ECC_Camera,Q)&&Floor.ImpactPoint.Z+35>Cam.Z&&!Floor.bStartPenetrating)
+        Eyes->SetWorldLocation(FVector(Cam.X,Cam.Y,Floor.ImpactPoint.Z+35));
 }
 void AEidoverseExplorer::BeginPlay()
 {
@@ -254,6 +309,7 @@ void AEidoverseExplorer::SetupPlayerInputComponent(UInputComponent* Input)
     Super::SetupPlayerInputComponent(Input);
     Input->BindAxisKey(EKeys::MouseX,this,&AEidoverseExplorer::LookYaw);
     Input->BindAxisKey(EKeys::MouseY,this,&AEidoverseExplorer::LookPitch);
+    Input->BindAxisKey(EKeys::MouseWheelAxis,this,&AEidoverseExplorer::Zoom);
 }
 void AEidoverseExplorer::LookYaw(float Value)
 {if(auto* PC=Cast<APlayerController>(Controller))if(!PC->IsLookInputIgnored()){auto R=PC->GetControlRotation();R.Yaw+=Value*1.6f*EidoSettings::LookSensitivity();PC->SetControlRotation(R);}}
@@ -261,8 +317,25 @@ void AEidoverseExplorer::LookPitch(float Value)
 {if(auto* PC=Cast<APlayerController>(Controller))if(!PC->IsLookInputIgnored()){auto R=PC->GetControlRotation();R.Pitch=FMath::Clamp(FMath::UnwindDegrees(R.Pitch)+Value*1.6f*EidoSettings::LookSensitivity()*(EidoSettings::InvertLook()?-1:1),-85.f,85.f);PC->SetControlRotation(R);}}
 void AEidoverseExplorer::Tick(float Dt)
 {
-    Super::Tick(Dt);auto* PC=Cast<APlayerController>(Controller);if(!PC||!PC->IsLocalController())return;
-    if(TickSwimming(Dt,PC))return;
+    Super::Tick(Dt);
+    {
+        const FVector Here=GetActorLocation();
+        // Teleports (spawn, respawn) read as zero, not a 100 m/s sprint.
+        FVector V=bHasLastBodyLocation&&Dt>0?(Here-LastBodyLocation)/Dt:FVector::ZeroVector;
+        if(V.Size()>2000)V=FVector::ZeroVector;
+        BodyVelocity=FMath::Lerp(BodyVelocity,V,FMath::Clamp(Dt*20,0.f,1.f));
+        LastBodyLocation=Here;bHasLastBodyLocation=true;
+    }
+    auto* PC=Cast<APlayerController>(Controller);if(!PC||!PC->IsLocalController())return;
+    UpdateCamera(Dt,PC);
+    if(TickSwimming(Dt,PC))
+    {
+        // Swimming bypasses CharacterMovement: turn the body toward the stroke (controller.js).
+        const FVector H(BodyVelocity.X,BodyVelocity.Y,0);
+        if(!bFirstPerson&&H.Size()>5)SetActorRotation(FMath::RInterpTo(GetActorRotation(),FRotator(0,H.Rotation().Yaw,0),Dt,8));
+        else if(bFirstPerson)SetActorRotation(FRotator(0,PC->GetControlRotation().Yaw,0));
+        return;
+    }
     if(PC->IsMoveInputIgnored())return;
     FRotator R(0,PC->GetControlRotation().Yaw,0);
     AddMovementInput(R.Vector(),(PC->IsInputKeyDown(EKeys::W)?1:0)-(PC->IsInputKeyDown(EKeys::S)?1:0));
