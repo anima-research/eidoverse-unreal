@@ -998,7 +998,7 @@ void UEidoverseHUD::RefreshHelp()
         {TEXT("Emotes"), TEXT("number keys play the emote bar, in its order")},
         {TEXT("Camera"), TEXT("the mouse wheel zooms from behind your body into first person")},
         {TEXT("Pointer"), TEXT("<kbd>M</kbd> switches between mouselook and a pointer for panels \u00B7 <kbd>Esc</kbd> frees the pointer")},
-        {TEXT("Build"), TEXT("<kbd>B</kbd> build panel \u00B7 click a thing to select \u00B7 <kbd>Q</kbd>/<kbd>E</kbd> turn \u00B7 <kbd>R</kbd>/<kbd>F</kbd> raise \u00B7 <kbd>,</kbd> <kbd>.</kbd> size \u00B7 arrows nudge \u00B7 <kbd>Del</kbd> remove \u00B7 <kbd>Ctrl</kbd>+<kbd>Z</kbd> undo")},
+        {TEXT("Build"), TEXT("<kbd>B</kbd> build panel \u00B7 pick a model, then click where it goes \u00B7 click a thing to select \u00B7 <kbd>Q</kbd>/<kbd>E</kbd> turn \u00B7 <kbd>R</kbd>/<kbd>F</kbd> raise \u00B7 <kbd>,</kbd> <kbd>.</kbd> size \u00B7 arrows nudge \u00B7 <kbd>Del</kbd> remove \u00B7 <kbd>Ctrl</kbd>+<kbd>Z</kbd> undo")},
         {TEXT("Panels"), TEXT("drag a panel by its title, resize from its corner \u00B7 lock or reset in the \u2203 menu \u00B7 <kbd>F1</kbd> hides the interface \u00B7 <kbd>?</kbd> this help")},
     };
     for (const auto& K : Keys)
@@ -1160,6 +1160,7 @@ void UEidoverseHUD::NativeTick(const FGeometry& Geometry, float Delta)
     else if (PC->WasInputKeyJustPressed(EKeys::Escape))
     {
         if (HelpOverlay && HelpOverlay->GetVisibility() != ESlateVisibility::Collapsed) ToggleHelp();
+        else if (CancelGhost()) Hint(TEXT("placement cancelled"), 1.5f);
         else SetPointerMode(true);
     }
     const FKey Digits[] = {EKeys::One, EKeys::Two, EKeys::Three, EKeys::Four, EKeys::Five, EKeys::Six, EKeys::Seven, EKeys::Eight, EKeys::Nine};

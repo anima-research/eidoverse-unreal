@@ -139,7 +139,7 @@ void AEidoverseBridge::TickInteractions(float Dt,double Now)
     ActivePhysicsObjects=ObjectSims.Num();
     auto* PC=UGameplayStatics::GetPlayerController(this,0);if(!PC||PC->IsMoveInputIgnored()||bSpectator)return;
     // Editing keys win while something is selected in build mode (web build.js priority).
-    if(HUD&&HUD->IsFrameOpen(TEXT("build"))&&!HUD->GetSelectedEntity().IsEmpty())return;
+    if(HUD&&HUD->IsFrameOpen(TEXT("build"))&&(!HUD->GetSelectedEntity().IsEmpty()||HUD->HasGhost()))return;
     if(PC->WasInputKeyJustPressed(EKeys::E)||PC->WasInputKeyJustPressed(EKeys::F))
     {
         FVector Eye;FRotator R;PC->GetPlayerViewPoint(Eye,R);FHitResult Hit;FCollisionQueryParams Q;Q.bTraceComplex=true;if(PC->GetPawn())Q.AddIgnoredActor(PC->GetPawn());

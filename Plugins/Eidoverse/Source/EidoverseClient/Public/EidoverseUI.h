@@ -109,12 +109,19 @@ public:
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void SelectWorldTab(int32 Tab);
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void WorldAction(const FString& Action);
     // Build mode (EidoverseUIBuild.cpp): same actions as its buttons and keys, e.g.
-    // "build:spawn:<lib path>", "build:turn:15", "build:raise:0.25", "build:remove", "build:undo".
+    // "build:hold:<lib path>" (ghost), "build:spawn:<lib path>" (4 m ahead), "build:turn:15", "build:raise:0.25", "build:remove", "build:undo".
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void BuildAction(const FString& Action);
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void SelectEntity(const FString& Id);
     UFUNCTION(BlueprintPure, Category="Eidoverse|UI") FString GetSelectedEntity() const;
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void SearchLibrary(const FString& Query);
     UFUNCTION(BlueprintPure, Category="Eidoverse|UI") FString GetLastSpawnedEntity() const { return LastSpawned; }
+    // Placement ghost ("build:hold:<lib>" from a library tile): follows the aim until a
+    // click places it (PlaceGhost) or Esc cancels (CancelGhost).
+    UFUNCTION(BlueprintPure, Category="Eidoverse|UI") bool HasGhost() const;
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") bool CancelGhost();
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") bool PlaceGhost();
+    // World transform of the ghost (identity when none).
+    UFUNCTION(BlueprintPure, Category="Eidoverse|UI") FTransform GetGhostTransform() const;
     bool IsChatFocused() const;
     UFUNCTION(BlueprintPure, Category="Eidoverse|UI") UEidoverseFrame* GetFrame(FName Id) const { return Frames.FindRef(Id); }
     UScrollBox* GetChatLog() const { return ChatLog; }
@@ -212,6 +219,9 @@ private:
     TArray<TPair<FString, FString>> UndoStack;  // inverse verb, args JSON
     TMap<FString, FString> LibNames;
     FString LastSpawned;
+    double GhostYaw = 0, GhostScale = 1, GhostLift = 0;
+    bool bGhostAimed = false;
+    bool AimGhost(FVector& OutWorld) const;
     UButton* ActionButton(const FString& Text, const FString& Id, bool bPrimary = false);
     UPROPERTY() TObjectPtr<UWidgetSwitcher> WorldPages;
     UPROPERTY() TArray<TObjectPtr<UButton>> WorldTabs;

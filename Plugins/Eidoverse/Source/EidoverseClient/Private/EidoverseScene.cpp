@@ -112,7 +112,7 @@ void AEidoverseScene::ApplyEnvironment(const TSharedPtr<FJsonObject>& Env,const 
 void AEidoverseScene::Apply(const TSharedPtr<FJsonObject>& Message,const FVector& Origin,const FString& Library)
 {
     if(Message->HasField(TEXT("error"))){Diagnostic=Str(Message,TEXT("error"));return;}
-    SceneOrigin=Origin;
+    SceneOrigin=Origin;LibraryBase=Library;
     if(double ServerMs;Message->TryGetNumberField(TEXT("time"),ServerMs)&&FMath::IsFinite(ServerMs))ObserveServerTime(ServerMs);
     ApplyWeather(Obj(Message,TEXT("atmosphere")));
     if(auto Env=Obj(Message,TEXT("environment")))ApplyEnvironment(Env,Origin);
@@ -192,6 +192,7 @@ void AEidoverseScene::Tick(float Dt)
     }
     // Retire unused jobs/assets, so hopping/editing cannot grow resident memory.
     TSet<UEidoverseAvatarAsset*> Used;for(auto& E:Items)if(E.Value.Asset.IsValid())Used.Add(E.Value.Asset.Get());
+    if(GhostAsset)Used.Add(GhostAsset);TickGhost();
     for(auto It=Assets.CreateIterator();It;++It)if(!Used.Contains(It.Value())){It.Value()->Cancel();It.RemoveCurrent();}
     if(bFloraDirty&&Loading==0){bFloraDirty=false;BuildFlora(FloraData,SceneOrigin);}
     UpdateWater();
@@ -236,7 +237,7 @@ bool AEidoverseScene::LocalTransform(const FString& Id,FTransform& Out,int32 Dep
     return true;
 }
 void AEidoverseScene::EndPlay(const EEndPlayReason::Type Reason)
-{DestroyWater();for(auto& A:Assets)A.Value->Cancel();Assets.Empty();for(auto& E:Items)if(E.Value.Actor.IsValid())E.Value.Actor->Destroy();Items.Empty();Super::EndPlay(Reason);}
+{ClearGhost();DestroyWater();for(auto& A:Assets)A.Value->Cancel();Assets.Empty();for(auto& E:Items)if(E.Value.Actor.IsValid())E.Value.Actor->Destroy();Items.Empty();Super::EndPlay(Reason);}
 AEidoverseExplorer::AEidoverseExplorer()
 {
     PrimaryActorTick.bCanEverTick=true;GetCapsuleComponent()->InitCapsuleSize(32,88);GetCharacterMovement()->MaxWalkSpeed=400;GetCharacterMovement()->JumpZVelocity=430;

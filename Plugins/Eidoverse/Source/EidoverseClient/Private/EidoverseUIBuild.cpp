@@ -93,7 +93,7 @@ UWidget* UEidoverseHUD::BuildBuild()
         Actions->AddChildToWrapBox(Button);
     }
     Column->AddChildToVerticalBox(Actions)->SetPadding(FMargin(0, 6, 0, 0));
-    Column->AddChildToVerticalBox(Label(TEXT("B build · click to select (pointer: M) · Q/E turn · R/F raise · , . size · arrows nudge · Del remove · Ctrl+Z undo"),
+    Column->AddChildToVerticalBox(Label(TEXT("pick a model, click where it goes (Esc cancels) · click to select (pointer: M) · Q/E turn · R/F raise · , . size · arrows nudge · Del remove · Ctrl+Z undo"),
         9, FEidoverseTheme::Dim()))->SetPadding(FMargin(0, 8, 0, 0));
     SearchLibrary(TEXT(""));
     return Column;
@@ -134,9 +134,9 @@ void UEidoverseHUD::PaintLibrary(const TArray<TSharedPtr<FJsonValue>>& Items)
         auto* Button = WidgetTree->ConstructWidget<UButton>();
         Button->SetStyle(FEidoverseTheme::Button(FEidoverseTheme::Well(), FEidoverseTheme::Hover(), 8, FEidoverseTheme::Edge()));
         Button->SetContent(Width);
-        Button->SetToolTipText(FText::FromString(TEXT("place ") + Name + TEXT(" in front of you")));
+        Button->SetToolTipText(FText::FromString(TEXT("pick up ") + Name + TEXT(" \u2014 then click where it goes")));
         Button->OnClicked.AddDynamic(this, &UEidoverseHUD::OnBuildClicked);
-        ButtonIds.Add(Button, FName(*(TEXT("build:spawn:") + Path)));
+        ButtonIds.Add(Button, FName(*(TEXT("build:hold:") + Path)));
         BuildResults->AddChildToWrapBox(Button);
     }
     if (BuildResults->GetChildrenCount() == 0) BuildResults->AddChildToWrapBox(Label(TEXT("nothing matched"), 10, FEidoverseTheme::Dim()));
@@ -254,6 +254,19 @@ void UEidoverseHUD::BuildAction(const FString& Action)
         Hint(TEXT("placed ") + LibNames.FindRef(Lib), 2);
         return;
     }
+    if (Action.StartsWith(TEXT("build:hold:")))
+    {
+        const FString Lib = Action.Mid(11);
+        APlayerController* PC = GetOwningPlayer();
+        if (!Scene || !PC || !PC->GetPawn()) { Toast(TEXT("Join a world first."), true); return; }
+        SelectEntity(FString());   // web holdGhost: choosing a thing to place deselects
+        if (!Scene->HoldGhost(Lib)) { Toast(TEXT("That model can't be loaded from this library."), true); return; }
+        // Face whoever is placing it; Q/E turn from there.
+        GhostYaw = FMath::UnwindRadians(-(FMath::DegreesToRadians(PC->GetControlRotation().Yaw) + PI));
+        GhostScale = 1; GhostLift = 0; bGhostAimed = false;
+        Hint(TEXT("placing ") + LibNames.FindRef(Lib) + TEXT(" \u2014 click to place \u00B7 Q/E turn \u00B7 , . size \u00B7 R/F raise \u00B7 Esc cancel"), 6);
+        return;
+    }
     if (Action == TEXT("build:undo"))
     {
         if (UndoStack.IsEmpty()) { Hint(TEXT("nothing to undo"), 1.5f); return; }
@@ -310,6 +323,82 @@ void UEidoverseHUD::BuildAction(const FString& Action)
     RefreshBuild();
 }
 
+bool UEidoverseHUD::HasGhost() const
+{
+    const AEidoverseScene* Scene = Bridge ? Bridge->GetScene() : nullptr;
+    return Scene && Scene->HasGhost();
+}
+
+FTransform UEidoverseHUD::GetGhostTransform() const
+{
+    const AEidoverseScene* Scene = Bridge ? Bridge->GetScene() : nullptr;
+    const AActor* Ghost = Scene ? Scene->GetGhostActor() : nullptr;
+    return Ghost ? Ghost->GetActorTransform() : FTransform::Identity;
+}
+
+bool UEidoverseHUD::CancelGhost()
+{
+    AEidoverseScene* Scene = Bridge ? Bridge->GetScene() : nullptr;
+    if (!Scene || !Scene->HasGhost()) return false;
+    Scene->ClearGhost();
+    return true;
+}
+
+// Where the aim meets the world (web build.js aimPoint): the cursor in pointer
+// mode, the screen centre in mouselook. Only near-horizontal faces are surfaces,
+// so a wall doesn't catch a chair; otherwise drop to the floor below, and never
+// further than 20 m from the builder.
+bool UEidoverseHUD::AimGhost(FVector& OutWorld) const
+{
+    APlayerController* PC = GetOwningPlayer();
+    APawn* Pawn = PC ? PC->GetPawn() : nullptr;
+    const AEidoverseScene* Scene = Bridge ? Bridge->GetScene() : nullptr;
+    if (!Pawn || !Scene) return false;
+    FVector Start, Dir;
+    if (bPointerMode) { if (!PC->DeprojectMousePositionToWorld(Start, Dir)) return false; }
+    else { FRotator View; PC->GetPlayerViewPoint(Start, View); Dir = View.Vector(); }
+    FCollisionQueryParams Query(SCENE_QUERY_STAT(EidoverseGhostAim), true, Pawn);
+    if (AActor* Ghost = Scene->GetGhostActor()) Query.AddIgnoredActor(Ghost);
+    FHitResult Hit;
+    const bool bHit = GetWorld()->LineTraceSingleByChannel(Hit, Start, Start + Dir * 6000, ECC_Visibility, Query);
+    FVector Point = bHit ? Hit.ImpactPoint : Start + Dir * 2000;
+    bool bSurface = bHit && Hit.ImpactNormal.Z > .6;
+    FVector Flat = Point - Pawn->GetActorLocation(); Flat.Z = 0;
+    if (Flat.Size() > 2000) { Point = Pawn->GetActorLocation() + Flat.GetSafeNormal() * 2000 + FVector(0, 0, Point.Z - Pawn->GetActorLocation().Z); bSurface = false; }
+    if (!bSurface)
+    {
+        if (bHit) Point -= Dir * 30;   // step back off the wall before dropping
+        const FVector From(Point.X, Point.Y, FMath::Max(Point.Z, Pawn->GetActorLocation().Z) + 50);
+        if (!GetWorld()->LineTraceSingleByChannel(Hit, From, From - FVector(0, 0, 20000), ECC_Visibility, Query)) return false;
+        Point = Hit.ImpactPoint;
+    }
+    OutWorld = Point;
+    return true;
+}
+
+bool UEidoverseHUD::PlaceGhost()
+{
+    AEidoverseScene* Scene = Bridge ? Bridge->GetScene() : nullptr;
+    if (!Scene || !Scene->HasGhost() || !bGhostAimed) return false;
+    const FString Lib = Scene->GetGhostLib();
+    const FVector Wire = AEidoverseBridge::ToWirePosition(Scene->GetGhostActor()->GetActorLocation() - Scene->GetSceneOrigin());
+    auto Args = MakeShared<FJsonObject>();
+    const FString Id = NewEntityId();
+    Args->SetStringField(TEXT("id"), Id);
+    Args->SetStringField(TEXT("lib"), Lib);
+    Args->SetArrayField(TEXT("pos"), Vec3(Wire));
+    Args->SetNumberField(TEXT("yaw"), FMath::RoundToDouble(GhostYaw * 10000) / 10000);
+    if (!FMath::IsNearlyEqual(GhostScale, 1.0)) Args->SetNumberField(TEXT("scale"), FMath::RoundToDouble(GhostScale * 1000) / 1000);
+    if (!Bridge->SendVerb(TEXT("spawn"), Args)) return false;
+    LastSpawned = Id;
+    auto Undo = MakeShared<FJsonObject>(); Undo->SetStringField(TEXT("id"), Id);
+    UndoStack.Add({TEXT("remove"), ToJson(Undo)});
+    if (UndoStack.Num() > 40) UndoStack.RemoveAt(0);
+    Scene->ClearGhost();
+    Hint(TEXT("placed ") + LibNames.FindRef(Lib), 2);
+    return true;
+}
+
 void UEidoverseHUD::RefreshBuild()
 {
     if (!Bridge) return;
@@ -333,7 +422,7 @@ void UEidoverseHUD::RefreshBuild()
 void UEidoverseHUD::TickBuild(double Now)
 {
     if (bSearchPending && Now >= SearchAt) SearchLibrary(PendingQuery);
-    if (!IsFrameOpen("build") || !Bridge || !Bridge->bJoined) return;
+    if (!IsFrameOpen("build") || !Bridge || !Bridge->bJoined || !Bridge->CanBuild()) { CancelGhost(); return; }
     RefreshBuild();
     APlayerController* PC = GetOwningPlayer();
     AEidoverseScene* Scene = Bridge->GetScene();
@@ -344,6 +433,24 @@ void UEidoverseHUD::TickBuild(double Now)
     // Keys and clicks belong to text fields while one is focused (chat, search, ...).
     const TSharedPtr<SWidget> Focused = FSlateApplication::Get().GetKeyboardFocusedWidget();
     if (Focused.IsValid() && (Focused->GetType() == TEXT("SEditableText") || Focused->GetType() == TEXT("SMultiLineEditableText"))) return;
+    const bool bShift = PC->IsInputKeyDown(EKeys::LeftShift) || PC->IsInputKeyDown(EKeys::RightShift);
+    if (Scene->HasGhost())
+    {
+        FVector Aim;
+        if (AimGhost(Aim)) bGhostAimed = true;
+        else if (!bGhostAimed) return;
+        else Aim = Scene->GetGhostActor()->GetActorLocation() - FVector(0, 0, GhostLift * 100);
+        if (PC->WasInputKeyJustPressed(EKeys::Q)) GhostYaw = FMath::UnwindRadians(GhostYaw + FMath::DegreesToRadians(bShift ? 1.15 : 15));
+        if (PC->WasInputKeyJustPressed(EKeys::E)) GhostYaw = FMath::UnwindRadians(GhostYaw - FMath::DegreesToRadians(bShift ? 1.15 : 15));
+        if (PC->WasInputKeyJustPressed(EKeys::Comma)) GhostScale = FMath::Clamp(GhostScale * .92, .1, 12.0);
+        if (PC->WasInputKeyJustPressed(EKeys::Period)) GhostScale = FMath::Clamp(GhostScale * 1.087, .1, 12.0);
+        if (PC->WasInputKeyJustPressed(EKeys::R)) GhostLift += bShift ? .05 : .25;
+        if (PC->WasInputKeyJustPressed(EKeys::F)) GhostLift = FMath::Max(0.0, GhostLift - (bShift ? .05 : .25));
+        Scene->SetGhostPose(Aim + FVector(0, 0, GhostLift * 100), GhostYaw, GhostScale);
+        // Clicks on panels never reach the game, so a click here is a click in the world.
+        if (PC->WasInputKeyJustPressed(EKeys::LeftMouseButton)) PlaceGhost();
+        return;
+    }
     // Click in the world with the pointer to select (clicks on panels never reach the game).
     if (bPointerMode && PC->WasInputKeyJustPressed(EKeys::LeftMouseButton))
     {
@@ -351,7 +458,6 @@ void UEidoverseHUD::TickBuild(double Now)
         if (PC->GetHitResultUnderCursor(ECC_Visibility, true, Hit) && Hit.GetActor()) SelectEntity(Scene->EntityId(Hit.GetActor()));
         else SelectEntity(FString());
     }
-    const bool bShift = PC->IsInputKeyDown(EKeys::LeftShift) || PC->IsInputKeyDown(EKeys::RightShift);
     const bool bCtrl = PC->IsInputKeyDown(EKeys::LeftControl) || PC->IsInputKeyDown(EKeys::RightControl) || PC->IsInputKeyDown(EKeys::LeftCommand);
     if (bCtrl && PC->WasInputKeyJustPressed(EKeys::Z)) { BuildAction(TEXT("build:undo")); return; }
     if (GetSelectedEntity().IsEmpty()) return;

@@ -97,6 +97,15 @@ public:
     // Selection overlay on one entity's meshes (empty Id clears).
     void SetSelected(const FString& Id);
     FString GetSelected() const { return SelectedId; }
+    // Placement ghost (web build.js holdGhost): a see-through preview of a library
+    // model that follows the aim. Never an entity and never sent; spawn commits it.
+    bool HoldGhost(const FString& Lib);
+    void ClearGhost();
+    bool HasGhost() const { return GhostActor.IsValid(); }
+    FString GetGhostLib() const { return GhostLib; }
+    AActor* GetGhostActor() const { return GhostActor.Get(); }
+    // UE world position; yaw in wire radians about +Y; uniform wire scale.
+    void SetGhostPose(const FVector& World, double WireYaw, double Scale);
     UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Eidoverse|Water") int32 WaterVolumeCount=0;
     UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Eidoverse|Water") int32 AirBoxCount=0;
 private:
@@ -138,6 +147,12 @@ private:
     bool bTerrainAuthored=true;
     FString SelectedId;
     UPROPERTY() TObjectPtr<UMaterialInterface> SelectionMaterial;
+    UPROPERTY() TObjectPtr<UMaterialInterface> GhostMaterial;
+    UPROPERTY() TObjectPtr<UEidoverseAvatarAsset> GhostAsset;
+    TWeakObjectPtr<AActor> GhostActor;
+    TWeakObjectPtr<UStaticMeshComponent> GhostMesh;
+    FString GhostLib, LibraryBase;
+    void TickGhost();
     // Spectral sunlight rig for aquatic worlds (sharp/scattered RGB + upwelling),
     // following the scene sun; the sun itself then lights only the atmosphere.
     UPROPERTY() TArray<TObjectPtr<UDirectionalLightComponent>> WaterRig;
