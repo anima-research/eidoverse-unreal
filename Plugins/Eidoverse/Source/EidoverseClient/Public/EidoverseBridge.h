@@ -236,6 +236,9 @@ private:
     // My own body: same loader and animation as peers, riding the explorer pawn.
     FEidoversePeer SelfBody;
     void TickSelfBody(double Time);
+    void TickCommandLine(double Now);
+    bool bCommandLineJoinTried=false,bCommandLineQuitting=false;
+    double CommandLineJoinedAt=0;
     UPROPERTY(Transient) TMap<FString,TObjectPtr<UEidoverseAvatarAsset>> AvatarCache;
     uint32 Generation=0;
     double RetryAt=0, RetryDelay=1, LastSend=0, LastChat=0, LastFrameTime=-1, OpenedAt=0;

@@ -1,4 +1,8 @@
 #include "EidoverseAvatar.h"
+#include "EidoverseLoadTrace.h"
+#include "Tasks/Task.h"
+#include "Async/Async.h"
+#include "IImageWrapperModule.h"
 #include "glTFRuntimeAsset.h"
 #include "glTFRuntimeFunctionLibrary.h"
 #include "Serialization/JsonWriter.h"
@@ -206,7 +210,7 @@ bool UEidoverseAvatarAsset::ValidateGlb(const TArray<uint8>& B,TSharedPtr<FJsonO
     // while avatars may carry three authored 4K maps. Runtime textures are
     // still capped to 2048 by MaterialConfig; this is a source-decode budget.
     const auto& Images=Array(J,TEXT("images"));if(Images.Num()>(bRequireSkin?32:128))return Bad(TEXT("too many textures"));
-    auto& ImageModule=FModuleManager::LoadModuleChecked<IImageWrapperModule>(TEXT("ImageWrapper"));
+    auto& ImageModule=FModuleManager::GetModuleChecked<IImageWrapperModule>(TEXT("ImageWrapper"));
     int64 Pixels=0;
     for(auto& I:Images)
     {
@@ -224,12 +228,13 @@ bool UEidoverseAvatarAsset::ValidateGlb(const TArray<uint8>& B,TSharedPtr<FJsonO
 }
 
 void UEidoverseAvatarAsset::Fail(const FString& Why)
-{State=EState::Failed;Failure=Why;Loader=nullptr;UE_LOG(LogTemp,Warning,TEXT("EIDOVERSE avatar fallback: %s"),*Why);}
+{State=EState::Failed;Failure=Why;Loader=nullptr;UE_LOG(LogTemp,Warning,TEXT("EIDOVERSE avatar fallback: %s (%s)"),*Why,*Url);}
 void UEidoverseAvatarAsset::Cancel()
 {bCancelled=true;if(Request){Request->OnProcessRequestComplete().Unbind();Request->CancelRequest();Request.Reset();}if(State!=EState::Ready)State=EState::Failed;}
 void UEidoverseAvatarAsset::Start()
 {
     if(State!=EState::Queued||bCancelled)return;State=EState::Loading;
+    StartedAt=FPlatformTime::Seconds();
     Request=FHttpModule::Get().CreateRequest();Request->SetURL(Url);Request->SetVerb(TEXT("GET"));Request->SetTimeout(30);
     Request->SetOption(HttpRequestOptions::EnableCookies,TEXT("false"));
     auto Stream=MakeShared<FAvatarStream,ESPMode::ThreadSafe>(bStaticModel?MaxStaticBytes:MaxAvatarBytes);
@@ -239,7 +244,15 @@ void UEidoverseAvatarAsset::Start()
     {
         auto* Self=Weak.Get();if(!Self||Self->bCancelled)return;
         Self->Request.Reset();
-        if(!Ok||!Response||Response->GetResponseCode()!=200||Stream->IsError()||Response->GetURL()!=Self->Url){Self->Fail(TEXT("download failed, redirected, or oversized"));return;}
+        if(!Ok||!Response||Response->GetResponseCode()!=200||Stream->IsError()||Response->GetURL()!=Self->Url)
+        {
+            const FString Why=!Response?FString::Printf(TEXT("no response after %.0fs"),FPlatformTime::Seconds()-Self->StartedAt)
+                :Stream->IsError()?FString::Printf(TEXT("oversized (limit %d MB)"),Stream->Limit>>20)
+                :Response->GetResponseCode()!=200?FString::Printf(TEXT("HTTP %d"),Response->GetResponseCode())
+                :Response->GetURL()!=Self->Url?TEXT("redirected"):TEXT("transfer failed");
+            Self->Fail(TEXT("download failed: ")+Why);return;
+        }
+        EidoLoadTrace::Note(TEXT("download(wall)"),Self->Url,(FPlatformTime::Seconds()-Self->StartedAt)*1000);
         Self->Decode(Stream->Bytes);
     });
     if(!Request->ProcessRequest())Fail(TEXT("could not start download"));
@@ -304,12 +317,42 @@ bool UEidoverseAvatarAsset::ReplaceGlbJson(TArray<uint8>& Bytes,const TSharedPtr
 }
 void UEidoverseAvatarAsset::Decode(const TArray<uint8>& Bytes)
 {
-    TSharedPtr<FJsonObject> J;FString Error;if(!ValidateGlb(Bytes,J,Error,!bStaticModel)){Fail(Error);return;}
-    const auto Config=ImportConfig();
-    TArray<uint8> Source=Bytes;
-    bMirrored=bStaticModel&&UnmirrorDocument(J)&&ReplaceGlbJson(Source,J);
-    Loader=UglTFRuntimeFunctionLibrary::glTFLoadAssetFromData(bMirrored?Source:Bytes,Config);
-    if(!Loader){Fail(TEXT("GLB parser rejected avatar"));return;}
+    // Validation (JSON + texture headers), un-mirroring and the glTF parse touch no
+    // UObjects: run them on a worker. A large body parsed on the game thread cost
+    // 100-150 ms of frame. Only adopting the parser comes back to the game thread.
+    FModuleManager::LoadModuleChecked<IImageWrapperModule>(TEXT("ImageWrapper")); // never first-load off the game thread
+    AddToRoot();bRootedForDecode=true;
+    TWeakObjectPtr<UEidoverseAvatarAsset> Weak(this);
+    const bool bStatic=bStaticModel;const FglTFRuntimeConfig Config=ImportConfig();const double T0=FPlatformTime::Seconds();
+    UE::Tasks::Launch(UE_SOURCE_LOCATION,[Weak,Bytes,bStatic,Config,T0]()
+    {
+        TSharedPtr<FJsonObject> J;FString Error;bool bMirror=false;TSharedPtr<FglTFRuntimeParser> Parser;
+        if(ValidateGlb(Bytes,J,Error,!bStatic))
+        {
+            TArray<uint8> Source=Bytes;
+            bMirror=bStatic&&UnmirrorDocument(J)&&ReplaceGlbJson(Source,J);
+            Parser=FglTFRuntimeParser::FromData(bMirror?Source:Bytes,Config);
+            if(!Parser)Error=TEXT("GLB parser rejected avatar");
+        }
+        const double Ms=(FPlatformTime::Seconds()-T0)*1000;
+        AsyncTask(ENamedThreads::GameThread,[Weak,J,Error,bMirror,Parser,Ms]()
+        {
+            UEidoverseAvatarAsset* Self=Weak.Get();if(!Self)return;
+            if(Self->bRootedForDecode){Self->RemoveFromRoot();Self->bRootedForDecode=false;}
+            if(Self->bCancelled)return;
+            EidoLoadTrace::Note(TEXT("decode(worker wall)"),Self->Url,Ms);
+            if(!Parser){Self->Fail(Error);return;}
+            Self->bMirrored=bMirror;
+            Self->FinishDecode(J,Parser.ToSharedRef());
+        });
+    });
+}
+void UEidoverseAvatarAsset::FinishDecode(const TSharedPtr<FJsonObject>& J,TSharedRef<FglTFRuntimeParser> Parser)
+{
+    EidoLoadTrace::FScope Scope(bStaticModel?TEXT("model-decode(game)"):TEXT("avatar-decode(game)"),Url);
+    Loader=NewObject<UglTFRuntimeAsset>();
+    if(!Loader->SetParser(Parser)){Loader=nullptr;Fail(TEXT("GLB parser rejected avatar"));return;}
+    DecodedAt=FPlatformTime::Seconds();
     if(!PrepareLitMaterials(J)){Fail(TEXT("lit avatar material templates missing; cook /Game/Underwater/Avatars"));return;}
     if(bStaticModel)
     {
@@ -344,19 +387,36 @@ void UEidoverseAvatarAsset::StaticMeshReady(UStaticMesh* Result)
     UObject* Owner=StaticMeshOuter.Get();
     if(!IsValid(Owner)){Fail(TEXT("static model scene closed"));return;}
     Result->Rename(nullptr,Owner,REN_DontCreateRedirectors|REN_DoNotDirty|REN_NonTransactional);
-    if(auto* Body=Result->GetBodySetup())
+    EidoLoadTrace::Note(TEXT("model-build(wall)"),Url,(FPlatformTime::Seconds()-DecodedAt)*1000);
+    auto* Body=Result->GetBodySetup();
+    if(!Body){StaticMesh=Result;State=EState::Ready;return;}
+    // Cook the exact collision on a worker: synchronous cooking of a large model held
+    // the game thread for up to half a second. The model counts as loaded (and is
+    // shown) only once its collision exists, so nobody walks through it meanwhile.
+    Body->bNeverNeedsCookedCollisionData=false;
+    Body->CollisionTraceFlag=CTF_UseComplexAsSimple;
+    Body->InvalidatePhysicsData();
+    PendingStaticMesh=Result;CookStartedAt=FPlatformTime::Seconds();
+    AddToRoot();bRootedForBuild=true;
+    TWeakObjectPtr<UEidoverseAvatarAsset> Weak(this);
+    Body->CreatePhysicsMeshesAsync(FOnAsyncPhysicsCookFinished::CreateLambda([Weak](bool bOk)
     {
-        Body->bNeverNeedsCookedCollisionData=false;
-        Body->CollisionTraceFlag=CTF_UseComplexAsSimple;
-        Body->InvalidatePhysicsData();Body->CreatePhysicsMeshes();
-    }
-    StaticMesh=Result;State=EState::Ready;
+        UEidoverseAvatarAsset* Self=Weak.Get();if(!Self)return;
+        if(Self->bRootedForBuild){Self->RemoveFromRoot();Self->bRootedForBuild=false;}
+        UStaticMesh* Mesh=Self->PendingStaticMesh;Self->PendingStaticMesh=nullptr;
+        if(Self->bCancelled||!Mesh)return;
+        EidoLoadTrace::Note(TEXT("model-collision(async wall)"),Self->Url,(FPlatformTime::Seconds()-Self->CookStartedAt)*1000);
+        if(!bOk)UE_LOG(LogTemp,Warning,TEXT("EIDOVERSE model collision cook failed; shown without collision: %s"),*Self->Url);
+        Self->StaticMesh=Mesh;Self->State=EState::Ready;
+    }));
 }
 void UEidoverseAvatarAsset::MeshReady(USkeletalMesh* Result)
 {
     if(bRootedForBuild){RemoveFromRoot();bRootedForBuild=false;}
     if(bCancelled){Loader=nullptr;return;}
     if(!Result){Fail(TEXT("skeletal mesh construction failed"));return;}
+    EidoLoadTrace::Note(TEXT("avatar-build(wall)"),Url,(FPlatformTime::Seconds()-DecodedAt)*1000);
+    EidoLoadTrace::FScope Scope(TEXT("avatar-finish"),Url);
     Mesh=Result;
     // VRMs may have rigid eyes, eyebrows and accessories parented to bones.
     // Keep their node transforms and bind them to the nearest skeletal ancestor.
@@ -382,6 +442,7 @@ void UEidoverseAvatarAsset::MeshReady(USkeletalMesh* Result)
 
 void UEidoverseAvatarMesh::SetAvatar(UEidoverseAvatarAsset* Asset)
 {
+    EidoLoadTrace::FScope Scope(TEXT("avatar-apply"),Asset?Asset->Url:FString());
     for(auto& Part:RigidParts)if(Part)Part->DestroyComponent();RigidParts.Empty();Avatar=Asset;
     EmptyOverrideMaterials();
     SetSkinnedAssetAndUpdate(Asset->Mesh);SetCollisionEnabled(ECollisionEnabled::NoCollision);SetCastShadow(true);

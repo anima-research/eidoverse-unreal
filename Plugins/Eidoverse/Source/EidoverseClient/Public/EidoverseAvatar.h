@@ -58,6 +58,10 @@ public:
     bool bStaticModel=false;
     // Imported un-mirrored: display with component scale (1,-1,1) (glTF x = UE -Y).
     bool bMirrored=false;
+    double StartedAt=0,DecodedAt=0; // load trace (EidoverseLoadTrace.h)
+    double CookStartedAt=0;
+    // Built, collision still cooking on a worker.
+    UPROPERTY(Transient) TObjectPtr<UStaticMesh> PendingStaticMesh;
     // The rooted async job must not belong to a PIE world. Collision meshes
     // still need a world-aware (unrooted) outer for runtime physics cooking.
     TWeakObjectPtr<UObject> StaticMeshOuter;
@@ -87,6 +91,8 @@ private:
     bool bCancelled=false;
     bool bRootedForBuild=false;
     void Decode(const TArray<uint8>& Bytes);
+    void FinishDecode(const TSharedPtr<FJsonObject>& Json,TSharedRef<class FglTFRuntimeParser> Parser);
+    bool bRootedForDecode=false;
     void Fail(const FString& Why);
     void BuildEmissiveLamps();
     UFUNCTION() void MeshReady(USkeletalMesh* Result);

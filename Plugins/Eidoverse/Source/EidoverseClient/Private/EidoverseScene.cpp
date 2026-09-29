@@ -1,4 +1,5 @@
 #include "EidoverseScene.h"
+#include "EidoverseLoadTrace.h"
 #include "EidoverseMotion.h"
 #include "EidoverseWater.h"
 #include "EidoverseSettings.h"
@@ -174,7 +175,21 @@ void AEidoverseScene::Apply(const TSharedPtr<FJsonObject>& Message,const FVector
 void AEidoverseScene::Tick(float Dt)
 {
     Super::Tick(Dt);TickWeather(Dt);int Loading=0;for(auto& A:Assets)Loading+=A.Value->State==UEidoverseAvatarAsset::EState::Loading;
-    for(auto& A:Assets)if(Loading<4&&A.Value->State==UEidoverseAvatarAsset::EState::Queued){A.Value->Start();++Loading;}
+    // Stream nearest first: start queued models in order of distance to the viewer.
+    if(Loading<4)
+    {
+        FVector Eye=SceneOrigin;FRotator EyeRotation;
+        if(auto* PC=GetWorld()->GetFirstPlayerController())PC->GetPlayerViewPoint(Eye,EyeRotation);
+        TMap<UEidoverseAvatarAsset*,double> Nearest;
+        for(auto& Pair:Items)if(auto* A=Pair.Value.Asset.Get())if(A->State==UEidoverseAvatarAsset::EState::Queued&&Pair.Value.Actor.IsValid())
+        {const double D=FVector::DistSquared(Eye,Pair.Value.Actor->GetActorLocation());double& Best=Nearest.FindOrAdd(A,D);Best=FMath::Min(Best,D);}
+        if(GhostAsset&&GhostAsset->State==UEidoverseAvatarAsset::EState::Queued)Nearest.Add(GhostAsset,0);
+        Nearest.ValueSort([](double A,double B){return A<B;});
+        for(auto& N:Nearest){if(Loading>=4)break;N.Key->Start();++Loading;}
+    }
+    // Appear gradually: each new mesh brings GPU work (ray tracing structures, Lumen
+    // cards, shaders) that lands in one frame; at most two new models per frame.
+    int32 Appeared=0;
     LoadedModels=FailedModels=0;
     for(auto& Pair:Items)
     {
@@ -185,7 +200,7 @@ void AEidoverseScene::Tick(float Dt)
         else if(E.bPlaced&&!HeldTransforms.Contains(Pair.Key)&&!E.Actor->GetActorTransform().Equals(E.Target,.001)){FTransform T;T.Blend(E.Actor->GetActorTransform(),E.Target,1-FMath::Exp(-Dt*14));E.Actor->SetActorTransform(T);}
         if(auto* A=E.Asset.Get())
         {
-            if(A->State==UEidoverseAvatarAsset::EState::Ready&&E.Model.IsValid()){if(E.Model->GetStaticMesh()!=A->StaticMesh){E.Model->SetStaticMesh(A->StaticMesh);E.Model->SetRelativeScale3D(A->bMirrored?FVector(1,-1,1):FVector::OneVector);E.Model->EmptyOverrideMaterials();E.Model->SetCollisionProfileName(E.bCollide?TEXT("BlockAll"):TEXT("NoCollision"));bFloraDirty=true;}++LoadedModels;}
+            if(A->State==UEidoverseAvatarAsset::EState::Ready&&E.Model.IsValid()){if(E.Model->GetStaticMesh()!=A->StaticMesh&&Appeared++<2){EidoLoadTrace::FScope Apply(TEXT("model-apply"),A->Url);E.Model->SetStaticMesh(A->StaticMesh);E.Model->SetRelativeScale3D(A->bMirrored?FVector(1,-1,1):FVector::OneVector);E.Model->EmptyOverrideMaterials();E.Model->SetCollisionProfileName(E.bCollide?TEXT("BlockAll"):TEXT("NoCollision"));bFloraDirty=true;}++LoadedModels;}
             if(A->State==UEidoverseAvatarAsset::EState::Failed)++FailedModels;
         }
         else if(E.Model.IsValid())++FailedModels;
@@ -196,7 +211,7 @@ void AEidoverseScene::Tick(float Dt)
     for(auto It=Assets.CreateIterator();It;++It)if(!Used.Contains(It.Value())){It.Value()->Cancel();It.RemoveCurrent();}
     // Grass avoids model footprints, so it is rebuilt once loading settles; but the
     // first build doesn't wait for the slowest model in a busy world.
-    if(bFloraDirty&&(Loading==0||!bFloraBuiltOnce)){bFloraDirty=Loading>0;bFloraBuiltOnce=true;BuildFlora(FloraData,SceneOrigin);}
+    if(bFloraDirty&&(Loading==0||!bFloraBuiltOnce)){bFloraDirty=Loading>0;bFloraBuiltOnce=true;EidoLoadTrace::FScope F(TEXT("flora"),FString());BuildFlora(FloraData,SceneOrigin);}
     UpdateWater();
 }
 double AEidoverseScene::ServerNowMs() const

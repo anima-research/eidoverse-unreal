@@ -1,4 +1,5 @@
 #include "EidoverseBridge.h"
+#include "EidoverseLoadTrace.h"
 #include "EidoverseUI.h"
 #include "EidoverseSettings.h"
 #include "Components/WidgetComponent.h"
@@ -320,19 +321,32 @@ void AEidoverseBridge::TickAvatars(double Time)
     // A few bodies in flight: parsing is on the game thread but mesh building is
     // asynchronous, so strictly one at a time left a busy world grey for minutes.
     int32 Loading=0;for(auto& A:AvatarCache)Loading+=A.Value->State==UEidoverseAvatarAsset::EState::Loading;
-    for(auto& A:AvatarCache)if(Loading<3&&A.Value->State==UEidoverseAvatarAsset::EState::Queued){A.Value->Start();++Loading;}
+    // Nearest people first (my own body counts as nearest).
+    if(Loading<3)
+    {
+        TMap<UEidoverseAvatarAsset*,double> Nearest;
+        auto Want=[&Nearest](UEidoverseAvatarAsset* A,double D){if(A&&A->State==UEidoverseAvatarAsset::EState::Queued){double& Best=Nearest.FindOrAdd(A,D);Best=FMath::Min(Best,D);}};
+        Want(SelfBody.AvatarAsset.Get(),-1);
+        for(auto& Pair:Peers)if(Pair.Value.Actor.IsValid())Want(Pair.Value.AvatarAsset.Get(),FVector::DistSquared(Eye,Pair.Value.Actor->GetActorLocation()));
+        Nearest.ValueSort([](double A,double B){return A<B;});
+        for(auto& N:Nearest){if(Loading>=3)break;N.Key->Start();++Loading;}
+    }
+    int32 Appeared=0; // one new body per frame, like models (EidoverseScene Tick)
     LoadedAvatarCount=0;
     for(auto& Pair:Peers)
     {
         auto& P=Pair.Value;auto* Asset=P.AvatarAsset.Get();
         if(Asset&&Asset->State==UEidoverseAvatarAsset::EState::Ready&&P.Actor.IsValid())
         {
-            if(!P.AvatarMesh.IsValid())
+            if((!P.AvatarMesh.IsValid()||P.AvatarMesh->Avatar!=Asset)&&Appeared++<1)
             {
-                auto* M=NewObject<UEidoverseAvatarMesh>(P.Actor.Get());P.Actor->AddInstanceComponent(M);
-                M->SetupAttachment(P.Actor->GetRootComponent());M->SetCollisionEnabled(ECollisionEnabled::NoCollision);M->RegisterComponent();P.AvatarMesh=M;
+                if(!P.AvatarMesh.IsValid())
+                {
+                    auto* M=NewObject<UEidoverseAvatarMesh>(P.Actor.Get());P.Actor->AddInstanceComponent(M);
+                    M->SetupAttachment(P.Actor->GetRootComponent());M->SetCollisionEnabled(ECollisionEnabled::NoCollision);M->RegisterComponent();P.AvatarMesh=M;
+                }
+                P.AvatarMesh->SetAvatar(Asset);
             }
-            if(P.AvatarMesh->Avatar!=Asset)P.AvatarMesh->SetAvatar(Asset);
         }
         if(P.AvatarMesh.IsValid())
         {
@@ -546,9 +560,41 @@ void AEidoverseBridge::SendPose()
     if(!PendingEmote.IsEmpty()){Data->SetStringField(TEXT("emote"),PendingEmote);PendingEmote.Empty();}
     J->SetStringField(TEXT("type"),TEXT("pose"));J->SetObjectField(TEXT("pose"),Data);Send(J);++SentPoseCount;
 }
+// -EidoverseJoin=<server>,<world>,<name> [-EidoverseAvatar=<library path>]
+// [-EidoverseQuitAfter=<seconds after joining>]: launch straight into a world, and
+// optionally quit after a while logging EIDOVERSE_LOADSTATS (load measurements).
+void AEidoverseBridge::TickCommandLine(double Now)
+{
+    if(!bCommandLineJoinTried&&HUD)
+    {
+        bCommandLineJoinTried=true;FString Spec;
+        if(FParse::Value(FCommandLine::Get(),TEXT("EidoverseJoin="),Spec,false))
+        {
+            TArray<FString> Parts;Spec.ParseIntoArray(Parts,TEXT(","),false);
+            FString Avatar;if(FParse::Value(FCommandLine::Get(),TEXT("EidoverseAvatar="),Avatar,false))AvatarPath=Avatar;
+            if(Parts.Num()==3)JoinFromDoor(Parts[0],Parts[1],Parts[2]);
+            else UE_LOG(LogTemp,Warning,TEXT("EIDOVERSE -EidoverseJoin wants <server>,<world>,<name>"));
+        }
+    }
+    double QuitAfter=0;
+    if(bJoined&&FParse::Value(FCommandLine::Get(),TEXT("EidoverseQuitAfter="),QuitAfter)&&QuitAfter>0)
+    {
+        if(CommandLineJoinedAt<=0)CommandLineJoinedAt=Now;
+        else if(Now-CommandLineJoinedAt>QuitAfter&&!bCommandLineQuitting)
+        {
+            bCommandLineQuitting=true;
+            UE_LOG(LogTemp,Warning,TEXT("EIDOVERSE_LOADSTATS %s"),*EidoLoadTrace::Summary());
+            UE_LOG(LogTemp,Warning,TEXT("EIDOVERSE_COUNTS {\"remote\":%d,\"avatars\":%d,\"entities\":%d,\"models\":%d,\"failed_models\":%d}"),RemoteCount,LoadedAvatarCount,
+                DynamicScene?DynamicScene->EntityCount:0,DynamicScene?DynamicScene->LoadedModels:0,DynamicScene?DynamicScene->FailedModels:0);
+            FPlatformMisc::RequestExit(false);
+        }
+    }
+}
 void AEidoverseBridge::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);const double Now=FPlatformTime::Seconds();
+    EidoLoadTrace::Tick(FApp::GetDeltaTime());
+    TickCommandLine(Now);
     TickProductionLogin(Now);
     if(!ProductionSession.IsEmpty()&&Now>=ProductionSessionExpires){LogoutProduction();LoginStatus=TEXT("Session expired. Please sign in again.");}
     static IConsoleVariable* LegacyUI=IConsoleManager::Get().RegisterConsoleVariable(TEXT("Eidoverse.UI.Legacy"),0,
