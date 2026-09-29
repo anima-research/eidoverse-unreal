@@ -174,7 +174,7 @@ void AEidoverseScene::Apply(const TSharedPtr<FJsonObject>& Message,const FVector
 void AEidoverseScene::Tick(float Dt)
 {
     Super::Tick(Dt);TickWeather(Dt);int Loading=0;for(auto& A:Assets)Loading+=A.Value->State==UEidoverseAvatarAsset::EState::Loading;
-    for(auto& A:Assets)if(Loading<2&&A.Value->State==UEidoverseAvatarAsset::EState::Queued){A.Value->Start();++Loading;}
+    for(auto& A:Assets)if(Loading<4&&A.Value->State==UEidoverseAvatarAsset::EState::Queued){A.Value->Start();++Loading;}
     LoadedModels=FailedModels=0;
     for(auto& Pair:Items)
     {
@@ -194,7 +194,9 @@ void AEidoverseScene::Tick(float Dt)
     TSet<UEidoverseAvatarAsset*> Used;for(auto& E:Items)if(E.Value.Asset.IsValid())Used.Add(E.Value.Asset.Get());
     if(GhostAsset)Used.Add(GhostAsset);TickGhost();
     for(auto It=Assets.CreateIterator();It;++It)if(!Used.Contains(It.Value())){It.Value()->Cancel();It.RemoveCurrent();}
-    if(bFloraDirty&&Loading==0){bFloraDirty=false;BuildFlora(FloraData,SceneOrigin);}
+    // Grass avoids model footprints, so it is rebuilt once loading settles; but the
+    // first build doesn't wait for the slowest model in a busy world.
+    if(bFloraDirty&&(Loading==0||!bFloraBuiltOnce)){bFloraDirty=Loading>0;bFloraBuiltOnce=true;BuildFlora(FloraData,SceneOrigin);}
     UpdateWater();
 }
 double AEidoverseScene::ServerNowMs() const

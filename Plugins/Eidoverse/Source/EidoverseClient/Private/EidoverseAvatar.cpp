@@ -23,7 +23,8 @@ namespace
     constexpr int32 MaxStaticBytes=16*1024*1024;
     // Winged VRMs carry additional skinned geometry. Keep both transport and
     // validation bounded, without increasing the world-prop budget.
-    constexpr int32 MaxAvatarBytes=24*1024*1024;
+    // Production bodies reach ~56 MB (uploaded VRMs with their own textures).
+    constexpr int32 MaxAvatarBytes=64*1024*1024;
     uint32 Word(const TArray<uint8>& B,int32 Offset)
     { uint32 V=0;FMemory::Memcpy(&V,B.GetData()+Offset,4);return V; }
     // HTTP writes on its worker; completion consumes only after the stream ends.
@@ -217,7 +218,7 @@ bool UEidoverseAvatarAsset::ValidateGlb(const TArray<uint8>& B,TSharedPtr<FJsonO
         if(Format!=EImageFormat::PNG&&Format!=EImageFormat::JPEG)return Bad(TEXT("unsupported texture encoding"));
         auto Image=ImageModule.CreateImageWrapper(Format);
         if(!Image||!Image->SetCompressed(Data,Length)||Image->GetWidth()<=0||Image->GetHeight()<=0||Image->GetWidth()>4096||Image->GetHeight()>4096)return Bad(TEXT("texture dimensions exceeded"));
-        Pixels+=int64(Image->GetWidth())*Image->GetHeight();if(Pixels>(bRequireSkin?48LL:32LL)*1024*1024)return Bad(TEXT("texture memory budget exceeded"));
+        Pixels+=int64(Image->GetWidth())*Image->GetHeight();if(Pixels>(bRequireSkin?96LL:32LL)*1024*1024)return Bad(TEXT("texture memory budget exceeded"));
     }
     return true;
 }
@@ -395,8 +396,12 @@ void UEidoverseAvatarMesh::RotateBone(FName HumanBone,const FVector& Axis,float 
 {
     auto* Name=Avatar->Humanoid.Find(HumanBone);if(!Name)return;const int32 I=GetBoneIndex(*Name);if(!BoneSpaceTransforms.IsValidIndex(I))return;
     const FQuat R=ReferenceComponentRotations[I];
+    // Axes are body axes (forward, right, up). VRM 0.x rigs face -X in component
+    // space (the component is yawed 180 to face forward), so their forward and
+    // right axes are mirrored; without this every lowered arm is raised instead.
+    const FVector BodyAxis=Avatar->bVRM0?FVector(-Axis.X,-Axis.Y,Axis.Z):Axis;
     // Accumulate axes rather than overwriting a previous shoulder/elbow adjustment.
-    BoneSpaceTransforms[I].SetRotation((BoneSpaceTransforms[I].GetRotation()*R.Inverse()*FQuat(Axis,FMath::DegreesToRadians(Degrees))*R).GetNormalized());
+    BoneSpaceTransforms[I].SetRotation((BoneSpaceTransforms[I].GetRotation()*R.Inverse()*FQuat(BodyAxis,FMath::DegreesToRadians(Degrees))*R).GetNormalized());
 }
 
 FEidoverseSwimMotion FEidoverseSwimMotion::Evaluate(const FString& Mode,float Speed,const FVector& LocalVelocity)
@@ -464,7 +469,10 @@ void UEidoverseAvatarMesh::Animate(const FString& Mode,float Speed,const FVector
         const bool Left=Side==1;
         const FName UpperArm=Left?TEXT("leftUpperArm"):TEXT("rightUpperArm");
         const FName LowerArm=Left?TEXT("leftLowerArm"):TEXT("rightLowerArm");
-        RotateBone(UpperArm,FVector::ForwardVector,Side*FMath::Lerp(-65.f,Arm,Water));
+        // The angles read "negative lowers, positive raises" (land -65 down from the
+        // T-pose, hover -48 sculling low, dive +78 streamlined overhead); a positive
+        // rotation about the body's forward axis raises the left arm, hence the sign.
+        RotateBone(UpperArm,FVector::ForwardVector,-Side*FMath::Lerp(-65.f,Arm,Water));
         RotateBone(LowerArm,FVector::UpVector,-Side*Water*Elbow);
         RotateBone(Left?TEXT("leftHand"):TEXT("rightHand"),FVector::RightVector,Water*(Stroke*12-8));
 

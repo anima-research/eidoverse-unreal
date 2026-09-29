@@ -154,6 +154,7 @@ private:
     TWeakObjectPtr<AActor> GhostActor;
     TWeakObjectPtr<UStaticMeshComponent> GhostMesh;
     FString GhostLib, LibraryBase;
+    bool bFloraBuiltOnce=false;
     void TickGhost();
     // Spectral sunlight rig for aquatic worlds (sharp/scattered RGB + upwelling),
     // following the scene sun; the sun itself then lights only the atmosphere.

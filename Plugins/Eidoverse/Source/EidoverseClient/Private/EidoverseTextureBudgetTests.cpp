@@ -31,7 +31,8 @@ bool FEidoverseTextureBudget::RunTest(const FString&)
     const auto Three4K=MakeGlb(3,4096);
     TestTrue(TEXT("winged avatar source textures accepted"),UEidoverseAvatarAsset::ValidateGlb(Three4K,J,Error,true));
     TestFalse(TEXT("world source texture budget unchanged"),UEidoverseAvatarAsset::ValidateGlb(Three4K,J,Error,false));
-    TestFalse(TEXT("avatar source textures remain bounded"),UEidoverseAvatarAsset::ValidateGlb(MakeGlb(4,4096),J,Error,true));
+    TestTrue(TEXT("production-scale avatar textures accepted (5 x 4K)"),UEidoverseAvatarAsset::ValidateGlb(MakeGlb(5,4096),J,Error,true));
+    TestFalse(TEXT("avatar source textures remain bounded"),UEidoverseAvatarAsset::ValidateGlb(MakeGlb(7,4096),J,Error,true));
     auto Large=MakeGlb(1,1);
     auto Pad=[&Large](int32 Size)
     {
@@ -40,10 +41,10 @@ bool FEidoverseTextureBudget::RunTest(const FString&)
         uint32 JsonSize=0;FMemory::Memcpy(&JsonSize,Large.GetData()+12,4);
         SetWord(8,Size);SetWord(20+JsonSize,Size-28-JsonSize);
     };
-    Pad(24*1024*1024);
+    Pad(64*1024*1024);
     TestTrue(TEXT("avatar download boundary accepted"),UEidoverseAvatarAsset::ValidateGlb(Large,J,Error,true));
     TestFalse(TEXT("world download budget unchanged"),UEidoverseAvatarAsset::ValidateGlb(Large,J,Error,false));
-    Pad(24*1024*1024+4);
+    Pad(64*1024*1024+4);
     TestFalse(TEXT("avatar download remains bounded"),UEidoverseAvatarAsset::ValidateGlb(Large,J,Error,true));
     return true;
 }

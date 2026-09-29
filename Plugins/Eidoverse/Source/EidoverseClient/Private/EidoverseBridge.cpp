@@ -101,7 +101,14 @@ bool AEidoverseBridge::JoinFromDoor(const FString& Server,const FString& World,c
     bRenderDynamicWorld=true;
     if(S==ProductionEndpoint)
     {
-        if(!HasProductionSession()){LoginStatus=TEXT("The public server needs a Discord sign-in first.");return false;}
+        // Refusals go to the door's status line; LoginStatus keeps the pairing code visible.
+        if(!HasProductionSession())
+        {
+            ConnectionStatus=bAuthenticating?TEXT("Finish the Discord sign-in in your browser first (the code is shown below), then join."):TEXT("The public server needs a Discord sign-in first.");
+            return false;
+        }
+        if(!LoginWorldScope.IsEmpty()&&LoginWorldScope!=TEXT("*")&&LoginWorldScope!=W)
+        {ConnectionStatus=TEXT("This sign-in only approved '")+LoginWorldScope+TEXT("'. Sign out, sign in again and approve all accessible worlds.");return false;}
         WorldName=W;SaveClientSettings();JoinProduction();return true;
     }
     Endpoint=S;WorldName=W;ParticipantName=N;AvatarLibraryBase=HttpBase()+TEXT("/library/");
@@ -292,7 +299,7 @@ void AEidoverseBridge::RequestAvatar(FEidoversePeer& Peer,const FString& Path)
     FString Url;if(!bLoadRemoteAvatars||!UEidoverseAvatarAsset::ResolveUrl(AvatarLibraryBase,Path,Url))return;
     if(auto* Cached=AvatarCache.Find(Url)){Peer.AvatarAsset=*Cached;return;}
     // Bound unique resident assets. Evict unreferenced completed jobs first.
-    if(AvatarCache.Num()>=16)
+    if(AvatarCache.Num()>=32)
     {
         FString Evict;
         for(auto& Entry:AvatarCache)
@@ -310,8 +317,10 @@ void AEidoverseBridge::TickAvatars(double Time)
     TArray<FLampCandidate> Lamps;
     FVector Eye=OriginCentimeters;FRotator EyeRotation;
     if(auto* PC=UGameplayStatics::GetPlayerController(this,0))PC->GetPlayerViewPoint(Eye,EyeRotation);
-    bool Loading=false;for(auto& A:AvatarCache)if(A.Value->State==UEidoverseAvatarAsset::EState::Loading){Loading=true;break;}
-    if(!Loading)for(auto& A:AvatarCache)if(A.Value->State==UEidoverseAvatarAsset::EState::Queued){A.Value->Start();break;}
+    // A few bodies in flight: parsing is on the game thread but mesh building is
+    // asynchronous, so strictly one at a time left a busy world grey for minutes.
+    int32 Loading=0;for(auto& A:AvatarCache)Loading+=A.Value->State==UEidoverseAvatarAsset::EState::Loading;
+    for(auto& A:AvatarCache)if(Loading<3&&A.Value->State==UEidoverseAvatarAsset::EState::Queued){A.Value->Start();++Loading;}
     LoadedAvatarCount=0;
     for(auto& Pair:Peers)
     {
