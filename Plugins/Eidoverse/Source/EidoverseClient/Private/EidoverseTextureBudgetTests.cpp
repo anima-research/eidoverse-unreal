@@ -26,13 +26,14 @@ bool FEidoverseTextureBudget::RunTest(const FString&)
     TestTrue(TEXT("multipart world textures accepted"),UEidoverseAvatarAsset::ValidateGlb(ManySmall,J,Error,false));
     TestFalse(TEXT("avatar texture cap unchanged"),UEidoverseAvatarAsset::ValidateGlb(ManySmall,J,Error,true));
     TestFalse(TEXT("static texture count remains bounded"),UEidoverseAvatarAsset::ValidateGlb(MakeGlb(129,1),J,Error,false));
-    TestFalse(TEXT("aggregate pixel budget remains bounded"),UEidoverseAvatarAsset::ValidateGlb(MakeGlb(33,1024),J,Error,false));
+    TestTrue(TEXT("production-scale world textures accepted (62 Mpx)"),UEidoverseAvatarAsset::ValidateGlb(MakeGlb(62,1024),J,Error,false));
+    TestFalse(TEXT("aggregate pixel budget remains bounded"),UEidoverseAvatarAsset::ValidateGlb(MakeGlb(33,2048),J,Error,false));
     TestEqual(TEXT("rejection is pixel budget, not count"),Error,FString(TEXT("texture memory budget exceeded")));
     const auto Three4K=MakeGlb(3,4096);
     TestTrue(TEXT("winged avatar source textures accepted"),UEidoverseAvatarAsset::ValidateGlb(Three4K,J,Error,true));
-    TestFalse(TEXT("world source texture budget unchanged"),UEidoverseAvatarAsset::ValidateGlb(Three4K,J,Error,false));
+    TestTrue(TEXT("world source textures share the avatar budget"),UEidoverseAvatarAsset::ValidateGlb(Three4K,J,Error,false));
     TestTrue(TEXT("production-scale avatar textures accepted (5 x 4K)"),UEidoverseAvatarAsset::ValidateGlb(MakeGlb(5,4096),J,Error,true));
-    TestFalse(TEXT("avatar source textures remain bounded"),UEidoverseAvatarAsset::ValidateGlb(MakeGlb(7,4096),J,Error,true));
+    TestFalse(TEXT("avatar source textures remain bounded"),UEidoverseAvatarAsset::ValidateGlb(MakeGlb(9,4096),J,Error,true));
     auto Large=MakeGlb(1,1);
     auto Pad=[&Large](int32 Size)
     {
@@ -43,9 +44,13 @@ bool FEidoverseTextureBudget::RunTest(const FString&)
     };
     Pad(64*1024*1024);
     TestTrue(TEXT("avatar download boundary accepted"),UEidoverseAvatarAsset::ValidateGlb(Large,J,Error,true));
-    TestFalse(TEXT("world download budget unchanged"),UEidoverseAvatarAsset::ValidateGlb(Large,J,Error,false));
+    TestTrue(TEXT("large world models accepted"),UEidoverseAvatarAsset::ValidateGlb(Large,J,Error,false));
     Pad(64*1024*1024+4);
     TestFalse(TEXT("avatar download remains bounded"),UEidoverseAvatarAsset::ValidateGlb(Large,J,Error,true));
+    Pad(128*1024*1024);
+    TestTrue(TEXT("world download boundary accepted"),UEidoverseAvatarAsset::ValidateGlb(Large,J,Error,false));
+    Pad(128*1024*1024+4);
+    TestFalse(TEXT("world download remains bounded"),UEidoverseAvatarAsset::ValidateGlb(Large,J,Error,false));
     return true;
 }
 #endif

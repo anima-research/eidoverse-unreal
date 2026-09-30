@@ -24,7 +24,8 @@
 
 namespace
 {
-    constexpr int32 MaxStaticBytes=16*1024*1024;
+    // Production library originals: median 9 MB, p90 32 MB, largest 90 MB (2026-09).
+    constexpr int32 MaxStaticBytes=128*1024*1024;
     // Winged VRMs carry additional skinned geometry. Keep both transport and
     // validation bounded, without increasing the world-prop budget.
     // Production bodies reach ~56 MB (uploaded VRMs with their own textures).
@@ -209,7 +210,9 @@ bool UEidoverseAvatarAsset::ValidateGlb(const TArray<uint8>& B,TSharedPtr<FJsonO
     // Multipart world props often have many small maps. Keep avatars tighter,
     // while avatars may carry three authored 4K maps. Runtime textures are
     // still capped to 2048 by MaterialConfig; this is a source-decode budget.
-    const auto& Images=Array(J,TEXT("images"));if(Images.Num()>(bRequireSkin?32:128))return Bad(TEXT("too many textures"));
+    // Source-texture limits bound decode memory only: GPU copies are capped at 2048 px
+    // (MaterialConfig). Sized for production bodies and models (2026-09 survey).
+    const auto& Images=Array(J,TEXT("images"));if(Images.Num()>(bRequireSkin?64:128))return Bad(TEXT("too many textures"));
     auto& ImageModule=FModuleManager::GetModuleChecked<IImageWrapperModule>(TEXT("ImageWrapper"));
     int64 Pixels=0;
     for(auto& I:Images)
@@ -221,8 +224,8 @@ bool UEidoverseAvatarAsset::ValidateGlb(const TArray<uint8>& B,TSharedPtr<FJsonO
         auto Format=ImageModule.DetectImageFormat(Data,Length);
         if(Format!=EImageFormat::PNG&&Format!=EImageFormat::JPEG)return Bad(TEXT("unsupported texture encoding"));
         auto Image=ImageModule.CreateImageWrapper(Format);
-        if(!Image||!Image->SetCompressed(Data,Length)||Image->GetWidth()<=0||Image->GetHeight()<=0||Image->GetWidth()>4096||Image->GetHeight()>4096)return Bad(TEXT("texture dimensions exceeded"));
-        Pixels+=int64(Image->GetWidth())*Image->GetHeight();if(Pixels>(bRequireSkin?96LL:32LL)*1024*1024)return Bad(TEXT("texture memory budget exceeded"));
+        if(!Image||!Image->SetCompressed(Data,Length)||Image->GetWidth()<=0||Image->GetHeight()<=0||Image->GetWidth()>8192||Image->GetHeight()>8192)return Bad(TEXT("texture dimensions exceeded"));
+        Pixels+=int64(Image->GetWidth())*Image->GetHeight();if(Pixels>128LL*1024*1024)return Bad(TEXT("texture memory budget exceeded"));
     }
     return true;
 }
