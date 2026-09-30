@@ -1342,8 +1342,17 @@ bool FglTFRuntimeParser::LoadBlobToMips(const int32 TextureIndex, TSharedRef<FJs
 			// limit image size (currently only PF_B8G8R8A8 is supported)
 			if (PixelFormat == EPixelFormat::PF_B8G8R8A8 && (MaterialsConfig.ImagesConfig.MaxWidth > 0 || MaterialsConfig.ImagesConfig.MaxHeight > 0) && GPixelFormats[PixelFormat].BlockSizeX == 1 && GPixelFormats[PixelFormat].BlockSizeY == 1)
 			{
-				const int32 NewWidth = MaterialsConfig.ImagesConfig.MaxWidth > 0 ? MaterialsConfig.ImagesConfig.MaxWidth : Width;
-				const int32 NewHeight = MaterialsConfig.ImagesConfig.MaxHeight > 0 ? MaterialsConfig.ImagesConfig.MaxHeight : Height;
+				// [Eidoverse patch] Max* is a cap, not a target: only downscale, keep aspect,
+				// and halve (so power-of-two textures stay power-of-two for mips). Upstream
+				// resampled every texture to exactly Max*, upscaling small ones 16x.
+				int32 NewWidth = Width, NewHeight = Height;
+				while ((MaterialsConfig.ImagesConfig.MaxWidth > 0 && NewWidth > MaterialsConfig.ImagesConfig.MaxWidth) ||
+					(MaterialsConfig.ImagesConfig.MaxHeight > 0 && NewHeight > MaterialsConfig.ImagesConfig.MaxHeight))
+				{
+					NewWidth = FMath::Max(NewWidth / 2, 1); NewHeight = FMath::Max(NewHeight / 2, 1);
+				}
+				if (NewWidth != Width || NewHeight != Height)
+				{
 				TArray64<FColor> ResizedPixels;
 				ResizedPixels.AddUninitialized(NewWidth * NewHeight);
 #if ENGINE_MAJOR_VERSION >= 5
@@ -1355,6 +1364,7 @@ bool FglTFRuntimeParser::LoadBlobToMips(const int32 TextureIndex, TSharedRef<FJs
 				Height = NewHeight;
 				UncompressedBytes.Empty(ResizedPixels.Num() * 4);
 				UncompressedBytes.Append(reinterpret_cast<uint8*>(ResizedPixels.GetData()), ResizedPixels.Num() * 4);
+				}
 			}
 
 			int32 NumOfMips = 1;
@@ -1365,22 +1375,16 @@ bool FglTFRuntimeParser::LoadBlobToMips(const int32 TextureIndex, TSharedRef<FJs
 			{
 				NumOfMips = FMath::FloorLog2(FMath::Max(Width, Height)) + 1;
 
-				for (int32 MipY = 0; MipY < Height; MipY++)
-				{
-					for (int32 MipX = 0; MipX < Width; MipX++)
-					{
-						int64 MipColorIndex = ((MipY * Width) + MipX) * 4;
-						uint8 MipColorB = UncompressedBytes[MipColorIndex];
-						uint8 MipColorG = UncompressedBytes[MipColorIndex + 1];
-						uint8 MipColorR = UncompressedBytes[MipColorIndex + 2];
-						uint8 MipColorA = UncompressedBytes[MipColorIndex + 3];
-						UncompressedColors.Add(FColor(MipColorR, MipColorG, MipColorB, MipColorA));
-					}
-				}
+				// [Eidoverse patch] BGRA bytes are FColor's memory layout: copy, don't loop.
+				static_assert(sizeof(FColor) == 4, "FColor is BGRA8");
+				UncompressedColors.SetNumUninitialized(int64(Width) * Height);
+				FMemory::Memcpy(UncompressedColors.GetData(), UncompressedBytes.GetData(), int64(Width) * Height * 4);
 			}
 
 			int32 MipWidth = Width;
 			int32 MipHeight = Height;
+			int32 PreviousMipWidth = Width;
+			int32 PreviousMipHeight = Height;
 
 			for (int32 MipIndex = 0; MipIndex < NumOfMips; MipIndex++)
 			{
@@ -1392,20 +1396,20 @@ bool FglTFRuntimeParser::LoadBlobToMips(const int32 TextureIndex, TSharedRef<FJs
 				// Resize Image
 				if (MipIndex > 0)
 				{
+					// [Eidoverse patch] Each mip from the previous one (a quarter of the work
+					// per level) instead of resampling the full image for every level.
 					TArray64<FColor> ResizedMipData;
-					ResizedMipData.AddUninitialized(MipWidth * MipHeight);
+					ResizedMipData.AddUninitialized(int64(MipWidth) * MipHeight);
 #if ENGINE_MAJOR_VERSION >= 5
-					FImageUtils::ImageResize(Width, Height, UncompressedColors, MipWidth, MipHeight, ResizedMipData, sRGB, false);
+					FImageUtils::ImageResize(PreviousMipWidth, PreviousMipHeight, UncompressedColors, MipWidth, MipHeight, ResizedMipData, sRGB, false);
 #else
-					FImageUtils::ImageResize(Width, Height, UncompressedColors, MipWidth, MipHeight, ResizedMipData, sRGB);
+					FImageUtils::ImageResize(PreviousMipWidth, PreviousMipHeight, UncompressedColors, MipWidth, MipHeight, ResizedMipData, sRGB);
 #endif
-					for (FColor& Color : ResizedMipData)
-					{
-						MipMap.Pixels.Add(Color.B);
-						MipMap.Pixels.Add(Color.G);
-						MipMap.Pixels.Add(Color.R);
-						MipMap.Pixels.Add(Color.A);
-					}
+					MipMap.Pixels.SetNumUninitialized(ResizedMipData.Num() * 4);
+					FMemory::Memcpy(MipMap.Pixels.GetData(), ResizedMipData.GetData(), ResizedMipData.Num() * 4);
+					UncompressedColors = MoveTemp(ResizedMipData);
+					PreviousMipWidth = MipWidth;
+					PreviousMipHeight = MipHeight;
 				}
 				else
 				{
