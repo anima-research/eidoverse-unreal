@@ -107,6 +107,10 @@ class EIDOVERSECLIENT_API UEidoverseAvatarMesh : public UPoseableMeshComponent
 public:
     UPROPERTY() TObjectPtr<UEidoverseAvatarAsset> Avatar;
     UPROPERTY() TArray<TObjectPtr<UStaticMeshComponent>> RigidParts;
+    // Rigid parts and lamp lights are the owner's components, only attached to this
+    // mesh: destroying the mesh (a re-join, an avatar change) must take them along,
+    // or they detach and float beside the next body at their last offset.
+    virtual void OnComponentDestroyed(bool bDestroyingHierarchy) override;
     UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Eidoverse|Lighting") TArray<TObjectPtr<UPointLightComponent>> EmissiveLights;
     void UpdateEmissiveLights(double Time,float Dayness,bool bEnabled);
     void SetAvatar(UEidoverseAvatarAsset* Asset);

@@ -8,7 +8,9 @@ import time
 import unreal
 unreal.EditorPythonScripting.set_keep_python_script_alive(True)
 SERVER, WORLD = 'ws://127.0.0.1:8993/ws', 'ui-pose-%d' % (time.time() % 100000)
-BODIES = [('vrm1', 'eidoverse/assets/vrms/mythos-wings.vrm'), ('vrm0', 'eidoverse/assets/vrms/shino.vrm')]
+import os
+BODIES = [(os.path.basename(p), p) for p in os.environ.get('POSE_BODIES', 'eidoverse/assets/vrms/mythos-wings.vrm,eidoverse/assets/vrms/shino.vrm').split(',')]
+FACE = os.environ.get('POSE_FACE') == '1'
 editor = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem)
 level = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
 if not editor.get_game_world():
@@ -59,8 +61,23 @@ def tick(dt):
     if st['step'] == 'load':
         bodies = pawn.get_components_by_class(unreal.EidoverseAvatarMesh) if pawn else []
         if bodies and since > 8:
-            pawn.set_camera_distance(3.2)
-            pc.set_control_rotation(unreal.Rotator(roll=0, pitch=-5, yaw=pawn.get_actor_rotation().yaw))
+            if FACE:
+                # A fixed camera 60 cm in front of the face, at eye level, looking back.
+                loc = pawn.get_actor_location(); fwd = pawn.get_actor_forward_vector()
+                eye = loc + unreal.Vector(0, 0, 70)
+                cam_loc = eye + fwd * 60
+                cam = unreal.EditorLevelLibrary.spawn_actor_from_class(unreal.CameraActor, cam_loc) if False else w.spawn_actor(unreal.CameraActor, cam_loc, unreal.MathLibrary.find_look_at_rotation(cam_loc, eye)) if hasattr(w, 'spawn_actor') else None
+                if cam is None:
+                    cam = unreal.GameplayStatics.begin_deferred_actor_spawn_from_class(w, unreal.CameraActor, unreal.Transform(cam_loc, unreal.MathLibrary.find_look_at_rotation(cam_loc, eye)))
+                    unreal.GameplayStatics.finish_spawning_actor(cam, unreal.Transform(cam_loc, unreal.MathLibrary.find_look_at_rotation(cam_loc, eye)))
+                cam.camera_component.set_editor_property('field_of_view', 40)
+                pc.set_view_target_with_blend(cam)
+                st['cam'] = cam
+            pawn.set_camera_distance(0.75 if FACE else 3.2)
+            # FACE: look back at the body from in front (view along -forward), level.
+            yaw = pawn.get_actor_rotation().yaw + (180 if FACE else 0)
+            if not FACE:
+                pc.set_control_rotation(unreal.Rotator(roll=0, pitch=-5, yaw=yaw))
             return step('back')
         return
     if st['step'] == 'back' and since > 2:
@@ -74,6 +91,8 @@ def tick(dt):
         st['body'] += 1
         if st['body'] < len(BODIES):
             return step('wait')
+        if FACE:
+            return step('end')
         # Then a hovering swimmer in the water world, same camera.
         b.join_from_door(SERVER, 'water-preview', 'unreal-pose-test')
         return step('water')

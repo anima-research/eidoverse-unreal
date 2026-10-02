@@ -1,5 +1,6 @@
 #include "EidoverseAvatar.h"
 #include "EidoverseLoadTrace.h"
+#include "Components/PointLightComponent.h"
 #include "Tasks/Task.h"
 #include "Async/Async.h"
 #include "IImageWrapperModule.h"
@@ -443,6 +444,12 @@ void UEidoverseAvatarAsset::MeshReady(USkeletalMesh* Result)
     UE_LOG(LogTemp,Display,TEXT("EIDOVERSE avatar materials: %d adapted to lit shading"),AdaptedMaterialCount);
 }
 
+void UEidoverseAvatarMesh::OnComponentDestroyed(bool bDestroyingHierarchy)
+{
+    for(auto& Part:RigidParts)if(IsValid(Part))Part->DestroyComponent();RigidParts.Empty();
+    for(auto& Light:EmissiveLights)if(IsValid(Light))Light->DestroyComponent();EmissiveLights.Empty();
+    Super::OnComponentDestroyed(bDestroyingHierarchy);
+}
 void UEidoverseAvatarMesh::SetAvatar(UEidoverseAvatarAsset* Asset)
 {
     EidoLoadTrace::FScope Scope(TEXT("avatar-apply"),Asset?Asset->Url:FString());

@@ -88,6 +88,9 @@ void AEidoverseBridge::LoadClientSettings()
 }
 void AEidoverseBridge::SaveClientSettings() const
 {
+    // Automated runs (-unattended) and command-line joins must not overwrite the
+    // person's remembered server, world and name at the front door.
+    if(FApp::IsUnattended()||FParse::Param(FCommandLine::Get(),TEXT("EidoverseJoin"))||FCommandLine::Get()&&FCString::Strifind(FCommandLine::Get(),TEXT("-EidoverseJoin=")))return;
     GConfig->SetString(ClientSection,TEXT("Server"),*Endpoint,GGameUserSettingsIni);
     GConfig->SetString(ClientSection,TEXT("World"),*WorldName,GGameUserSettingsIni);
     GConfig->SetString(ClientSection,TEXT("Name"),*ParticipantName,GGameUserSettingsIni);
