@@ -26,6 +26,7 @@ void AEidoverseGameMode::BeginPlay()
     Bridge->bShowChatUI = true;
     Bridge->bFrontDoor = true;
     Bridge->LoadClientSettings();
+    Bridge->RestoreProductionSession();
     // Compile the shaders a world will need while the door is up (EidoverseWarmup.h).
     FActorSpawnParameters WarmupParams; WarmupParams.ObjectFlags |= RF_Transient;
     GetWorld()->SpawnActor<AEidoverseShaderWarmup>(WarmupParams);

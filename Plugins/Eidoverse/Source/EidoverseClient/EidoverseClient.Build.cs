@@ -15,5 +15,7 @@ public class EidoverseClient : ModuleRules
             "Slate", "SlateCore", "UMG", "MeshDescription", "StaticMeshDescription"
         });
         if (Target.bBuildEditor) PrivateDependencyModuleNames.Add("UnrealEd");
+        // Keychain for the saved production sign-in (EidoverseSecureStore).
+        if (Target.Platform == UnrealTargetPlatform.Mac) PublicFrameworks.Add("Security");
     }
 }

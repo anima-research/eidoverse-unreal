@@ -174,6 +174,9 @@ public:
     UFUNCTION(BlueprintCallable, Category="Eidoverse|Login") void JoinProduction();
     bool HasProductionSession() const{return !ProductionSession.IsEmpty()&&LoginService==TEXT("https://eidoverse.animalabs.ai");}
     static bool ParseProductionSession(const FString& Header,FString& Out);
+    // Keychain-backed sign-in that survives restarts (EidoverseLogin.cpp).
+    void SaveProductionSession() const;
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|Login") void RestoreProductionSession();
     static bool IsPairingCode(const FString& Code);
 #if WITH_DEV_AUTOMATION_TESTS
     void BeginLocalLoginTest();
