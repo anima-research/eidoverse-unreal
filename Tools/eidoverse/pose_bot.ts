@@ -17,7 +17,7 @@ ws.onmessage = (ev) => {
   timer = setInterval(() => {
     const emoteName = process.env.POSE_BOT_EMOTE;
     const emote = emoteName && Math.floor((Date.now() - t0) / 100) % 60 === 5 ? { emote: emoteName } : {};
-    if (!walk) { ws.send(JSON.stringify({ type: "pose", pose: { p: [x, 0, z], yaw, speed: 0, clip: "idle", ...emote } })); return; }
+    if (!walk) { ws.send(JSON.stringify({ type: "pose", pose: { p: [x, 0, z], yaw, speed: 0, clip: process.env.POSE_BOT_CLIP ?? "idle", ...emote } })); return; }
     const t = (Date.now() - t0) / 1000, period = 4 / walk;            // -1 -> 1 -> -1
     const phase = (t % period) / period, dir = phase < .5 ? 1 : -1;
     const px = -1 + 2 * (phase < .5 ? phase * 2 : 2 - phase * 2);

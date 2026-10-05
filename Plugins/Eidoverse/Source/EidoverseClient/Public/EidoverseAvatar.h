@@ -1,5 +1,6 @@
 #pragma once
 #include "CoreMinimal.h"
+#include "EidoverseSprings.h"
 #include "Components/PoseableMeshComponent.h"
 #include "EidoverseAvatar.generated.h"
 
@@ -70,6 +71,8 @@ public:
     UPROPERTY() TObjectPtr<USkeletalMesh> Mesh;
     UPROPERTY() TArray<FEidoverseAvatarAttachment> Attachments;
     TArray<FEidoverseAvatarLamp> Lamps;
+    // Hair, tails, petals, skirts (VRM spring bones), parsed at load.
+    FEidoSpringData Springs;
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Eidoverse|Materials") int32 AdaptedMaterialCount=0;
     bool PrepareLitMaterials(const TSharedPtr<FJsonObject>& Document);
     FglTFRuntimeMaterialsConfig MaterialConfig() const;
@@ -153,6 +156,18 @@ private:
     bool bLastFrameFromClips=false;
     TArray<FTransform> PreviousPose;
     void PrepareRetarget();
+    // Spring bones (EidoverseSprings.cpp): simulated after every posed frame.
+    struct FSpringState
+    {
+        const FEidoSpringJoint* Joint=nullptr; int32 Bone=INDEX_NONE, Parent=INDEX_NONE;
+        FQuat InitialLocal=FQuat::Identity; FVector ChildLocal=FVector::ZeroVector, Axis=FVector::ZeroVector;
+        float Length=0; FVector Tail=FVector::ZeroVector, PrevTail=FVector::ZeroVector; bool bInit=false;
+    };
+    TArray<FSpringState> SpringStates;
+    float SpringAccumulator=0;
+    bool bSpringsSettled=false;
+    void PrepareSprings();
+    void UpdateSprings(float Dt);
 private:
     UPROPERTY() TArray<TObjectPtr<UMaterialInstanceDynamic>> EmissiveMaterials;
     void CreateEmissiveLights();

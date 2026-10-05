@@ -68,6 +68,8 @@ protected:
     virtual FReply NativeOnMouseButtonDown(const FGeometry& Geometry, const FPointerEvent& Event) override;
     virtual FReply NativeOnMouseMove(const FGeometry& Geometry, const FPointerEvent& Event) override;
     virtual FReply NativeOnMouseButtonUp(const FGeometry& Geometry, const FPointerEvent& Event) override;
+    // Panels own the wheel: scrolling chat (even past its end) must never zoom the camera.
+    virtual FReply NativeOnMouseWheel(const FGeometry& Geometry, const FPointerEvent& Event) override;
 private:
     UFUNCTION() void HandleClose();
     UPROPERTY() TObjectPtr<class USizeBox> SizeBox;
@@ -185,6 +187,9 @@ private:
     UPROPERTY() TObjectPtr<UTextBlock> PeopleCount;
     // State
     bool bPointerMode = false, bPrevCursor = false;
+    // Chat opened from mouselook (Enter) returns to mouselook when it closes.
+    bool bChatFromMouselook = false;
+    void LeaveChat(bool bToMouselook);
     TArray<TPair<FString, bool>> Emotes;  // name, listed
     TSharedPtr<class FJsonObject> Defs;
     FString LastStatus, LastWorld, LastHttpBase;

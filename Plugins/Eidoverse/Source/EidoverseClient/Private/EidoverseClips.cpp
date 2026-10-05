@@ -276,10 +276,12 @@ float EidoClipRules::RateFor(const FString& Slot, float Speed)
     return Natural > 0 && Speed > 0 ? FMath::Clamp(Speed / Natural, .6f, 1.6f) : 1.f;
 }
 
-FString EidoClipRules::SelectLocomotion(bool bJumped, float AirborneSeconds, bool bWantMove, float Speed)
+FString EidoClipRules::SelectLocomotion(bool bJumped, float AirborneSeconds, bool bWantMove, float Speed, const FString& Posture)
 {
     if (bJumped || AirborneSeconds > .04f) return TEXT("jump");
     if (bWantMove && Speed >= .05f) return Speed < 2.6f ? TEXT("walk") : TEXT("run");
+    if (Posture == TEXT("sit")) return TEXT("sit");   // a chair seat is 'sitchair' (not yet: seats)
+    if (Posture == TEXT("lie")) return TEXT("lie");
     return TEXT("idle");
 }
 

@@ -197,6 +197,8 @@ public:
     UPROPERTY(Transient,BlueprintReadOnly,Category="Eidoverse") bool bWantMove=false;
     UPROPERTY(Transient,BlueprintReadOnly,Category="Eidoverse") float AirborneSeconds=0;
     UPROPERTY(Transient,BlueprintReadOnly,Category="Eidoverse") bool bJumped=false;
+    // "sit" | "lie" | empty: X sits, Z lies down, moving stands up (controller.js postures).
+    UPROPERTY(Transient,BlueprintReadWrite,Category="Eidoverse") FString Posture;
     UFUNCTION(BlueprintCallable,Category="Eidoverse") void SetCameraDistance(float Meters);
     UFUNCTION(BlueprintCallable,Category="Eidoverse") void Zoom(float Notches);
 private:

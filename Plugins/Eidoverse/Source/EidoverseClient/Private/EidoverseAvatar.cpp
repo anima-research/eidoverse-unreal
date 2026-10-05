@@ -382,6 +382,7 @@ void UEidoverseAvatarAsset::FinishDecode(const TSharedPtr<FJsonObject>& J,TShare
         else if(Name.EndsWith(TEXT("ThumbIntermediate")))Name=Name.Replace(TEXT("ThumbIntermediate"),TEXT("ThumbProximal"));
         AddBone(Name,int32(I));
     }
+    Springs=FEidoSpringData::Parse(J,[this](int32 Index){FglTFRuntimeNode N;return Loader->GetNode(Index,N)?N.Name:FString();});
     TArray<FString> Exclude;for(auto& N:Loader->GetNodes())if(N.MeshIndex>=0&&N.SkinIndex<0)Exclude.Add(N.Name);
     FglTFRuntimeSkeletalMeshConfig MeshConfig;MeshConfig.MaterialsConfig=MaterialConfig();MeshConfig.bDisableMorphTargets=true;
     MeshConfig.bAllowCPUAccess=true; // Infer emitter bounds and skin attachment after decoding.
@@ -447,7 +448,7 @@ void UEidoverseAvatarAsset::MeshReady(USkeletalMesh* Result)
     }
     BuildEmissiveLamps();
     State=EState::Ready;Loader=nullptr;
-    UE_LOG(LogTemp,Display,TEXT("EIDOVERSE avatar ready: %d bones, %d humanoid mappings, %d rigid parts"),Ref.GetNum(),Humanoid.Num(),Attachments.Num());
+    UE_LOG(LogTemp,Display,TEXT("EIDOVERSE avatar ready: %d bones, %d humanoid mappings, %d rigid parts, %d spring joints, %d colliders"),Ref.GetNum(),Humanoid.Num(),Attachments.Num(),Springs.Joints.Num(),Springs.Colliders.Num());
     UE_LOG(LogTemp,Display,TEXT("EIDOVERSE avatar materials: %d adapted to lit shading"),AdaptedMaterialCount);
 }
 
@@ -470,6 +471,7 @@ void UEidoverseAvatarMesh::SetAvatar(UEidoverseAvatarAsset* Asset)
     SetRelativeRotation(FRotator(0,Asset->bVRM0?180:0,0));
     CreateEmissiveLights();
     PrepareRetarget();
+    PrepareSprings();
 }
 void UEidoverseAvatarMesh::RotateBone(FName HumanBone,const FVector& Axis,float Degrees)
 {
@@ -572,5 +574,6 @@ void UEidoverseAvatarMesh::Animate(const FString& Mode,float Speed,const FVector
         for(int32 I=0;I<BoneSpaceTransforms.Num();++I)
             BoneSpaceTransforms[I].SetRotation(FQuat::Slerp(Previous[I].GetRotation(),BoneSpaceTransforms[I].GetRotation(),JointBlend).GetNormalized());
     }
+    UpdateSprings(Dt);
     MarkRefreshTransformDirty();
 }

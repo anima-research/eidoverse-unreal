@@ -450,7 +450,7 @@ void AEidoverseBridge::TickSelfBody(double Time)
     // My clip, chosen as the browser's controller does (locomotion_clip.js).
     const bool bSwimming=Explorer->LocomotionMode!=TEXT("walk");
     const float Ground=FVector(Velocity.X,Velocity.Y,0).Size();
-    SelfClipSlot=EidoClipRules::SelectLocomotion(Explorer->bJumped,Explorer->AirborneSeconds,Explorer->bWantMove,Ground);
+    SelfClipSlot=EidoClipRules::SelectLocomotion(Explorer->bJumped,Explorer->AirborneSeconds,Explorer->bWantMove,Ground,Explorer->Posture);
     if(!bSwimming&&AnimateWithClips(SelfBody,SelfClipSlot,Ground,Time))return;
     M->Animate(Explorer->LocomotionMode,Speed,Local,Time);
     const double Now=FPlatformTime::Seconds();
@@ -694,7 +694,7 @@ void AEidoverseBridge::Tick(float DeltaSeconds)
         if(!Base.IsEmpty())
         {
             ClipLibrary->Configure(Base);
-            for(const TCHAR* Slot:{TEXT("idle"),TEXT("walk"),TEXT("run"),TEXT("jump")})ClipLibrary->Prefetch(Slot);
+            for(const TCHAR* Slot:{TEXT("idle"),TEXT("walk"),TEXT("run"),TEXT("jump"),TEXT("sit"),TEXT("lie")})ClipLibrary->Prefetch(Slot);
         }
         TickAvatars(Now);
     }

@@ -41,7 +41,7 @@ namespace EidoClipRules
     // timeScale = clamp(speed / natural, 0.6, 1.6), else 1.
     EIDOVERSECLIENT_API float RateFor(const FString& Slot, float Speed);
     // locomotion_clip.js selectClip, desktop subset.
-    EIDOVERSECLIENT_API FString SelectLocomotion(bool bJumped, float AirborneSeconds, bool bWantMove, float Speed);
+    EIDOVERSECLIENT_API FString SelectLocomotion(bool bJumped, float AirborneSeconds, bool bWantMove, float Speed, const FString& Posture = FString());
 }
 
 // Shared by every body: the server's roster (/animations) and emote table (/defs),

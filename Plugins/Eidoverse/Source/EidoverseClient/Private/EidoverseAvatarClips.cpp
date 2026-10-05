@@ -188,6 +188,7 @@ bool UEidoverseAvatarMesh::AnimateClips(double Time)
         BoneSpaceTransforms = PreviousPose;
     }
     AnimationState = CurrentClipSlot();
+    UpdateSprings(Dt);
     MarkRefreshTransformDirty();
     return true;
 }

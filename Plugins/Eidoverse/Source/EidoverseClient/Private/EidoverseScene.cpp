@@ -15,6 +15,7 @@
 #include "Camera/CameraComponent.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "EidoverseUI.h"
+#include "Framework/Application/SlateApplication.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/PlayerController.h"
@@ -285,6 +286,9 @@ void AEidoverseExplorer::SetCameraDistance(float Meters)
 }
 void AEidoverseExplorer::Zoom(float Notches)
 {
+    // Typing (chat, search) owns the wheel too.
+    const TSharedPtr<SWidget> Focused=FSlateApplication::Get().GetKeyboardFocusedWidget();
+    if(Focused.IsValid()&&(Focused->GetType()==TEXT("SEditableText")||Focused->GetType()==TEXT("SMultiLineEditableText")))return;
     // One wheel notch is ~100 deltaY in the browser, times 0.004 there.
     if(Notches!=0)SetCameraDistance(CameraDistance-Notches*.4f);
 }
@@ -351,6 +355,7 @@ void AEidoverseExplorer::Tick(float Dt)
     UpdateCamera(Dt,PC);
     if(TickSwimming(Dt,PC))
     {
+        Posture.Empty();
         // Swimming bypasses CharacterMovement: turn the body toward the stroke (controller.js).
         const FVector H(BodyVelocity.X,BodyVelocity.Y,0);
         if(!bFirstPerson&&H.Size()>5)SetActorRotation(FMath::RInterpTo(GetActorRotation(),FRotator(0,H.Rotation().Yaw,0),Dt,8));
@@ -370,6 +375,11 @@ void AEidoverseExplorer::Tick(float Dt)
     GetCharacterMovement()->MaxWalkSpeed=bRun?400:bCreep?55:155;
     AddMovementInput(R.Vector(),Forward);
     AddMovementInput(FRotationMatrix(R).GetUnitAxis(EAxis::Y),Right);
+    // Postures: X sit, Z lie (Ctrl+Z stays build-mode undo); walking or jumping stands up.
+    const bool bCtrl=PC->IsInputKeyDown(EKeys::LeftControl)||PC->IsInputKeyDown(EKeys::RightControl)||PC->IsInputKeyDown(EKeys::LeftCommand);
+    if(PC->WasInputKeyJustPressed(EKeys::X))Posture=Posture==TEXT("sit")?FString():TEXT("sit");
+    if(!bCtrl&&PC->WasInputKeyJustPressed(EKeys::Z))Posture=Posture==TEXT("lie")?FString():TEXT("lie");
+    if(bWantMove||PC->WasInputKeyJustPressed(EKeys::SpaceBar))Posture.Empty();
     if(PC->WasInputKeyJustPressed(EKeys::SpaceBar)){if(!GetCharacterMovement()->IsFalling())bJumped=true;Jump();}
     if(PC->WasInputKeyJustReleased(EKeys::SpaceBar))StopJumping();
 }
