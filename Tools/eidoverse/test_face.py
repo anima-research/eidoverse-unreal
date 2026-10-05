@@ -47,6 +47,8 @@ def tick(dt):
         pc.set_control_rotation(unreal.MathLibrary.find_look_at_rotation(eye, head))
         if since > 1.5 + st['shots'] * 1.0:
             unreal.SystemLibrary.execute_console_command(w, 'shot showui')
+            meshes = st['peer'].get_components_by_class(unreal.EidoverseAvatarMesh)
+            result.setdefault('states', []).append(meshes[0].get_editor_property('animation_state') if meshes else None)
             st['shots'] += 1
             if st['shots'] >= int(os.environ.get('FACE_SHOTS', '1')): return step('end')
         return

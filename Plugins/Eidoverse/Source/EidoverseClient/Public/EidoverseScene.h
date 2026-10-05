@@ -192,6 +192,11 @@ public:
     // Measured body velocity (cm/s), including shared-law swimming which moves the
     // actor directly and leaves CharacterMovement's velocity at zero.
     UPROPERTY(Transient,BlueprintReadOnly,Category="Eidoverse") FVector BodyVelocity=FVector::ZeroVector;
+    // Inputs to the browser's clip choice (locomotion_clip.js): a movement key held,
+    // seconds airborne, and whether this airtime began with a jump.
+    UPROPERTY(Transient,BlueprintReadOnly,Category="Eidoverse") bool bWantMove=false;
+    UPROPERTY(Transient,BlueprintReadOnly,Category="Eidoverse") float AirborneSeconds=0;
+    UPROPERTY(Transient,BlueprintReadOnly,Category="Eidoverse") bool bJumped=false;
     UFUNCTION(BlueprintCallable,Category="Eidoverse") void SetCameraDistance(float Meters);
     UFUNCTION(BlueprintCallable,Category="Eidoverse") void Zoom(float Notches);
 private:

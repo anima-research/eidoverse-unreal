@@ -121,6 +121,38 @@ public:
     UFUNCTION(BlueprintCallable,Category="Eidoverse|Animation") bool HumanBonePosition(FName Bone,FVector& WorldPosition) const;
     bool SolveReach(FName Limb,const FVector& WorldTarget);
     void ApplyGesture(const FString& Gesture,double Time);
+
+    // ---- VRM Animation clips (EidoverseAvatarClips.cpp), as the browser plays them ----
+    // Crossfade to a looping clip (no-op when it is already the one playing; the rate
+    // still updates). FadeSeconds 0.22 by default, 0.1 into a jump.
+    void SetClip(TSharedPtr<const struct FEidoClip> Clip,const FString& Slot,float Rate,float FadeSeconds=.22f);
+    // A one-shot (emote): crossfades in, holds its last frame, fades out at its end.
+    void PlayOneShot(TSharedPtr<const struct FEidoClip> Clip,const FString& Name);
+    bool HasOneShot() const;
+    void CancelOneShot();
+    // A remote's clipTime/clipRate for the slot it is playing (poseclips.js syncClipPhase).
+    void SyncClipPhase(const FString& Slot,float ClipTime,float Rate);
+    // Pose from clips; false when nothing is playing yet (callers fall back to Animate).
+    bool AnimateClips(double Time);
+    void StopClips();
+    FString CurrentClipSlot() const;
+    float CurrentClipTime() const;
+    float CurrentClipRate() const;
+private:
+    struct FClipPlay
+    {
+        TSharedPtr<const struct FEidoClip> Clip; FString Slot;
+        float Time=0, Rate=1, Weight=0, Target=1, FadeSpeed=1/.22f;
+        bool bLoop=true, bFinished=false;
+    };
+    TArray<FClipPlay> ClipPlays;
+    TArray<FTransform> ReferenceComponent;
+    TMap<FName,int32> HumanBoneIndex;
+    float RestHipsHeight=1;                  // the body's hips height above its origin (m)
+    double LastClipTime=-1, ClipBlendUntil=0;
+    bool bLastFrameFromClips=false;
+    TArray<FTransform> PreviousPose;
+    void PrepareRetarget();
 private:
     UPROPERTY() TArray<TObjectPtr<UMaterialInstanceDynamic>> EmissiveMaterials;
     void CreateEmissiveLights();

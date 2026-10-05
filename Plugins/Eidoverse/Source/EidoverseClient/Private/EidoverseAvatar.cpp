@@ -374,7 +374,14 @@ void UEidoverseAvatarAsset::FinishDecode(const TSharedPtr<FJsonObject>& J,TShare
     if(auto Human=Object(Object(VRM1,TEXT("humanoid")),TEXT("humanBones")))
         for(auto& B:Human->Values){auto O=B.Value->AsObject();double I;if(O&&O->TryGetNumberField(TEXT("node"),I)&&I>=0&&I<512)AddBone(FString(B.Key),int32(I));}
     for(auto& B:Array(Object(VRM0,TEXT("humanoid")),TEXT("humanBones")))
-    {auto O=B->AsObject();double I;FString Name;if(O&&O->TryGetStringField(TEXT("bone"),Name)&&O->TryGetNumberField(TEXT("node"),I)&&I>=0&&I<512)AddBone(Name,int32(I));}
+    {
+        auto O=B->AsObject();double I;FString Name;
+        if(!O||!O->TryGetStringField(TEXT("bone"),Name)||!O->TryGetNumberField(TEXT("node"),I)||I<0||I>=512)continue;
+        // VRM 0.x thumbs are one joint "higher" than VRM 1.0's (three-vrm maps them so).
+        if(Name.EndsWith(TEXT("ThumbProximal")))Name=Name.Replace(TEXT("ThumbProximal"),TEXT("ThumbMetacarpal"));
+        else if(Name.EndsWith(TEXT("ThumbIntermediate")))Name=Name.Replace(TEXT("ThumbIntermediate"),TEXT("ThumbProximal"));
+        AddBone(Name,int32(I));
+    }
     TArray<FString> Exclude;for(auto& N:Loader->GetNodes())if(N.MeshIndex>=0&&N.SkinIndex<0)Exclude.Add(N.Name);
     FglTFRuntimeSkeletalMeshConfig MeshConfig;MeshConfig.MaterialsConfig=MaterialConfig();MeshConfig.bDisableMorphTargets=true;
     MeshConfig.bAllowCPUAccess=true; // Infer emitter bounds and skin attachment after decoding.
@@ -462,6 +469,7 @@ void UEidoverseAvatarMesh::SetAvatar(UEidoverseAvatarAsset* Asset)
     {auto* Part=NewObject<UStaticMeshComponent>(GetOwner());GetOwner()->AddInstanceComponent(Part);Part->SetupAttachment(this,A.Bone);Part->SetRelativeTransform(A.Transform);Part->SetStaticMesh(A.Mesh);Part->SetCollisionEnabled(ECollisionEnabled::NoCollision);Part->SetCastShadow(true);Part->RegisterComponent();RigidParts.Add(Part);}
     SetRelativeRotation(FRotator(0,Asset->bVRM0?180:0,0));
     CreateEmissiveLights();
+    PrepareRetarget();
 }
 void UEidoverseAvatarMesh::RotateBone(FName HumanBone,const FVector& Axis,float Degrees)
 {
@@ -500,6 +508,7 @@ FEidoverseSwimMotion FEidoverseSwimMotion::Evaluate(const FString& Mode,float Sp
 void UEidoverseAvatarMesh::Animate(const FString& Mode,float Speed,const FVector& LocalVelocity,double Time)
 {
     if(!Avatar||Reference.IsEmpty())return;
+    bLastFrameFromClips=false;LastClipTime=-1;   // the next clip frame blends from this pose
     const float Dt=LastAnimationTime<0?1.f/60:FMath::Clamp(float(Time-LastAnimationTime),0.f,.1f);
     LastAnimationTime=Time;
     const auto Motion=FEidoverseSwimMotion::Evaluate(Mode,Speed,LocalVelocity);

@@ -70,6 +70,12 @@ struct FEidoversePeer
     TSharedPtr<FJsonObject> Reach;
     FString LastEmote,ActiveEmote;
     double EmoteUntil=0;
+    // Clip state from the pose (clip, clipTime/clipTimeSlot/clipRate), web-identical playback.
+    FString Clip;
+    float ClipTime=-1,ClipRate=0;
+    FString ClipTimeSlot;
+    bool bClipSample=false;   // a new packet carried clipTime for this frame
+    bool bEmotePending=false; // ActiveEmote should start playing
 };
 
 struct FEidoverseObjectSim
@@ -238,6 +244,11 @@ private:
     TMap<FString,FEidoversePeer> Peers;
     // My own body: same loader and animation as peers, riding the explorer pawn.
     FEidoversePeer SelfBody;
+    // The browser's clip vocabulary and the clips themselves (EidoverseClips.h).
+    UPROPERTY(Transient) TObjectPtr<class UEidoverseClipLibrary> ClipLibrary;
+    FString SelfClipSlot=TEXT("idle");
+    // Plays the clip a peer (or I) should show; false falls back to the procedural pose.
+    bool AnimateWithClips(FEidoversePeer& P,const FString& Slot,float Speed,double Time);
     void TickSelfBody(double Time);
     void TickCommandLine(double Now);
     bool bCommandLineJoinTried=false,bCommandLineQuitting=false;

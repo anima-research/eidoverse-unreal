@@ -257,7 +257,10 @@ void AEidoverseScene::EndPlay(const EEndPlayReason::Type Reason)
 {ClearGhost();DestroyWater();for(auto& A:Assets)A.Value->Cancel();Assets.Empty();for(auto& E:Items)if(E.Value.Actor.IsValid())E.Value.Actor->Destroy();Items.Empty();Super::EndPlay(Reason);}
 AEidoverseExplorer::AEidoverseExplorer()
 {
-    PrimaryActorTick.bCanEverTick=true;GetCapsuleComponent()->InitCapsuleSize(32,88);GetCharacterMovement()->MaxWalkSpeed=400;GetCharacterMovement()->JumpZVelocity=430;
+    // Browser locomotion (controller.js): walk 1.55 m/s, Shift 4.0, Alt 0.55; a jump is
+    // vy 5.6 m/s against gravity 16 m/s^2.
+    PrimaryActorTick.bCanEverTick=true;GetCapsuleComponent()->InitCapsuleSize(32,88);GetCharacterMovement()->MaxWalkSpeed=155;GetCharacterMovement()->JumpZVelocity=560;
+    GetCharacterMovement()->GravityScale=16.f/9.81f;
     GetCharacterMovement()->MaxAcceleration=6000;GetCharacterMovement()->BrakingDecelerationWalking=7000;
     // The boom pivots at the head (1.45 m above the feet; the capsule centre is 88 cm up).
     Boom=CreateDefaultSubobject<USpringArmComponent>(TEXT("Boom"));Boom->SetupAttachment(GetRootComponent());
@@ -354,11 +357,21 @@ void AEidoverseExplorer::Tick(float Dt)
         else if(bFirstPerson)SetActorRotation(FRotator(0,PC->GetControlRotation().Yaw,0));
         return;
     }
+    // Airtime for the clip choice; a landing clears the jump.
+    if(GetCharacterMovement()->IsFalling())AirborneSeconds+=Dt;else{AirborneSeconds=0;bJumped=false;}
+    bWantMove=false;
     if(PC->IsMoveInputIgnored())return;
     FRotator R(0,PC->GetControlRotation().Yaw,0);
-    AddMovementInput(R.Vector(),(PC->IsInputKeyDown(EKeys::W)?1:0)-(PC->IsInputKeyDown(EKeys::S)?1:0));
-    AddMovementInput(FRotationMatrix(R).GetUnitAxis(EAxis::Y),(PC->IsInputKeyDown(EKeys::D)?1:0)-(PC->IsInputKeyDown(EKeys::A)?1:0));
-    if(PC->WasInputKeyJustPressed(EKeys::SpaceBar))Jump();if(PC->WasInputKeyJustReleased(EKeys::SpaceBar))StopJumping();
+    const float Forward=(PC->IsInputKeyDown(EKeys::W)?1:0)-(PC->IsInputKeyDown(EKeys::S)?1:0);
+    const float Right=(PC->IsInputKeyDown(EKeys::D)?1:0)-(PC->IsInputKeyDown(EKeys::A)?1:0);
+    bWantMove=Forward!=0||Right!=0;
+    const bool bRun=PC->IsInputKeyDown(EKeys::LeftShift)||PC->IsInputKeyDown(EKeys::RightShift);
+    const bool bCreep=PC->IsInputKeyDown(EKeys::LeftAlt)||PC->IsInputKeyDown(EKeys::RightAlt);
+    GetCharacterMovement()->MaxWalkSpeed=bRun?400:bCreep?55:155;
+    AddMovementInput(R.Vector(),Forward);
+    AddMovementInput(FRotationMatrix(R).GetUnitAxis(EAxis::Y),Right);
+    if(PC->WasInputKeyJustPressed(EKeys::SpaceBar)){if(!GetCharacterMovement()->IsFalling())bJumped=true;Jump();}
+    if(PC->WasInputKeyJustReleased(EKeys::SpaceBar))StopJumping();
 }
 
 // Shared swim law (EidoWater::SwimStep, port of shared/water.js) with the

@@ -1,5 +1,6 @@
 #include "EidoverseBridge.h"
 #include "EidoverseLoadTrace.h"
+#include "EidoverseClips.h"
 #include "EidoverseUI.h"
 #include "EidoverseSettings.h"
 #include "Components/WidgetComponent.h"
@@ -73,7 +74,7 @@ bool AEidoverseBridge::Emote(const FString& Name)
 {
     if(!bJoined||bSpectator||Name.IsEmpty()||Name.Len()>32)return false;
     for(TCHAR C:Name)if(!FChar::IsAlnum(C)&&C!='_'&&C!='-')return false;
-    PendingEmote=Name;SelfBody.ActiveEmote=Name;SelfBody.EmoteUntil=FPlatformTime::Seconds()+2.5;return true;
+    PendingEmote=Name;SelfBody.ActiveEmote=Name;SelfBody.EmoteUntil=FPlatformTime::Seconds()+2.5;SelfBody.bEmotePending=true;return true;
 }
 const TCHAR* AEidoverseBridge::ProductionEndpoint=TEXT("wss://eidoverse.animalabs.ai/ws");
 namespace { const TCHAR* ClientSection=TEXT("/Script/EidoverseClient.ClientSettings"); }
@@ -359,9 +360,14 @@ void AEidoverseBridge::TickAvatars(double Time)
             {
                 const bool Fresh=!P.Samples.IsEmpty()&&Time-P.Samples.Last().Time<.75;
                 const FVector LocalVelocity=Fresh?P.Actor->GetActorQuat().UnrotateVector(P.VelocityMeters):FVector::ZeroVector;
-                P.AvatarMesh->Animate(P.Mode,Fresh?P.Speed:0,LocalVelocity,Time);
-                if(P.Speed>.05)P.EmoteUntil=0;
-                if(Time<P.EmoteUntil)P.AvatarMesh->ApplyGesture(P.ActiveEmote,Time);
+                const bool bAquatic=FEidoverseSwimMotion::Evaluate(P.Mode,0,FVector::ZeroVector).bAquatic;
+                FString Slot=P.Clip;if(Slot.IsEmpty()||Slot==TEXT("ragdoll"))Slot=Fresh&&P.Speed>.05f?TEXT("walk"):TEXT("idle");
+                if(bAquatic||!AnimateWithClips(P,Slot,Fresh?P.Speed:0,Time))
+                {
+                    P.AvatarMesh->Animate(P.Mode,Fresh?P.Speed:0,LocalVelocity,Time);
+                    if(P.Speed>.05)P.EmoteUntil=0;
+                    if(Time<P.EmoteUntil)P.AvatarMesh->ApplyGesture(P.ActiveEmote,Time);
+                }
             }
             if(P.Mesh.IsValid())P.Mesh->SetVisibility(P.bSubmarine);
             if(!P.AvatarMesh->EmissiveLights.IsEmpty())Lamps.Add({P.AvatarMesh.Get(),FVector::DistSquared(Eye,P.Actor->GetActorLocation()),!P.bSubmarine});
@@ -380,6 +386,32 @@ void AEidoverseBridge::TickAvatars(double Time)
         if(Enable)Budget-=Count;
         Candidate.Mesh->UpdateEmissiveLights(Time,Day,Enable);
     }
+}
+bool AEidoverseBridge::AnimateWithClips(FEidoversePeer& P,const FString& Slot,float Speed,double Time)
+{
+    UEidoverseAvatarMesh* M=P.AvatarMesh.Get();
+    if(!M||!ClipLibrary)return false;
+    // Emotes: one-shot clips from the server's emote table, loaded on first use
+    // (avatar.js playEmote); moving cancels them (setClip with speed > 0.05).
+    if(P.bEmotePending)
+    {
+        const FString File=ClipLibrary->EmoteClip(P.ActiveEmote);
+        if(File.IsEmpty()||Time>P.EmoteUntil)P.bEmotePending=false;
+        else if(TSharedPtr<const FEidoClip> Emote=ClipLibrary->Find(File))
+        {
+            M->PlayOneShot(Emote,P.ActiveEmote);P.bEmotePending=false;P.EmoteUntil=0;
+            UE_LOG(LogTemp,Display,TEXT("EIDOVERSE emote %s -> %s (%.1fs)"),*P.ActiveEmote,*File,Emote->Duration);
+        }
+    }
+    if(Speed>.05f&&M->HasOneShot())M->CancelOneShot();
+    FString Played;
+    if(TSharedPtr<const FEidoClip> Clip=ClipLibrary->Resolve(Slot,&Played))
+    {
+        M->SetClip(Clip,Played,P.ClipRate>0?P.ClipRate:EidoClipRules::RateFor(Played,Speed),Played==TEXT("jump")?.1f:.22f);
+        if(P.bClipSample&&P.ClipTimeSlot==Played)M->SyncClipPhase(Played,P.ClipTime,P.ClipRate);
+    }
+    P.bClipSample=false;
+    return M->AnimateClips(Time);
 }
 void AEidoverseBridge::TickSelfBody(double Time)
 {
@@ -415,6 +447,11 @@ void AEidoverseBridge::TickSelfBody(double Time)
     const FVector Velocity=Explorer->BodyVelocity/100.;
     const FVector Local=Explorer->GetActorQuat().UnrotateVector(Velocity);
     const float Speed=Velocity.Size();
+    // My clip, chosen as the browser's controller does (locomotion_clip.js).
+    const bool bSwimming=Explorer->LocomotionMode!=TEXT("walk");
+    const float Ground=FVector(Velocity.X,Velocity.Y,0).Size();
+    SelfClipSlot=EidoClipRules::SelectLocomotion(Explorer->bJumped,Explorer->AirborneSeconds,Explorer->bWantMove,Ground);
+    if(!bSwimming&&AnimateWithClips(SelfBody,SelfClipSlot,Ground,Time))return;
     M->Animate(Explorer->LocomotionMode,Speed,Local,Time);
     const double Now=FPlatformTime::Seconds();
     if(Speed>.05)SelfBody.EmoteUntil=0;
@@ -425,8 +462,17 @@ void AEidoverseBridge::Pose(const FString& Id,const TSharedPtr<FJsonObject>& Dat
     auto* Peer=Peers.Find(Id);if(!Peer||!Peer->Actor.IsValid())return; // roster authority, never create from a frame
     const TSharedPtr<FJsonObject>* Reach=nullptr;Peer->Reach=Data->TryGetObjectField(TEXT("reach"),Reach)?*Reach:nullptr;
     const FString Emote=Eido::String(Data,TEXT("emote"));
-    if(!Emote.IsEmpty()&&Emote!=Peer->LastEmote){Peer->ActiveEmote=Emote;Peer->EmoteUntil=Time+2.5;}
+    if(!Emote.IsEmpty()&&Emote!=Peer->LastEmote){Peer->ActiveEmote=Emote;Peer->EmoteUntil=Time+2.5;Peer->bEmotePending=true;}
     Peer->LastEmote=Emote;
+    // Clip and its phase (pose-wire: clip, clipTime, clipTimeSlot, clipRate).
+    {
+        const FString Clip=Eido::String(Data,TEXT("clip")).Left(48);
+        if(!Clip.IsEmpty())Peer->Clip=Clip;
+        double ClipTime=-1,ClipRate=0;
+        if(Data->TryGetNumberField(TEXT("clipTime"),ClipTime)&&FMath::IsFinite(ClipTime)&&ClipTime>=0&&ClipTime<3600)
+        {Peer->ClipTime=float(ClipTime);Peer->ClipTimeSlot=Eido::String(Data,TEXT("clipTimeSlot")).Left(48);Peer->bClipSample=true;}
+        Peer->ClipRate=Data->TryGetNumberField(TEXT("clipRate"),ClipRate)&&FMath::IsFinite(ClipRate)&&ClipRate>0&&ClipRate<=3.2?float(ClipRate):0.f;
+    }
     TArray<double> P;if(!Eido::Vector(Data,TEXT("p"),3,P))return;
     FEidoverseSample Sample;Sample.Time=Time;Sample.Position=OriginCentimeters+FromWirePosition(FVector(P[0],P[1],P[2]));
     double Yaw=0;if(Data->HasField(TEXT("yaw"))&&(!Data->TryGetNumberField(TEXT("yaw"),Yaw)||!FMath::IsFinite(Yaw)))return;
@@ -541,7 +587,9 @@ void AEidoverseBridge::SendPose()
     const FVector P=ToWirePosition(Pawn->GetActorLocation()-OriginCentimeters-(Land?FVector(0,0,88):FVector::ZeroVector));
     const FQuat Q=ToWireRotation(Pawn->GetActorQuat().GetNormalized());
     const FVector F=ToWirePosition(Pawn->GetActorForwardVector());
-    const double Speed=(Cast<AEidoverseExplorer>(Pawn)?Cast<AEidoverseExplorer>(Pawn)->BodyVelocity:Pawn->GetVelocity()).Size()/100.;
+    const FVector BodyV=Cast<AEidoverseExplorer>(Pawn)?Cast<AEidoverseExplorer>(Pawn)->BodyVelocity:Pawn->GetVelocity();
+    const bool bOnLand=Cast<AEidoverseExplorer>(Pawn)&&Cast<AEidoverseExplorer>(Pawn)->LocomotionMode==TEXT("walk");
+    const double Speed=(bOnLand?FVector(BodyV.X,BodyV.Y,0):BodyV).Size()/100.;
     if(P.ContainsNaN()||Q.ContainsNaN()||!FMath::IsFinite(Speed))return;
     const auto* Explorer=Cast<AEidoverseExplorer>(Pawn);
     FString Mode=Explorer?Explorer->LocomotionMode:Sub?TEXT("pilot"):TEXT("swim");
@@ -556,7 +604,18 @@ void AEidoverseBridge::SendPose()
     auto Data=MakeShared<FJsonObject>(),Loc=MakeShared<FJsonObject>(),J=MakeShared<FJsonObject>();
     Data->SetArrayField(TEXT("p"),Eido::Numbers({P.X,P.Y,P.Z}));Data->SetArrayField(TEXT("q"),Eido::Numbers({Q.X,Q.Y,Q.Z,Q.W}));
     Data->SetNumberField(TEXT("yaw"),FMath::Atan2(F.X,F.Z));Data->SetNumberField(TEXT("speed"),Speed);
-    Data->SetStringField(TEXT("clip"),Speed>.05?TEXT("walk"):TEXT("idle")); // legacy clients have no swim clip
+    // The clip and its phase, as the browser sends them (net.js sendPose): web viewers
+    // play the same clip in step with ours. Swimmers keep walk/idle (no swim clip).
+    FString Clip=Speed>.05?TEXT("walk"):TEXT("idle");
+    if(Explorer&&!bSwimmer)Clip=SelfClipSlot;
+    Data->SetStringField(TEXT("clip"),Clip);
+    if(const UEidoverseAvatarMesh* M=SelfBody.AvatarMesh.Get())
+        if(!bSwimmer&&!M->HasOneShot()&&M->CurrentClipSlot()==Clip)
+        {
+            Data->SetNumberField(TEXT("clipTime"),FMath::RoundToDouble(M->CurrentClipTime()*1000)/1000);
+            Data->SetStringField(TEXT("clipTimeSlot"),Clip);
+            Data->SetNumberField(TEXT("clipRate"),FMath::RoundToDouble(M->CurrentClipRate()*1000)/1000);
+        }
     Loc->SetStringField(TEXT("mode"),Mode);Loc->SetStringField(TEXT("body"),bSwimmer?TEXT("diver"):Land?TEXT("avatar"):Sub?TEXT("submarine"):TEXT("diver"));
     Loc->SetStringField(TEXT("medium"),(Mode==TEXT("walk")||Mode==TEXT("climb"))?TEXT("air"):TEXT("water"));Data->SetObjectField(TEXT("locomotion"),Loc);
     if(LocalReach)Data->SetObjectField(TEXT("reach"),LocalReach);
@@ -628,7 +687,17 @@ void AEidoverseBridge::Tick(float DeltaSeconds)
     if(bWanted&&!bJoined&&RetryAt==0&&Now-OpenedAt>15){Lost(1006);}
     if(bWanted&&RetryAt>0&&Now>=RetryAt){Connect();return;}
     if(bJoined&&!bSpectator&&Now-LastSend>=1./15){LastSend=Now;SendPose();}
-    if(bJoined)TickAvatars(Now);
+    if(bJoined)
+    {
+        if(!ClipLibrary)ClipLibrary=NewObject<UEidoverseClipLibrary>(this);
+        const FString Base=HttpBase();
+        if(!Base.IsEmpty())
+        {
+            ClipLibrary->Configure(Base);
+            for(const TCHAR* Slot:{TEXT("idle"),TEXT("walk"),TEXT("run"),TEXT("jump")})ClipLibrary->Prefetch(Slot);
+        }
+        TickAvatars(Now);
+    }
     if(bJoined)TickDynamicScene(Now);
     if(bJoined)TickInteractions(DeltaSeconds,Now);
     const double RenderTime=Now-.11;
