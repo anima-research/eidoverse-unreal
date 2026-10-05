@@ -137,9 +137,10 @@ bool UEidoverseAvatarMesh::AnimateClips(double Time)
     BoneSpaceTransforms = Reference;
     const bool bVRM0 = Avatar->bVRM0;
     const FReferenceSkeleton& Ref = Avatar->Mesh->GetRefSkeleton();
+    // 1. Normalized humanoid rotations from the clips (identity = rest).
+    TMap<FName, FQuat> Normalized; Normalized.Reserve(HumanBoneIndex.Num());
     for (const auto& Pair : HumanBoneIndex)
     {
-        // Weighted blend of every playing clip that animates this bone.
         FQuat Blend = FQuat::Identity; float Accumulated = 0;
         for (const FClipPlay& P : ClipPlays)
         {
@@ -149,15 +150,25 @@ bool UEidoverseAvatarMesh::AnimateClips(double Time)
             Accumulated += P.Weight;
             Blend = Accumulated == P.Weight ? Q : FQuat::Slerp(Blend, Q, P.Weight / Accumulated);
         }
-        if (Accumulated <= 0) continue;
-        if (Accumulated < Total) Blend = FQuat::Slerp(FQuat::Identity, Blend, Accumulated / Total);   // clips without this bone hold rest
+        if (Accumulated > 0 && Accumulated < Total) Blend = FQuat::Slerp(FQuat::Identity, Blend, Accumulated / Total);
+        Normalized.Add(Pair.Key, Blend.GetNormalized());
+    }
+    // 2. Layers on top (head pitch, held pose, agent animations, eyes), still normalized.
+    FVector HipsOffsetModel = FVector::ZeroVector;
+    ApplyNormalizedLayers(Normalized, HipsOffsetModel, Dt, Time);
+    // 3. Normalized -> raw: raw = P^-1 * q * P * rest.
+    for (const auto& Pair : HumanBoneIndex)
+    {
+        const FQuat* Norm = Normalized.Find(Pair.Key);
+        if (!Norm || Norm->Equals(FQuat::Identity, 1e-6f)) continue;
         const int32 Index = Pair.Value;
         const int32 Parent = Ref.GetParentIndex(Index);
         const FQuat P = Parent >= 0 ? ReferenceComponentRotations[Parent] : FQuat::Identity;
-        const FQuat Q = ToBody(Blend.GetNormalized(), bVRM0);
+        const FQuat Q = ToBody(*Norm, bVRM0);
         BoneSpaceTransforms[Index].SetRotation((P.Inverse() * Q * P * Reference[Index].GetRotation()).GetNormalized());
     }
-    // Hips translation (the only translation three-vrm keeps), scaled by hips height.
+    // Hips translation (the only translation three-vrm keeps), scaled by hips height,
+    // plus a held pose's hips offset (model metres).
     if (const int32* Hips = HumanBoneIndex.Find(FName(TEXT("hips"))))
     {
         FVector Sum = FVector::ZeroVector; float W = 0;
@@ -167,11 +178,12 @@ bool UEidoverseAvatarMesh::AnimateClips(double Time)
             if (P.Weight <= 0 || !P.Clip->SampleHips(P.Time, H)) continue;
             Sum += H * (RestHipsHeight / FMath::Max(.01f, P.Clip->RestHipsHeight)) * P.Weight; W += P.Weight;
         }
-        if (W > 0)
+        if (W > 0 || !HipsOffsetModel.IsNearlyZero())
         {
             const FVector RestCS = ReferenceComponent[*Hips].GetLocation();
-            FVector CS = ToBodyPosition(Sum / W, bVRM0);
-            if (W < Total) CS = FMath::Lerp(RestCS, CS, W / Total);
+            FVector CS = W > 0 ? ToBodyPosition(Sum / W, bVRM0) : RestCS;
+            if (W > 0 && W < Total) CS = FMath::Lerp(RestCS, CS, W / Total);
+            CS += ToBodyPosition(HipsOffsetModel, bVRM0);
             const int32 Parent = Ref.GetParentIndex(*Hips);
             const FVector Local = Parent >= 0 ? ReferenceComponent[Parent].InverseTransformPosition(CS) : CS;
             BoneSpaceTransforms[*Hips].SetTranslation(Local);
@@ -189,6 +201,39 @@ bool UEidoverseAvatarMesh::AnimateClips(double Time)
     }
     AnimationState = CurrentClipSlot();
     UpdateSprings(Dt);
+    ApplyRawLayers(Dt, Time);
+    ApplyExpressions();
     MarkRefreshTransformDirty();
     return true;
+}
+
+// ---- expressions -> blend shapes ------------------------------------------------
+
+void UEidoverseAvatarMesh::SetExpression(FName Expression, float Weight)
+{
+    if (Weight <= 0.001f) ExpressionWeights.Remove(Expression);
+    else ExpressionWeights.Add(Expression, FMath::Min(Weight, 1.f));
+}
+
+void UEidoverseAvatarMesh::ApplyExpressions()
+{
+    if (!Avatar || !Avatar->Mesh) return;
+    const TArray<TObjectPtr<UMorphTarget>>& Morphs = Avatar->Mesh->GetMorphTargets();
+    if (Morphs.IsEmpty()) return;
+    if (MorphTargetWeights.Num() != Morphs.Num()) MorphTargetWeights.SetNumZeroed(Morphs.Num());
+    else FMemory::Memzero(MorphTargetWeights.GetData(), MorphTargetWeights.Num() * sizeof(float));
+    ActiveMorphTargets.Reset();
+    for (const auto& E : ExpressionWeights)
+    {
+        const TArray<TPair<FName, float>>* Binds = Avatar->Expressions.Find(E.Key);
+        if (!Binds) continue;
+        for (const auto& Bind : *Binds)
+        {
+            int32 Index = INDEX_NONE;
+            UMorphTarget* Morph = Avatar->Mesh->FindMorphTargetAndIndex(Bind.Key, Index);
+            if (!Morph || !MorphTargetWeights.IsValidIndex(Index)) continue;
+            MorphTargetWeights[Index] = FMath::Min(1.f, MorphTargetWeights[Index] + E.Value * Bind.Value);
+            ActiveMorphTargets.Add(Morph, Index);
+        }
+    }
 }

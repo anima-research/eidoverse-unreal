@@ -349,7 +349,7 @@ void AEidoverseBridge::TickAvatars(double Time)
                     auto* M=NewObject<UEidoverseAvatarMesh>(P.Actor.Get());P.Actor->AddInstanceComponent(M);
                     M->SetupAttachment(P.Actor->GetRootComponent());M->SetCollisionEnabled(ECollisionEnabled::NoCollision);M->RegisterComponent();P.AvatarMesh=M;
                 }
-                P.AvatarMesh->SetAvatar(Asset);
+                P.AvatarMesh->SetAvatar(Asset);P.bHeldPoseDirty=true;
             }
         }
         if(P.AvatarMesh.IsValid())
@@ -362,6 +362,8 @@ void AEidoverseBridge::TickAvatars(double Time)
                 const FVector LocalVelocity=Fresh?P.Actor->GetActorQuat().UnrotateVector(P.VelocityMeters):FVector::ZeroVector;
                 const bool bAquatic=FEidoverseSwimMotion::Evaluate(P.Mode,0,FVector::ZeroVector).bAquatic;
                 FString Slot=P.Clip;if(Slot.IsEmpty()||Slot==TEXT("ragdoll"))Slot=Fresh&&P.Speed>.05f?TEXT("walk"):TEXT("idle");
+                P.AvatarMesh->SetHeadPitch(P.Pitch);
+                if(P.bHeldPoseDirty){P.bHeldPoseDirty=false;if(P.HeldPose)P.AvatarMesh->SetHeldPose(P.HeldPose);else P.AvatarMesh->ClearHeldPose();}
                 if(bAquatic||!AnimateWithClips(P,Slot,Fresh?P.Speed:0,Time))
                 {
                     P.AvatarMesh->Animate(P.Mode,Fresh?P.Speed:0,LocalVelocity,Time);
@@ -374,6 +376,7 @@ void AEidoverseBridge::TickAvatars(double Time)
         }
     }
     TickSelfBody(Time);
+    TickGaze(Time);
     if(SelfBody.AvatarMesh.IsValid()&&!SelfBody.AvatarMesh->EmissiveLights.IsEmpty())
         Lamps.Add({SelfBody.AvatarMesh.Get(),0.,SelfBody.AvatarMesh->IsVisible()});
     Lamps.StableSort([](const FLampCandidate& A,const FLampCandidate& B){return A.Distance<B.Distance;});
@@ -450,7 +453,9 @@ void AEidoverseBridge::TickSelfBody(double Time)
     // My clip, chosen as the browser's controller does (locomotion_clip.js).
     const bool bSwimming=Explorer->LocomotionMode!=TEXT("walk");
     const float Ground=FVector(Velocity.X,Velocity.Y,0).Size();
-    SelfClipSlot=EidoClipRules::SelectLocomotion(Explorer->bJumped,Explorer->AirborneSeconds,Explorer->bWantMove,Ground,Explorer->Posture);
+    TickSeating(Explorer,FPlatformTime::Seconds());
+    M->SetHeadPitch(SelfHeadPitch());
+    SelfClipSlot=!SeatClip.IsEmpty()?SeatClip:EidoClipRules::SelectLocomotion(Explorer->bJumped,Explorer->AirborneSeconds,Explorer->bWantMove,Ground,Explorer->Posture);
     if(!bSwimming&&AnimateWithClips(SelfBody,SelfClipSlot,Ground,Time))return;
     M->Animate(Explorer->LocomotionMode,Speed,Local,Time);
     const double Now=FPlatformTime::Seconds();
@@ -472,6 +477,18 @@ void AEidoverseBridge::Pose(const FString& Id,const TSharedPtr<FJsonObject>& Dat
         if(Data->TryGetNumberField(TEXT("clipTime"),ClipTime)&&FMath::IsFinite(ClipTime)&&ClipTime>=0&&ClipTime<3600)
         {Peer->ClipTime=float(ClipTime);Peer->ClipTimeSlot=Eido::String(Data,TEXT("clipTimeSlot")).Left(48);Peer->bClipSample=true;}
         Peer->ClipRate=Data->TryGetNumberField(TEXT("clipRate"),ClipRate)&&FMath::IsFinite(ClipRate)&&ClipRate>0&&ClipRate<=3.2?float(ClipRate):0.f;
+    }
+    // Head pitch and a held pose (sent on every packet once set; null clears).
+    {
+        double Pitch=0;Peer->Pitch=Data->TryGetNumberField(TEXT("pitch"),Pitch)&&FMath::IsFinite(Pitch)?float(FMath::Clamp(Pitch,-.6,.6)):0.f;
+        if(Data->HasField(TEXT("pose")))
+        {
+            const TSharedPtr<FJsonObject>* Held=nullptr;
+            FString Key;
+            if(Data->TryGetObjectField(TEXT("pose"),Held)&&(*Held)->Values.Num()>0)
+            {auto W=TJsonWriterFactory<TCHAR,TCondensedJsonPrintPolicy<TCHAR>>::Create(&Key);FJsonSerializer::Serialize((*Held).ToSharedRef(),W);}
+            if(Key!=Peer->HeldPoseKey){Peer->HeldPoseKey=Key;Peer->HeldPose=Key.IsEmpty()?nullptr:*Held;Peer->bHeldPoseDirty=true;}
+        }
     }
     TArray<double> P;if(!Eido::Vector(Data,TEXT("p"),3,P))return;
     FEidoverseSample Sample;Sample.Time=Time;Sample.Position=OriginCentimeters+FromWirePosition(FVector(P[0],P[1],P[2]));
@@ -560,12 +577,17 @@ void AEidoverseBridge::Receive(const FString& Message)
         double Seq;if(!(*Entry)->TryGetNumberField(TEXT("seq"),Seq)||Seq<=LastLogSequence)return;LastLogSequence=int64(Seq);
         bSceneDirty=true;
         ReceiveInteraction(*Entry);
+        {
+            const FString Verb=Eido::String(*Entry,TEXT("verb"));const TSharedPtr<FJsonObject>* SeatArgs=nullptr;
+            if((Verb==TEXT("mount")||Verb==TEXT("dismount"))&&(*Entry)->TryGetObjectField(TEXT("args"),SeatArgs))ReceiveSeatLog(Verb,*SeatArgs);
+        }
         if(Eido::String(*Entry,TEXT("verb"))!=TEXT("say"))return;
         const TSharedPtr<FJsonObject>* Args=nullptr;if(!(*Entry)->TryGetObjectField(TEXT("args"),Args))return;
-        FString Sender=Eido::String(*Entry,TEXT("actor")),Text=Eido::String(*Args,TEXT("text")).Left(4000);AddChatLine(Sender,Text);
+        FString Sender=Eido::String(*Entry,TEXT("actor")),Text=Eido::String(*Args,TEXT("text")).Left(4000);AddChatLine(Sender,Text);NoteSpeaker(Sender,Text);
     }
     else if(Type==TEXT("your-rights")&&bJoined)
     {const TSharedPtr<FJsonObject>* Rights=nullptr;if(J->TryGetObjectField(TEXT("rights"),Rights))ReadRights(*Rights);}
+    else if(Type==TEXT("anim")&&bJoined)ReceiveAgentAnimation(J);
     else if(Type==TEXT("inspect")&&bJoined){InspectedId=Eido::String(J,TEXT("id"));InspectReply=J;++InspectSerial;}
     else if(Type==TEXT("typing")&&bJoined)
     {
@@ -589,7 +611,8 @@ void AEidoverseBridge::SendPose()
     const FVector F=ToWirePosition(Pawn->GetActorForwardVector());
     const FVector BodyV=Cast<AEidoverseExplorer>(Pawn)?Cast<AEidoverseExplorer>(Pawn)->BodyVelocity:Pawn->GetVelocity();
     const bool bOnLand=Cast<AEidoverseExplorer>(Pawn)&&Cast<AEidoverseExplorer>(Pawn)->LocomotionMode==TEXT("walk");
-    const double Speed=(bOnLand?FVector(BodyV.X,BodyV.Y,0):BodyV).Size()/100.;
+    const bool bSeatedPose=Cast<AEidoverseExplorer>(Pawn)&&Cast<AEidoverseExplorer>(Pawn)->bSeated;
+    const double Speed=bSeatedPose?0.:(bOnLand?FVector(BodyV.X,BodyV.Y,0):BodyV).Size()/100.;
     if(P.ContainsNaN()||Q.ContainsNaN()||!FMath::IsFinite(Speed))return;
     const auto* Explorer=Cast<AEidoverseExplorer>(Pawn);
     FString Mode=Explorer?Explorer->LocomotionMode:Sub?TEXT("pilot"):TEXT("swim");
@@ -609,6 +632,7 @@ void AEidoverseBridge::SendPose()
     FString Clip=Speed>.05?TEXT("walk"):TEXT("idle");
     if(Explorer&&!bSwimmer)Clip=SelfClipSlot;
     Data->SetStringField(TEXT("clip"),Clip);
+    if(Explorer&&!bSwimmer)Data->SetNumberField(TEXT("pitch"),FMath::RoundToDouble(SelfHeadPitch()*1000)/1000);
     if(const UEidoverseAvatarMesh* M=SelfBody.AvatarMesh.Get())
         if(!bSwimmer&&!M->HasOneShot()&&M->CurrentClipSlot()==Clip)
         {

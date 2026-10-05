@@ -280,7 +280,8 @@ FString EidoClipRules::SelectLocomotion(bool bJumped, float AirborneSeconds, boo
 {
     if (bJumped || AirborneSeconds > .04f) return TEXT("jump");
     if (bWantMove && Speed >= .05f) return Speed < 2.6f ? TEXT("walk") : TEXT("run");
-    if (Posture == TEXT("sit")) return TEXT("sit");   // a chair seat is 'sitchair' (not yet: seats)
+    if (Posture == TEXT("sit")) return TEXT("sit");
+    if (Posture == TEXT("sitchair")) return TEXT("sitchair");   // on furniture (colliders.js findSeat)
     if (Posture == TEXT("lie")) return TEXT("lie");
     return TEXT("idle");
 }

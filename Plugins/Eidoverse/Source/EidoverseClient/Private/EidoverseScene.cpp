@@ -336,6 +336,14 @@ void AEidoverseExplorer::SetupPlayerInputComponent(UInputComponent* Input)
     Input->BindAxisKey(EKeys::MouseY,this,&AEidoverseExplorer::LookPitch);
     Input->BindAxisKey(EKeys::MouseWheelAxis,this,&AEidoverseExplorer::Zoom);
 }
+void AEidoverseExplorer::SetSeated(bool bOn)
+{
+    if(bSeated==bOn)return;
+    bSeated=bOn;
+    auto* Move=GetCharacterMovement();
+    if(bOn){Move->StopMovementImmediately();Move->DisableMovement();SetActorEnableCollision(false);}
+    else{SetActorEnableCollision(true);Move->SetMovementMode(MOVE_Walking);bSitPressed=false;}
+}
 void AEidoverseExplorer::LookYaw(float Value)
 {if(auto* PC=Cast<APlayerController>(Controller))if(!PC->IsLookInputIgnored()){auto R=PC->GetControlRotation();R.Yaw+=Value*1.6f*EidoSettings::LookSensitivity();PC->SetControlRotation(R);}}
 void AEidoverseExplorer::LookPitch(float Value)
@@ -353,7 +361,7 @@ void AEidoverseExplorer::Tick(float Dt)
     }
     auto* PC=Cast<APlayerController>(Controller);if(!PC||!PC->IsLocalController())return;
     UpdateCamera(Dt,PC);
-    if(TickSwimming(Dt,PC))
+    if(!bSeated&&TickSwimming(Dt,PC))
     {
         Posture.Empty();
         // Swimming bypasses CharacterMovement: turn the body toward the stroke (controller.js).
@@ -366,6 +374,14 @@ void AEidoverseExplorer::Tick(float Dt)
     if(GetCharacterMovement()->IsFalling())AirborneSeconds+=Dt;else{AirborneSeconds=0;bJumped=false;}
     bWantMove=false;
     if(PC->IsMoveInputIgnored())return;
+    if(bSeated)
+    {
+        // Placed by the bridge; WASD or X means "get up" (localbody.js updateMountedMe).
+        bWantMove=PC->IsInputKeyDown(EKeys::W)||PC->IsInputKeyDown(EKeys::A)||PC->IsInputKeyDown(EKeys::S)||PC->IsInputKeyDown(EKeys::D);
+        if(PC->WasInputKeyJustPressed(EKeys::X))bSitPressed=true;
+        AirborneSeconds=0;bJumped=false;
+        return;
+    }
     FRotator R(0,PC->GetControlRotation().Yaw,0);
     const float Forward=(PC->IsInputKeyDown(EKeys::W)?1:0)-(PC->IsInputKeyDown(EKeys::S)?1:0);
     const float Right=(PC->IsInputKeyDown(EKeys::D)?1:0)-(PC->IsInputKeyDown(EKeys::A)?1:0);
@@ -377,7 +393,7 @@ void AEidoverseExplorer::Tick(float Dt)
     AddMovementInput(FRotationMatrix(R).GetUnitAxis(EAxis::Y),Right);
     // Postures: X sit, Z lie (Ctrl+Z stays build-mode undo); walking or jumping stands up.
     const bool bCtrl=PC->IsInputKeyDown(EKeys::LeftControl)||PC->IsInputKeyDown(EKeys::RightControl)||PC->IsInputKeyDown(EKeys::LeftCommand);
-    if(PC->WasInputKeyJustPressed(EKeys::X))Posture=Posture==TEXT("sit")?FString():TEXT("sit");
+    if(PC->WasInputKeyJustPressed(EKeys::X)){if(bSeatHandled)bSitPressed=true;else Posture=Posture==TEXT("sit")?FString():TEXT("sit");}
     if(!bCtrl&&PC->WasInputKeyJustPressed(EKeys::Z))Posture=Posture==TEXT("lie")?FString():TEXT("lie");
     if(bWantMove||PC->WasInputKeyJustPressed(EKeys::SpaceBar))Posture.Empty();
     if(PC->WasInputKeyJustPressed(EKeys::SpaceBar)){if(!GetCharacterMovement()->IsFalling())bJumped=true;Jump();}

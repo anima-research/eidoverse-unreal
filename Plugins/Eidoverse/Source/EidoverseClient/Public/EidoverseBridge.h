@@ -76,6 +76,13 @@ struct FEidoversePeer
     FString ClipTimeSlot;
     bool bClipSample=false;   // a new packet carried clipTime for this frame
     bool bEmotePending=false; // ActiveEmote should start playing
+    // Head pitch (pose-wire pitch, radians, + looks down), held pose fingerprint, and
+    // when this body's mouth stops moving (chat lines), as avatar.js tracks them.
+    float Pitch=0;
+    FString HeldPoseKey;
+    TSharedPtr<FJsonObject> HeldPose;
+    bool bHeldPoseDirty=false;
+    double SpeakingUntil=0;
 };
 
 struct FEidoverseObjectSim
@@ -250,6 +257,26 @@ private:
     // Plays the clip a peer (or I) should show; false falls back to the procedural pose.
     bool AnimateWithClips(FEidoversePeer& P,const FString& Slot,float Speed,double Time);
     void TickSelfBody(double Time);
+    // Seats (EidoverseSeats.cpp, localbody.js/controller.js): X mounts the nearest
+    // declared socket within 3.5 m, else sits on furniture of seat height within
+    // 1.2 m, else on the ground; moving (or X again) gets up.
+    FString SeatTo,SeatSlot,SeatClip;
+    bool bSeatConfirmed=false,bChairSeat=false,bSeatOffset=false;
+    double SeatRequestedAt=0;
+    FVector SeatOffsetWire=FVector::ZeroVector;
+    FTransform ChairSeat;
+    void TickSeating(class AEidoverseExplorer* Explorer,double Now);
+    bool TryMountNearest(class AEidoverseExplorer* Explorer);
+    bool TrySitOnFurniture(class AEidoverseExplorer* Explorer);
+    void StandUp(class AEidoverseExplorer* Explorer,bool bSendDismount);
+    bool MountedSeatTransform(FTransform& Out,FString& Pose) const;
+    void ReceiveSeatLog(const FString& Verb,const TSharedPtr<FJsonObject>& Args);
+    // Gaze, speaking and agent animations (avatar.js lookAt/speak/anim).
+    double SelfSpeakingUntil=0,NextGazeAt=0;
+    void TickGaze(double Now);
+    void NoteSpeaker(const FString& Sender,const FString& Text);
+    void ReceiveAgentAnimation(const TSharedPtr<FJsonObject>& J);
+    float SelfHeadPitch() const;
     void TickCommandLine(double Now);
     bool bCommandLineJoinTried=false,bCommandLineQuitting=false;
     double CommandLineJoinedAt=0;

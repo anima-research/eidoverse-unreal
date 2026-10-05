@@ -60,6 +60,7 @@ public:
     UFUNCTION(BlueprintCallable,Category="Eidoverse|Preview") void SetPreviewHour(float Hour);
     UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Transient,Category="Eidoverse|Preview") float PreviewHour=-1;
     AActor* EntityActor(const FString& Id) const;
+    const TMap<FString,FEidoverseSceneItem>& GetItems() const { return Items; }
     TSharedPtr<FJsonObject> Interaction(const FString& Id) const;
     FString EntityId(AActor* Actor) const;
     void LeaseTransform(const FString& Id,const TSharedPtr<FJsonObject>& State,const FVector& Origin);
@@ -199,6 +200,12 @@ public:
     UPROPERTY(Transient,BlueprintReadOnly,Category="Eidoverse") bool bJumped=false;
     // "sit" | "lie" | empty: X sits, Z lies down, moving stands up (controller.js postures).
     UPROPERTY(Transient,BlueprintReadWrite,Category="Eidoverse") FString Posture;
+    // Seats: X is handed to the bridge (bSeatHandled) as bSitPressed; while seated the
+    // body is placed by the bridge each frame and movement only signals "get up".
+    UPROPERTY(Transient,BlueprintReadWrite,Category="Eidoverse") bool bSitPressed=false;
+    bool bSeatHandled=false;
+    UPROPERTY(Transient,BlueprintReadOnly,Category="Eidoverse") bool bSeated=false;
+    void SetSeated(bool bOn);
     UFUNCTION(BlueprintCallable,Category="Eidoverse") void SetCameraDistance(float Meters);
     UFUNCTION(BlueprintCallable,Category="Eidoverse") void Zoom(float Notches);
 private:

@@ -383,8 +383,9 @@ void UEidoverseAvatarAsset::FinishDecode(const TSharedPtr<FJsonObject>& J,TShare
         AddBone(Name,int32(I));
     }
     Springs=FEidoSpringData::Parse(J,[this](int32 Index){FglTFRuntimeNode N;return Loader->GetNode(Index,N)?N.Name:FString();});
+    ParseExpressions(J);
     TArray<FString> Exclude;for(auto& N:Loader->GetNodes())if(N.MeshIndex>=0&&N.SkinIndex<0)Exclude.Add(N.Name);
-    FglTFRuntimeSkeletalMeshConfig MeshConfig;MeshConfig.MaterialsConfig=MaterialConfig();MeshConfig.bDisableMorphTargets=true;
+    FglTFRuntimeSkeletalMeshConfig MeshConfig;MeshConfig.MaterialsConfig=MaterialConfig();MeshConfig.bDisableMorphTargets=false; // VRM expressions (blink, mouth) drive blend shapes
     MeshConfig.bAllowCPUAccess=true; // Infer emitter bounds and skin attachment after decoding.
     FglTFRuntimeSkeletalMeshAsync Done;Done.BindDynamic(this,&UEidoverseAvatarAsset::MeshReady);
     // Keep the loader and callback alive even if a peer leaves during worker decoding.
@@ -575,5 +576,88 @@ void UEidoverseAvatarMesh::Animate(const FString& Mode,float Speed,const FVector
             BoneSpaceTransforms[I].SetRotation(FQuat::Slerp(Previous[I].GetRotation(),BoneSpaceTransforms[I].GetRotation(),JointBlend).GetNormalized());
     }
     UpdateSprings(Dt);
+    ApplyExpressions();
     MarkRefreshTransformDirty();
+}
+
+// VRM expressions -> imported blend shape names (glTFRuntime names a morph by the mesh's
+// extras.targetNames, else MorphTarget_<index>). VRM 1.0: expressions.preset/custom
+// morphTargetBinds {node, index, weight 0..1}; VRM 0.x: blendShapeMaster groups by
+// presetName with binds {mesh, index, weight 0..100}. 0.x presets are renamed to 1.0's.
+void UEidoverseAvatarAsset::ParseExpressions(const TSharedPtr<FJsonObject>& J)
+{
+    Expressions.Empty();
+    const auto& MeshList=Array(J,TEXT("meshes"));const auto& Nodes=Array(J,TEXT("nodes"));
+    auto MorphName=[&MeshList](int32 MeshIndex,int32 Index)->FString
+    {
+        if(!MeshList.IsValidIndex(MeshIndex)||Index<0||Index>1024)return FString();
+        const auto& Names=Array(Object(MeshList[MeshIndex]->AsObject(),TEXT("extras")),TEXT("targetNames"));
+        if(Names.IsValidIndex(Index))return Names[Index]->AsString();
+        return FString::Printf(TEXT("MorphTarget_%d"),Index);
+    };
+    auto Add=[this](const FString& Expression,const FString& Morph,float Weight)
+    {if(!Morph.IsEmpty()&&Weight>0)Expressions.FindOrAdd(FName(Expression)).Add({FName(Morph),FMath::Min(Weight,1.f)});};
+    const auto Ext=Object(J,TEXT("extensions"));
+    if(const auto Vrm1=Object(Ext,TEXT("VRMC_vrm")))
+    {
+        const auto Exprs=Object(Vrm1,TEXT("expressions"));
+        for(const TCHAR* Group:{TEXT("preset"),TEXT("custom")})
+            if(const auto G=Object(Exprs,Group))
+                for(const auto& E:G->Values)
+                    for(const auto& B:Array(E.Value->AsObject(),TEXT("morphTargetBinds")))
+                    {
+                        const auto O=B->AsObject();double Node=-1,Index=-1,W=0;
+                        if(!O||!O->TryGetNumberField(TEXT("node"),Node)||!O->TryGetNumberField(TEXT("index"),Index))continue;
+                        O->TryGetNumberField(TEXT("weight"),W);
+                        double MeshIndex=-1;if(Nodes.IsValidIndex(int32(Node)))Nodes[int32(Node)]->AsObject()->TryGetNumberField(TEXT("mesh"),MeshIndex);
+                        Add(FString(E.Key),MorphName(int32(MeshIndex),int32(Index)),float(W));
+                    }
+    }
+    else if(const auto Vrm0=Object(Ext,TEXT("VRM")))
+    {
+        static const TMap<FString,FString> Rename={{TEXT("a"),TEXT("aa")},{TEXT("i"),TEXT("ih")},{TEXT("u"),TEXT("ou")},{TEXT("e"),TEXT("ee")},{TEXT("o"),TEXT("oh")},
+            {TEXT("blink_l"),TEXT("blinkLeft")},{TEXT("blink_r"),TEXT("blinkRight")},{TEXT("joy"),TEXT("happy")},{TEXT("sorrow"),TEXT("sad")},{TEXT("fun"),TEXT("relaxed")},
+            {TEXT("lookup"),TEXT("lookUp")},{TEXT("lookdown"),TEXT("lookDown")},{TEXT("lookleft"),TEXT("lookLeft")},{TEXT("lookright"),TEXT("lookRight")}};
+        for(const auto& G:Array(Object(Vrm0,TEXT("blendShapeMaster")),TEXT("blendShapeGroups")))
+        {
+            const auto O=G->AsObject();FString Preset;if(!O)continue;
+            if(!O->TryGetStringField(TEXT("presetName"),Preset)||Preset.IsEmpty()||Preset==TEXT("unknown"))O->TryGetStringField(TEXT("name"),Preset);
+            Preset=Preset.ToLower();if(const FString* R=Rename.Find(Preset))Preset=*R;
+            for(const auto& B:Array(O,TEXT("binds")))
+            {
+                const auto BO=B->AsObject();double MeshIndex=-1,Index=-1,W=0;
+                if(!BO||!BO->TryGetNumberField(TEXT("mesh"),MeshIndex)||!BO->TryGetNumberField(TEXT("index"),Index))continue;
+                BO->TryGetNumberField(TEXT("weight"),W);
+                Add(Preset,MorphName(int32(MeshIndex),int32(Index)),float(W/100.0));
+            }
+        }
+    }
+
+    // Look-at (three-vrm VRMLookAt): bone or expression type, with range maps
+    // {input degrees, output degrees|weight}.
+    auto Range=[](const TSharedPtr<FJsonObject>& M,const TCHAR* In,const TCHAR* Out,FVector2f Default)
+    {double I=Default.X,O=Default.Y;if(M){M->TryGetNumberField(In,I);M->TryGetNumberField(Out,O);}return FVector2f(float(FMath::Max(I,1e-3)),float(O));};
+    if(const auto Vrm1=Object(Ext,TEXT("VRMC_vrm")))
+    {
+        const auto L=Object(Vrm1,TEXT("lookAt"));FString Type;
+        if(L)L->TryGetStringField(TEXT("type"),Type);
+        bLookAtExpressions=Type==TEXT("expression");
+        const FVector2f D(90,bLookAtExpressions?1.f:10.f);
+        LookHorizontalInner=Range(Object(L,TEXT("rangeMapHorizontalInner")),TEXT("inputMaxValue"),TEXT("outputScale"),D);
+        LookHorizontalOuter=Range(Object(L,TEXT("rangeMapHorizontalOuter")),TEXT("inputMaxValue"),TEXT("outputScale"),D);
+        LookVerticalDown=Range(Object(L,TEXT("rangeMapVerticalDown")),TEXT("inputMaxValue"),TEXT("outputScale"),D);
+        LookVerticalUp=Range(Object(L,TEXT("rangeMapVerticalUp")),TEXT("inputMaxValue"),TEXT("outputScale"),D);
+    }
+    else if(const auto Vrm0=Object(Ext,TEXT("VRM")))
+    {
+        const auto F=Object(Vrm0,TEXT("firstPerson"));FString Type;
+        if(F)F->TryGetStringField(TEXT("lookAtTypeName"),Type);
+        bLookAtExpressions=Type==TEXT("BlendShape");
+        const FVector2f D(90,bLookAtExpressions?1.f:10.f);
+        LookHorizontalInner=Range(Object(F,TEXT("lookAtHorizontalInner")),TEXT("xRange"),TEXT("yRange"),D);
+        LookHorizontalOuter=Range(Object(F,TEXT("lookAtHorizontalOuter")),TEXT("xRange"),TEXT("yRange"),D);
+        LookVerticalDown=Range(Object(F,TEXT("lookAtVerticalDown")),TEXT("xRange"),TEXT("yRange"),D);
+        LookVerticalUp=Range(Object(F,TEXT("lookAtVerticalUp")),TEXT("xRange"),TEXT("yRange"),D);
+    }
+    if(bLookAtExpressions&&!Expressions.Contains(FName(TEXT("lookLeft")))&&!Expressions.Contains(FName(TEXT("lookUp"))))bLookAtExpressions=false;
 }

@@ -73,6 +73,13 @@ public:
     TArray<FEidoverseAvatarLamp> Lamps;
     // Hair, tails, petals, skirts (VRM spring bones), parsed at load.
     FEidoSpringData Springs;
+    // VRM look-at (eyes): bone or expression type, with the four range maps (degrees in,
+    // degrees or weight out). Defaults per VRM 1.0.
+    bool bLookAtExpressions=false;
+    FVector2f LookHorizontalInner{90,10},LookHorizontalOuter{90,10},LookVerticalDown{90,10},LookVerticalUp{90,10};
+    // VRM expressions (blink, aa, happy, ...) -> blend shape names and bind weights.
+    TMap<FName,TArray<TPair<FName,float>>> Expressions;
+    void ParseExpressions(const TSharedPtr<class FJsonObject>& Json);
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Eidoverse|Materials") int32 AdaptedMaterialCount=0;
     bool PrepareLitMaterials(const TSharedPtr<FJsonObject>& Document);
     FglTFRuntimeMaterialsConfig MaterialConfig() const;
@@ -168,6 +175,38 @@ private:
     bool bSpringsSettled=false;
     void PrepareSprings();
     void UpdateSprings(float Dt);
+public:
+    // ---- layers over the clip pose (EidoverseAvatarLayers.cpp), as avatar.js applies them ----
+    // Head pitch (radians, positive looks down), on the normalized head.
+    void SetHeadPitch(float Pitch) { HeadPitch=FMath::Clamp(Pitch,-.5f,.6f); }
+    // A held pose ({bone: [x,y,z,w] | {q,t,s}}); null/empty clears (eases out).
+    void SetHeldPose(const TSharedPtr<class FJsonObject>& Pose);
+    void ClearHeldPose();
+    // An agent animation ({bone:[{t,q}]}, dur, loop, replace).
+    void PlayAgentAnimation(const TSharedPtr<class FJsonObject>& Tracks,float Duration,bool bLoop,bool bReplace);
+    // Where the eyes look (world space); bHasTarget false drifts ahead (avatar.js gaze).
+    void SetGazeTarget(const FVector& World,bool bHasTarget);
+    // Seconds the mouth should move as if talking (chat/captions).
+    void NoteSpeaking(double Until) { SpeakingUntil=FMath::Max(SpeakingUntil,Until); }
+    // Expression weights for this frame (0..1), applied with the pose (blend shapes).
+    void SetExpression(FName Expression,float Weight);
+    void ApplyExpressions();
+    bool HasExpression(FName Expression) const { return Avatar&&Avatar->Expressions.Contains(Expression); }
+private:
+    TMap<FName,float> ExpressionWeights;
+    struct FHeldBone { FQuat Q=FQuat::Identity; FVector T=FVector::ZeroVector, S=FVector::OneVector; bool bQ=false,bT=false,bS=false; };
+    TMap<FName,FHeldBone> HeldPose;            // humanoid names or raw bone names
+    float HeldWeight=0, HeldWant=0;
+    struct FAnimKey { float T; FQuat Q; };
+    struct FAnimLayer { TMap<FName,TArray<FAnimKey>> Tracks; float Duration=2, Time=0, Weight=0, Want=1; bool bLoop=false; };
+    TArray<FAnimLayer> AnimLayers;
+    float HeadPitch=0;
+    FVector GazeGoal=FVector::ZeroVector, GazePoint=FVector::ZeroVector; bool bGazeTarget=false, bGazeInit=false;
+    double SpeakingUntil=0, NextBlink=0, BlinkStart=-1;
+    // Applied inside AnimateClips: modifies the normalized humanoid rotations / hips offset.
+    void ApplyNormalizedLayers(TMap<FName,FQuat>& Normalized,FVector& HipsOffsetModel,float Dt,double Time);
+    // Applied after spring bones: raw-bone held pose, custom eyes and eyelids, blink, mouth.
+    void ApplyRawLayers(float Dt,double Time);
 private:
     UPROPERTY() TArray<TObjectPtr<UMaterialInstanceDynamic>> EmissiveMaterials;
     void CreateEmissiveLights();
