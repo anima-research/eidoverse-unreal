@@ -207,6 +207,31 @@ public:
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void SetChatDraft(const FString& Text);
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") bool ChatKey(const FString& KeyName);
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void SubmitChat() { SendChat(); }
+    // Front door (ui.js openDoor): the avatar roster with portraits, a door key.
+    UFUNCTION(BlueprintPure, Category="Eidoverse|UI") int32 GetDoorRosterCount() const { return DoorRoster.Num(); }
+    UFUNCTION(BlueprintPure, Category="Eidoverse|UI") int32 GetDoorPortraitCount() const { return DoorThumbs.Num(); }
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void SelectDoorAvatar(const FString& Name);
+    UFUNCTION(BlueprintPure, Category="Eidoverse|UI") FString GetDoorAvatar() const { return DoorAvatar; }
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void ShowDoorKey(bool bShow);
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void DoorEnter() { OnDoorJoin(); }
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void SetDoorFields(const FString& Server, const FString& World, const FString& Name);
+private:
+    struct FDoorAvatar { FString Name, Path; };
+    TArray<FDoorAvatar> DoorRoster;
+    FString DoorRosterBase, DoorAvatar;
+    double NextRosterCheck = 0;
+    UPROPERTY() TMap<FString, TObjectPtr<UTexture2D>> DoorThumbs;
+    TSet<FString> DoorThumbRequested;
+    UPROPERTY() TObjectPtr<class UWrapBox> DoorGrid;
+    UPROPERTY() TObjectPtr<UEditableTextBox> DoorKey;
+    UPROPERTY() TObjectPtr<UWidget> DoorKeyRow;
+    UPROPERTY() TObjectPtr<UButton> DoorKeyReveal;
+    UPROPERTY() TObjectPtr<UButton> DoorGo;
+    void TickDoorRoster(double Now);
+    void RebuildDoorGrid();
+    UFUNCTION() void OnDoorAvatarClicked();
+    UFUNCTION() void OnDoorKeyReveal();
+public:
 private:
     struct FLine { FString Sender, Text; bool bPrivate = false, bSystem = false, bMention = false; FDateTime At = FDateTime::Now(); FString Peer; };
     // chat.js polish: name colours (FNV-1a over a 12-colour palette, collisions step),

@@ -366,6 +366,7 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Eidoverse|Avatars") int32 LoadedAvatarCount=0;
     // Never serialize tokens in levels, assets, or source control.
     UPROPERTY(Transient, BlueprintReadWrite, Category="Eidoverse") FString JoinToken;
+    bool bDoorKeyRefused=false;   // the last close was a refused door key: the door asks for one
     UPROPERTY(Transient, BlueprintReadWrite, Category="Eidoverse") FString IdentityToken;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Eidoverse") FVector OriginCentimeters=FVector::ZeroVector;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Eidoverse") float SurfaceZ=0;

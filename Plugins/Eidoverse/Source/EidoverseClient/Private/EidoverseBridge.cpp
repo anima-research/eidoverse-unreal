@@ -273,7 +273,7 @@ void AEidoverseBridge::Lost(int32 Code)
     ClearInteractions();VoiceLost();
     bJoined=false;ClearPeers();EndDynamicScene();
     bool bRetry=true;const FString Why=CloseReason(Code,bRetry);
-    if(!bRetry){bWanted=false;RetryAt=0;QueuedMessages.Reset();Status(Why);ToastText(Why,true);if(Code==4003&&HasProductionSession())LogoutProduction();}
+    if(!bRetry){bWanted=false;RetryAt=0;QueuedMessages.Reset();Status(Why);ToastText(Why,true);if(Code==4003&&HasProductionSession())LogoutProduction();if(Code==4003&&!HasProductionSession())bDoorKeyRefused=true;}
     else if(bWanted&&bReconnect){RetryAt=FPlatformTime::Seconds()+RetryDelay;RetryDelay=FMath::Min(15.0,FMath::Max(1.2,RetryDelay*1.6));Status(Why);}
     else Status(TEXT("offline"));
 }

@@ -41,6 +41,8 @@ namespace
     }
 }
 
+UTexture2D* EidoDecodeImage(const TArray<uint8>& Bytes) { return DecodePicture(Bytes, false); }
+
 void AEidoverseScene::TickPictures()
 {
     for (auto& Pair : Items)

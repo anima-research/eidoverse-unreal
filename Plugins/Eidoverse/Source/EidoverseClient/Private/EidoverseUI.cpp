@@ -844,7 +844,7 @@ UWidget* UEidoverseHUD::BuildDoor()
     Door->SetHorizontalAlignment(HAlign_Center);
     Door->SetVerticalAlignment(VAlign_Center);
     auto* Width = WidgetTree->ConstructWidget<USizeBox>();
-    Width->SetWidthOverride(420);
+    Width->SetWidthOverride(470);
     auto* Card = WidgetTree->ConstructWidget<UBorder>();
     Card->SetBrush(FEidoverseTheme::Rounded(FEidoverseTheme::Panel().CopyWithNewOpacity(.95f), 14, FEidoverseTheme::Edge(), 1));
     Card->SetPadding(FMargin(28, 24));
@@ -874,10 +874,37 @@ UWidget* UEidoverseHUD::BuildDoor()
     DoorName = Field(TEXT("Your name"), TEXT("how others will see you"));
     DoorWorld = Field(TEXT("World"), TEXT("commons, water, \u2026"));
     DoorServer = Field(TEXT("Server"), TEXT("wss://eidoverse.animalabs.ai/ws"));
+    // Door key (an invite), behind a reveal unless a key was refused.
+    DoorKeyReveal = TextButton(TEXT("have a door key?"));
+    DoorKeyReveal->OnClicked.AddDynamic(this, &UEidoverseHUD::OnDoorKeyReveal);
+    Column->AddChildToVerticalBox(DoorKeyReveal)->SetPadding(FMargin(0, 6, 0, 0));
+    {
+        auto* KeyCol = WidgetTree->ConstructWidget<UVerticalBox>();
+        KeyCol->AddChildToVerticalBox(Label(TEXT("DOOR KEY"), 9, FEidoverseTheme::Dim(), true))->SetPadding(FMargin(0, 8, 0, 4));
+        DoorKey = Input(TEXT("the key from your invite"));
+        DoorKey->SetIsPassword(true);
+        KeyCol->AddChildToVerticalBox(DoorKey);
+        DoorKeyRow = KeyCol;
+        Column->AddChildToVerticalBox(KeyCol);
+        KeyCol->SetVisibility(ESlateVisibility::Collapsed);
+    }
+    Column->AddChildToVerticalBox(Label(TEXT("AVATAR"), 9, FEidoverseTheme::Dim(), true))->SetPadding(FMargin(0, 10, 0, 4));
+    DoorGrid = WidgetTree->ConstructWidget<UWrapBox>();
+    DoorGrid->SetInnerSlotPadding(FVector2D(6, 6));
+    {
+        // A long roster scrolls inside the card instead of pushing it off screen.
+        auto* Cap = WidgetTree->ConstructWidget<USizeBox>();
+        Cap->SetMaxDesiredHeight(250);
+        auto* Scroll = WidgetTree->ConstructWidget<UScrollBox>();
+        Scroll->AddChild(DoorGrid);
+        Cap->SetContent(Scroll);
+        Column->AddChildToVerticalBox(Cap);
+    }
 
     auto* Row = WidgetTree->ConstructWidget<UWrapBox>();
     Row->SetInnerSlotPadding(FVector2D(8, 8));
     auto* Join = TextButton(TEXT("join"), true);
+    DoorGo = Join;
     Join->OnClicked.AddDynamic(this, &UEidoverseHUD::OnDoorJoin);
     Row->AddChildToWrapBox(Join);
     auto* Public = TextButton(TEXT("public server"));
@@ -926,6 +953,14 @@ void UEidoverseHUD::UpdateDoor()
         else { SetPointerMode(false); bDoorFilled = false; LoadLayout(); }  // refill with the last world next time
     }
     if (!bShow) return;
+    TickDoorRoster(FPlatformTime::Seconds());
+    if (Bridge->bDoorKeyRefused && DoorKeyRow && !DoorKeyRow->IsVisible()) ShowDoorKey(true);
+    if (DoorGo)
+        if (UTextBlock* T = Cast<UTextBlock>(DoorGo->GetContent()))
+        {
+            const FString Name = DoorName->GetText().ToString().TrimStartAndEnd();
+            T->SetText(FText::FromString(DoorAvatar.IsEmpty() ? FString(TEXT("join")) : FString::Printf(TEXT("enter as %s \u00B7 %s"), Name.IsEmpty() ? TEXT("\u2026") : *Name, *DoorAvatar)));
+        }
     const FString Status = Bridge->ConnectionStatus;
     DoorStatus->SetText(FText::FromString(Status == TEXT("offline") ? FString() : Status));
     DoorLogin->SetText(FText::FromString(Bridge->HasProductionSession() ? TEXT("Signed in as ") + Bridge->LoginName : Bridge->LoginStatus));
@@ -934,6 +969,9 @@ void UEidoverseHUD::UpdateDoor()
 void UEidoverseHUD::OnDoorJoin()
 {
     if (!Bridge) return;
+    for (const FDoorAvatar& A : DoorRoster) if (A.Name == DoorAvatar) Bridge->AvatarPath = A.Path;
+    if (DoorKey && DoorKeyRow && DoorKeyRow->IsVisible()) Bridge->JoinToken = DoorKey->GetText().ToString().TrimStartAndEnd();
+    Bridge->bDoorKeyRefused = false;
     Bridge->JoinFromDoor(DoorServer->GetText().ToString(), DoorWorld->GetText().ToString(), DoorName->GetText().ToString());
 }
 
