@@ -65,7 +65,10 @@ void AEidoverseScene::BuildFlora(const TSharedPtr<FJsonObject>& Data,const FVect
             {
                 // Preserve server-authored placement/height. Fuller shared tufts,
                 // not additional world entities or per-frame placement traces.
-                CoverTransforms.Add(FTransform(FRotator(0,FMath::RadiansToDegrees(Yaw),0),Base,FVector(Scale,Scale,Scale*H/38)));
+                // Yaw, then the world tilt (vegetation.js: about wire X by tx, then wire Z by tz).
+                const double Tx=Num(P,TEXT("tx")),Tz=Num(P,TEXT("tz"));
+                const FQuat Wire=FQuat(FVector::ZAxisVector,Tz)*FQuat(FVector::XAxisVector,Tx)*FQuat(FVector::YAxisVector,Yaw);
+                CoverTransforms.Add(FTransform(AEidoverseBridge::FromWireRotation(Wire),Base,FVector(Scale,Scale,Scale*H/38)));
                 const float Variation=FMath::Clamp(Num(P,TEXT("colorVar"),.5),0.,1.);
                 CoverColors.Add(Color*FMath::Lerp(FLinearColor(.74,.86,.66),FLinearColor(1.3,1.08,.80),Variation));
                 CoverWind.Add(FMath::Clamp(Num(St,TEXT("wind"),1),0.,2.));
@@ -106,8 +109,9 @@ void AEidoverseScene::BuildFlora(const TSharedPtr<FJsonObject>& Data,const FVect
         GroundCover=NewObject<UHierarchicalInstancedStaticMeshComponent>(this);AddInstanceComponent(GroundCover);
         GroundCover->SetupAttachment(RootComponent);GroundCover->SetWorldLocation(Origin);GroundCover->SetStaticMesh(GroundCoverMesh);
         GroundCover->SetCollisionEnabled(ECollisionEnabled::NoCollision);GroundCover->SetCastShadow(false);GroundCover->SetVisibleInRayTracing(false);
-        GroundCover->SetCullDistances(2800,4500);GroundCover->NumCustomDataFloats=5;GroundCover->bAutoRebuildTreeOnInstanceChanges=false;
+        GroundCover->SetCullDistances(8800,9000);   // keep(d) thins 15-90 m in the material; nothing past 90 mGroundCover->NumCustomDataFloats=5;GroundCover->bAutoRebuildTreeOnInstanceChanges=false;
         GroundCover->RegisterComponent();GroundCover->AddInstances(CoverTransforms,false,false);
+        GroundCover->SetNumCustomDataFloats(5);   // sizes the per-instance custom data for every instance
         for(int32 I=0;I<CoverTransforms.Num();++I)
         {
             const auto& C=CoverColors[I];const float Custom[]={C.R,C.G,C.B,CoverWind[I],float(50*CoverTransforms[I].GetScale3D().Z)};

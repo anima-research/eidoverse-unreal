@@ -413,6 +413,7 @@ void AEidoverseBridge::TickAvatars(double Time)
     }
     TickSelfBody(Time);
     TickPinMarkers();
+    TickFloraPushers();
     TickGaze(Time);
     if(SelfBody.AvatarMesh.IsValid()&&!SelfBody.AvatarMesh->EmissiveLights.IsEmpty())
         Lamps.Add({SelfBody.AvatarMesh.Get(),0.,SelfBody.AvatarMesh->IsVisible()});

@@ -34,7 +34,8 @@ Specs live in the four audit reports next to this file: `ui-protocol.md`, `avata
 - [x] weather surfaces: wetness, puddles, cloud shadows, cloud kind
 - [x] server render-scene: particles/picture/sound passthrough, part motions, part sockets, sim v
 - [x] node-hierarchy import + part motion; pictures; particles (Niagara)
-- [ ] residency demotion, flora density/pushers
+- [x] residency demotion; flora pushers, keep(d) 15–90 m with growth, per-placement tilt
+- [ ] flora: local placement past the 12k cap, real species meshes
 
 ## M4 Build tools
 - [x] drag move (send/receive), lights editor, lock/guard, scene tree + attach, seat anchor editor,

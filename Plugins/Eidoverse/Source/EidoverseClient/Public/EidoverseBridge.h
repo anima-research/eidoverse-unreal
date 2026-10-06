@@ -276,6 +276,8 @@ public:
     void ClearPins();
     void ApplyMyPins();
     void TickPinMarkers();
+    void TickFloraPushers();
+    UPROPERTY(Transient) TObjectPtr<class UMaterialParameterCollection> FloraCollection;
     UFUNCTION(BlueprintPure,Category="Eidoverse") FString GetDraggedBy() const { return DraggedBy; }
     UFUNCTION(BlueprintPure,Category="Eidoverse") int32 GetPinCount() const { return MyPins.Num(); }
     UFUNCTION(BlueprintPure,Category="Eidoverse") int32 GetPinMarkerCount() const;

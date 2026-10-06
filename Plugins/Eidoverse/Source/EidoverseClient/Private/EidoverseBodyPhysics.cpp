@@ -18,6 +18,8 @@
 #include "Components/StaticMeshComponent.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "EidoverseSettings.h"
+#include "Kismet/KismetMaterialLibrary.h"
+#include "Materials/MaterialParameterCollection.h"
 
 struct FEidoFlightRuntime
 {
@@ -421,5 +423,35 @@ void AEidoverseBridge::TickPinMarkers()
         const bool bOn = I < At.Num();
         C->SetVisibility(bOn);
         if (bOn) C->SetWorldLocation(OriginCentimeters + FromWirePosition(At[I]));
+    }
+}
+
+// ---------------------------------------------------------------- flora pushers
+// Plants part around bodies (vegetation.js): me plus the 3 nearest others, each at
+// the body's root with a 1.1 m radius, into MPC_EidoverseFlora (world cm).
+void AEidoverseBridge::TickFloraPushers()
+{
+    if (!FloraCollection) FloraCollection = LoadObject<UMaterialParameterCollection>(nullptr, TEXT("/Eidoverse/FX/MPC_EidoverseFlora.MPC_EidoverseFlora"));
+    if (!FloraCollection) return;
+    TArray<FVector> Roots;
+    const APawn* Me = UGameplayStatics::GetPlayerPawn(this, 0);
+    FVector MeAt = FVector::ZeroVector;
+    if (Me)
+    {
+        MeAt = Me->GetActorLocation();
+        if (const auto* X = Cast<AEidoverseExplorer>(Me)) MeAt.Z -= X->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+        Roots.Add(MeAt);
+    }
+    TArray<TPair<double, FVector>> Others;
+    for (const auto& Pair : Peers)
+        if (const AActor* A = Pair.Value.Actor.Get())
+            Others.Emplace(FVector::DistSquared(A->GetActorLocation(), MeAt), Pair.Value.AvatarMesh.IsValid() ? Pair.Value.AvatarMesh->GetComponentLocation() : A->GetActorLocation());
+    Others.Sort([](const auto& A, const auto& B) { return A.Key < B.Key; });
+    for (int32 I = 0; I < Others.Num() && Roots.Num() < 4; ++I) Roots.Add(Others[I].Value);
+    static const FName Names[] = {TEXT("Pusher0"), TEXT("Pusher1"), TEXT("Pusher2"), TEXT("Pusher3")};
+    for (int32 I = 0; I < 4; ++I)
+    {
+        const FLinearColor V = I < Roots.Num() ? FLinearColor(Roots[I].X, Roots[I].Y, Roots[I].Z, 110) : FLinearColor(0, 0, 0, 0);
+        UKismetMaterialLibrary::SetVectorParameterValue(this, FloraCollection, Names[I], V);
     }
 }
