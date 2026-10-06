@@ -232,6 +232,9 @@ public:
     TArray<TSharedRef<FJsonObject>> QueuedMessages;
     FString LastErrorText; double LastErrorAt=0,ResetReconnectAt=0,LastLocalInputAt=0;
     TSharedPtr<FJsonObject> SelfHeldPose;
+    // POST /upload?as=<audio|image|avatar>&name=<file> with the raw bytes (palette.js,
+    // sounds.js, pictures.js); the reply's {path} goes to OnDone (empty on failure).
+    void UploadFile(const FString& LocalPath,const FString& As,TFunction<void(const FString& Path,const FString& Error)> OnDone);
     bool bRetrying=false,bSelfJumpEase=false;
     double LastReachTick=0;
     const FEidoversePeer& GetSelfBody() const { return SelfBody; }

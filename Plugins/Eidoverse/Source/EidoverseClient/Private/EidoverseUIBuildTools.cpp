@@ -6,6 +6,8 @@
 #include "EidoverseScene.h"
 #include "Blueprint/WidgetTree.h"
 #include "Components/Button.h"
+#include "Misc/Paths.h"
+#include "Components/EditableTextBox.h"
 #include "Components/TextBlock.h"
 #include "Components/VerticalBox.h"
 #include "Components/VerticalBoxSlot.h"
@@ -185,6 +187,81 @@ bool UEidoverseHUD::BuildToolAction(const FString& Action)
     }
     else if (Action == TEXT("tool:attach")) { AttachPick = Id; Hint(TEXT("now click the thing it should ride (in the world)"), 5); }
     else if (Action == TEXT("tool:detach")) Bridge->DetachEntity(Id);
+    else if (Action == TEXT("tool:picture:down")) SendComp(Id, TEXT("picture"), nullptr);
+    else if (Action == TEXT("tool:seat:add")) { bArmSeat = true; Hint(TEXT("click on the selected thing where the seat goes (Esc cancels)"), 5); }
+    else if (Action.StartsWith(TEXT("tool:seat:")))
+    {
+        // tool:seat:turn:<slot>:<deg> | tool:seat:remove:<slot>
+        TArray<FString> P; Action.ParseIntoArray(P, TEXT(":"));
+        const TSharedPtr<FJsonObject>* Have = nullptr;
+        if (P.Num() < 4 || !E->Interact || !E->Interact->TryGetObjectField(TEXT("sockets"), Have)) return true;
+        auto Next = MakeShared<FJsonObject>(**Have);
+        if (P[2] == TEXT("remove")) Next->RemoveField(P[3]);
+        else if (P[2] == TEXT("turn") && P.Num() >= 5)
+        {
+            const TSharedPtr<FJsonObject>* Slot = nullptr;
+            if (!Next->TryGetObjectField(P[3], Slot)) return true;
+            auto S = MakeShared<FJsonObject>(**Slot); double Yaw = 0; S->TryGetNumberField(TEXT("yaw"), Yaw);
+            S->SetNumberField(TEXT("yaw"), FMath::RoundToDouble(FMath::UnwindRadians(Yaw + FMath::DegreesToRadians(FCString::Atod(*P[4]))) * 1000) / 1000);
+            Next->SetObjectField(P[3], S);
+        }
+        SendSockets(Id, Next->Values.Num() ? TSharedPtr<FJsonObject>(Next) : TSharedPtr<FJsonObject>(), *Have);
+    }
+    else if (Action.StartsWith(TEXT("tool:sound:")))
+    {
+        // sounds.js: the whole bag each time; play stamps t0 so everyone shares the playhead.
+        const FString What = Action.Mid(11);
+        if (What == TEXT("silence")) { SendComp(Id, TEXT("sound"), nullptr); return true; }
+        if (!E->Sound) return true;
+        auto S = MakeShared<FJsonObject>(*E->Sound);
+        double V = .8, R = 12; S->TryGetNumberField(TEXT("volume"), V); S->TryGetNumberField(TEXT("radius"), R);
+        bool bPlaying = true, bLoop = true; S->TryGetBoolField(TEXT("playing"), bPlaying); S->TryGetBoolField(TEXT("loop"), bLoop);
+        if (What == TEXT("louder")) S->SetNumberField(TEXT("volume"), FMath::Min(1., V + .1));
+        else if (What == TEXT("quieter")) S->SetNumberField(TEXT("volume"), FMath::Max(0., V - .1));
+        else if (What == TEXT("wider")) S->SetNumberField(TEXT("radius"), FMath::Min(200., R * 1.5));
+        else if (What == TEXT("narrower")) S->SetNumberField(TEXT("radius"), FMath::Max(1., R / 1.5));
+        else if (What == TEXT("loop")) S->SetBoolField(TEXT("loop"), !bLoop);
+        else if (What == TEXT("play")) { S->SetBoolField(TEXT("playing"), !bPlaying); if (!bPlaying) S->SetNumberField(TEXT("t0"), double(FDateTime::UtcNow().ToUnixTimestamp()) * 1000 + FDateTime::UtcNow().GetMillisecond()); else S->RemoveField(TEXT("t0")); }
+        SendComp(Id, TEXT("sound"), S);
+    }
+    else if (Action.StartsWith(TEXT("tool:upload:")))
+    {
+        const FString Kind = Action.Mid(12), File = FileField ? FileField->GetText().ToString() : FString();
+        if (File.TrimStartAndEnd().IsEmpty()) { Hint(TEXT("type a file path first"), 3); return true; }
+        const FString Part = PartField ? PartField->GetText().ToString().TrimStartAndEnd() : FString();
+        TWeakObjectPtr<UEidoverseHUD> Weak(this);
+        const FString Target = Id;
+        Bridge->UploadFile(File, Kind == TEXT("sound") ? TEXT("audio") : Kind == TEXT("picture") ? TEXT("image") : Kind == TEXT("avatar") ? TEXT("avatar") : FString(),
+            [Weak, Kind, Target, Part, File](const FString& Path, const FString& Error)
+        {
+            UEidoverseHUD* Self = Weak.Get(); if (!Self) return;
+            if (Path.IsEmpty()) { Self->Toast(TEXT("upload failed: ") + Error, true); return; }
+            if (Kind == TEXT("sound"))
+            {
+                auto S = MakeShared<FJsonObject>(); S->SetStringField(TEXT("src"), Path); S->SetNumberField(TEXT("volume"), .8); S->SetNumberField(TEXT("radius"), 12);
+                S->SetBoolField(TEXT("loop"), true); S->SetBoolField(TEXT("playing"), true);
+                S->SetNumberField(TEXT("t0"), double(FDateTime::UtcNow().ToUnixTimestamp()) * 1000);
+                S->SetStringField(TEXT("look"), FPaths::GetBaseFilename(File).Left(200));
+                Self->SendComp(Target, TEXT("sound"), S);
+            }
+            else if (Kind == TEXT("picture"))
+            {
+                if (Part.IsEmpty()) { Self->Toast(TEXT("name the part to hang it on first"), true); return; }
+                auto S = MakeShared<FJsonObject>(); S->SetStringField(TEXT("src"), Path); S->SetStringField(TEXT("part"), Part);
+                S->SetStringField(TEXT("lit"), TEXT("scene")); S->SetStringField(TEXT("look"), FPaths::GetBaseFilename(File).Left(200));
+                Self->SendComp(Target, TEXT("picture"), S);
+            }
+            else if (Kind == TEXT("model"))
+            {
+                auto A = MakeShared<FJsonObject>(); A->SetStringField(TEXT("name"), FPaths::GetBaseFilename(File)); A->SetStringField(TEXT("path"), Path);
+                Self->Bridge->SendVerb(TEXT("asset"), A);
+                Self->BuildAction(TEXT("build:hold:") + Path);
+            }
+            else Self->Toast(TEXT("avatar uploaded \u2014 it's on the roster now"));
+        });
+        Hint(TEXT("uploading\u2026"), 3);
+        return true;
+    }
     else if (Action.StartsWith(TEXT("tool:light:")))
     {
         // lights.js: a partial light verb changes only the field touched.
@@ -233,6 +310,52 @@ void UEidoverseHUD::RebuildBuildExtras()
     if (E->MountTo.IsEmpty()) Add(TEXT("attach to…"), TEXT("tool:attach"), TEXT("make it ride another thing, keeping its pose"));
     else Add(TEXT("detach from ") + E->MountTo, TEXT("tool:detach"), TEXT("stop riding, staying where it is"));
     BuildExtras->AddChildToVerticalBox(Row);
+    // Seats (seatedit.js): each anchor with turn and remove; "+ seat" arms a click on the thing.
+    {
+        const TSharedPtr<FJsonObject>* Sockets = nullptr;
+        auto* SeatRow = WidgetTree->ConstructWidget<UWrapBox>(); SeatRow->SetInnerSlotPadding(FVector2D(4, 4));
+        auto AddS = [this, SeatRow](const FString& Text, const FString& Action)
+        { UButton* B = TextButton(Text); B->OnClicked.AddDynamic(this, &UEidoverseHUD::OnBuildClicked); ButtonIds.Add(B, FName(*Action)); SeatRow->AddChildToWrapBox(B); };
+        if (E->Interact && E->Interact->TryGetObjectField(TEXT("sockets"), Sockets))
+            for (const auto& Slot : (*Sockets)->Values)
+            {
+                SeatRow->AddChildToWrapBox(Label(FString(Slot.Key), 10, FEidoverseTheme::Brand()));
+                AddS(TEXT("\u21BA"), FString::Printf(TEXT("tool:seat:turn:%s:15"), *FString(Slot.Key)));
+                AddS(TEXT("\u21BB"), FString::Printf(TEXT("tool:seat:turn:%s:-15"), *FString(Slot.Key)));
+                AddS(TEXT("\u2715"), FString::Printf(TEXT("tool:seat:remove:%s"), *FString(Slot.Key)));
+            }
+        AddS(TEXT("+ seat"), TEXT("tool:seat:add"));
+        BuildExtras->AddChildToVerticalBox(SeatRow);
+    }
+    // Sound (sounds.js).
+    if (E->Sound)
+    {
+        double V = .8, R = 12; bool bPlaying = true, bLoop = true; FString Src;
+        E->Sound->TryGetNumberField(TEXT("volume"), V); E->Sound->TryGetNumberField(TEXT("radius"), R);
+        E->Sound->TryGetBoolField(TEXT("playing"), bPlaying); E->Sound->TryGetBoolField(TEXT("loop"), bLoop); E->Sound->TryGetStringField(TEXT("src"), Src);
+        BuildExtras->AddChildToVerticalBox(Label(FString::Printf(TEXT("SOUND \u00B7 %s \u00B7 volume %.1f \u00B7 radius %.0f m%s%s"), *FPaths::GetCleanFilename(Src), V, R, bLoop ? TEXT(" \u00B7 loops") : TEXT(""), bPlaying ? TEXT("") : TEXT(" \u00B7 paused")),
+            9, FEidoverseTheme::Dim(), true))->SetPadding(FMargin(0, 6, 0, 2));
+        auto* SR = WidgetTree->ConstructWidget<UWrapBox>(); SR->SetInnerSlotPadding(FVector2D(4, 4));
+        for (const TPair<const TCHAR*, const TCHAR*>& B : {TPair<const TCHAR*, const TCHAR*>{bPlaying ? TEXT("pause") : TEXT("play"), TEXT("play")}, {TEXT("quieter"), TEXT("quieter")}, {TEXT("louder"), TEXT("louder")},
+                                                           {TEXT("narrower"), TEXT("narrower")}, {TEXT("wider"), TEXT("wider")}, {bLoop ? TEXT("\u2713 loop") : TEXT("loop"), TEXT("loop")}, {TEXT("silence"), TEXT("silence")}})
+        { UButton* Btn = TextButton(B.Key); Btn->OnClicked.AddDynamic(this, &UEidoverseHUD::OnBuildClicked); ButtonIds.Add(Btn, FName(*(FString(TEXT("tool:sound:")) + B.Value))); SR->AddChildToWrapBox(Btn); }
+        BuildExtras->AddChildToVerticalBox(SR);
+    }
+    // Uploads (palette.js, sounds.js, pictures.js): a file path, then what to make of it.
+    {
+        BuildExtras->AddChildToVerticalBox(Label(TEXT("ADD A FILE"), 9, FEidoverseTheme::Dim(), true))->SetPadding(FMargin(0, 6, 0, 2));
+        FileField = Input(TEXT("/path/to/file (.mp3 .ogg .wav \u00B7 .png .jpg \u00B7 .glb \u00B7 .vrm)"));
+        BuildExtras->AddChildToVerticalBox(FileField);
+        PartField = Input(TEXT("part name for a picture (a node of this model)"));
+        if (E->Picture) { FString P; E->Picture->TryGetStringField(TEXT("part"), P); PartField->SetText(FText::FromString(P)); }
+        BuildExtras->AddChildToVerticalBox(PartField)->SetPadding(FMargin(0, 3, 0, 0));
+        auto* UR = WidgetTree->ConstructWidget<UWrapBox>(); UR->SetInnerSlotPadding(FVector2D(4, 4));
+        for (const TPair<const TCHAR*, const TCHAR*>& B : {TPair<const TCHAR*, const TCHAR*>{TEXT("as this thing's sound"), TEXT("sound")}, {TEXT("as a picture"), TEXT("picture")},
+                                                           {TEXT("as a new model"), TEXT("model")}, {TEXT("as an avatar"), TEXT("avatar")}})
+        { UButton* Btn = TextButton(B.Key); Btn->OnClicked.AddDynamic(this, &UEidoverseHUD::OnBuildClicked); ButtonIds.Add(Btn, FName(*(FString(TEXT("tool:upload:")) + B.Value))); UR->AddChildToWrapBox(Btn); }
+        if (E->Picture) { UButton* Btn = TextButton(TEXT("take picture down")); Btn->OnClicked.AddDynamic(this, &UEidoverseHUD::OnBuildClicked); ButtonIds.Add(Btn, FName(TEXT("tool:picture:down"))); UR->AddChildToWrapBox(Btn); }
+        BuildExtras->AddChildToVerticalBox(UR)->SetPadding(FMargin(0, 3, 0, 0));
+    }
     if (E->Light.IsValid())
     {
         BuildExtras->AddChildToVerticalBox(Label(FString::Printf(TEXT("LIGHT · brightness %.0f · range %.0f m%s%s"), E->LightIntensity, E->LightRange,
@@ -249,4 +372,49 @@ void UEidoverseHUD::RebuildBuildExtras()
             AddL(C.Key, FString(TEXT("tool:light:color:")) + C.Value);
         BuildExtras->AddChildToVerticalBox(L);
     }
+}
+
+void UEidoverseHUD::SendComp(const FString& Id, const FString& Type, const TSharedPtr<FJsonObject>& Data)
+{
+    auto A = MakeShared<FJsonObject>(); A->SetStringField(TEXT("id"), Id); A->SetStringField(TEXT("type"), Type);
+    if (Data) A->SetObjectField(TEXT("data"), Data); else A->SetField(TEXT("data"), MakeShared<FJsonValueNull>());
+    if (Bridge && Bridge->SendVerb(TEXT("comp"), A)) { ExtrasFor.Empty(); Hint(Type + TEXT(" updated"), 1.5f); }
+}
+
+void UEidoverseHUD::SendSockets(const FString& Id, const TSharedPtr<FJsonObject>& Sockets, const TSharedPtr<FJsonObject>& Before)
+{
+    // seatedit.js: the whole merged map every time (or null), with the old map as the undo.
+    SendComp(Id, TEXT("sockets"), Sockets);
+    auto Undo = MakeShared<FJsonObject>(); Undo->SetStringField(TEXT("id"), Id); Undo->SetStringField(TEXT("type"), TEXT("sockets"));
+    if (Before) Undo->SetObjectField(TEXT("data"), Before); else Undo->SetField(TEXT("data"), MakeShared<FJsonValueNull>());
+    PushUndo(TEXT("comp"), Undo);
+}
+
+void UEidoverseHUD::TickSeatPlacement(APlayerController* PC, AEidoverseScene* Scene)
+{
+    if (!bArmSeat) return;
+    if (PC->WasInputKeyJustPressed(EKeys::Escape)) { bArmSeat = false; return; }
+    if (!PC->WasInputKeyJustPressed(EKeys::LeftMouseButton)) return;
+    bArmSeat = false;
+    const FString Id = GetSelectedEntity();
+    FHitResult Hit;
+    if (Id.IsEmpty() || !PC->GetHitResultUnderCursor(ECC_Visibility, true, Hit) || Scene->EntityId(Hit.GetActor()) != Id) { Hint(TEXT("that wasn't the selected thing \u2014 no seat added"), 3); return; }
+    const FEidoverseSceneItem* E = Scene->GetItems().Find(Id);
+    if (!E || !E->Actor.IsValid()) return;
+    // pos in the model frame (wire metres, 3 dp); yaw faces the camera, relative to the thing.
+    const FVector Local = AEidoverseBridge::ToWirePosition(E->Actor->GetActorTransform().InverseTransformPosition(Hit.ImpactPoint));
+    FVector Eye; FRotator View; PC->GetPlayerViewPoint(Eye, View);
+    const FVector Cam = AEidoverseBridge::ToWirePosition(Eye - Scene->GetSceneOrigin()), At = AEidoverseBridge::ToWirePosition(Hit.ImpactPoint - Scene->GetSceneOrigin());
+    const double Yaw = FMath::Atan2(Cam.X - At.X, Cam.Z - At.Z) + FMath::DegreesToRadians(E->Actor->GetActorRotation().Yaw);
+    auto R3 = [](double V) { return MakeShared<FJsonValueNumber>(FMath::RoundToDouble(V * 1000) / 1000); };
+    const TSharedPtr<FJsonObject>* Have = nullptr;
+    const TSharedPtr<FJsonObject> Before = E->Interact && E->Interact->TryGetObjectField(TEXT("sockets"), Have) ? *Have : nullptr;
+    auto Next = Before ? MakeShared<FJsonObject>(*Before) : MakeShared<FJsonObject>();
+    FString Slot = TEXT("seat");
+    for (int32 N = 2; Next->HasField(Slot); ++N) Slot = FString::Printf(TEXT("seat%d"), N);
+    auto S = MakeShared<FJsonObject>();
+    S->SetArrayField(TEXT("pos"), {R3(Local.X), R3(Local.Y), R3(Local.Z)});
+    S->SetNumberField(TEXT("yaw"), FMath::RoundToDouble(FMath::UnwindRadians(Yaw) * 1000) / 1000);
+    Next->SetObjectField(Slot, S);
+    SendSockets(Id, Next, Before);
 }

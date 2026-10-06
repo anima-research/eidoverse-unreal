@@ -488,6 +488,8 @@ void UEidoverseHUD::TickBuild(double Now)
         return;
     }
     // Click to select; press-and-drag moves (build.js); "attach to…" takes the next click as the parent.
+    TickSeatPlacement(PC, Scene);
+    if (bArmSeat) return;
     TickDrag(PC, Scene, bShift);
     if (Drag.bActive) return;
     const bool bCtrl = PC->IsInputKeyDown(EKeys::LeftControl) || PC->IsInputKeyDown(EKeys::RightControl) || PC->IsInputKeyDown(EKeys::LeftCommand);

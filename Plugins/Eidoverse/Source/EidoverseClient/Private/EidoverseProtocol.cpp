@@ -319,3 +319,40 @@ void AEidoverseBridge::SetPresence(const FString& Value)
 {
     ManualPresence = (Value == TEXT("away") || Value == TEXT("busy")) ? Value : FString();
 }
+
+#include "HttpModule.h"
+#include "Interfaces/IHttpRequest.h"
+#include "Interfaces/IHttpResponse.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
+#include "GenericPlatform/GenericPlatformHttp.h"
+
+void AEidoverseBridge::UploadFile(const FString& LocalPath, const FString& As, TFunction<void(const FString&, const FString&)> OnDone)
+{
+    TArray<uint8> Bytes;
+    const FString Path = LocalPath.TrimStartAndEnd().TrimQuotes();
+    if (!FFileHelper::LoadFileToArray(Bytes, *Path)) { OnDone(FString(), TEXT("couldn't read that file")); return; }
+    if (Bytes.Num() > 64 * 1024 * 1024) { OnDone(FString(), TEXT("file is larger than 64 MB")); return; }
+    const FString Base = HttpBase();
+    if (Base.IsEmpty() || !bJoined) { OnDone(FString(), TEXT("join a world first")); return; }
+    FString Url = Base + TEXT("/upload?name=") + FGenericPlatformHttp::UrlEncode(FPaths::GetCleanFilename(Path));
+    if (!As.IsEmpty()) Url += TEXT("&as=") + As;
+    if (!JoinToken.IsEmpty() && !(HasProductionSession() && Endpoint == ProductionEndpoint)) Url += TEXT("&token=") + FGenericPlatformHttp::UrlEncode(JoinToken);
+    auto Request = FHttpModule::Get().CreateRequest();
+    Request->SetURL(Url); Request->SetVerb(TEXT("POST")); Request->SetContent(Bytes); Request->SetTimeout(120);
+    Request->SetHeader(TEXT("Content-Type"), TEXT("application/octet-stream"));
+    if (HasProductionSession() && Endpoint == ProductionEndpoint) Request->SetHeader(TEXT("Cookie"), TEXT("ew_sess=") + ProductionSession);
+    TWeakObjectPtr<AEidoverseBridge> Weak(this);
+    Request->OnProcessRequestComplete().BindLambda([Weak, OnDone](FHttpRequestPtr, FHttpResponsePtr Response, bool bOk)
+    {
+        if (!Weak.IsValid()) return;
+        if (!bOk || !Response.IsValid()) { OnDone(FString(), TEXT("upload failed (no response)")); return; }
+        TSharedPtr<FJsonObject> J;
+        FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Response->GetContentAsString()), J);
+        FString P, Err;
+        if (J) { J->TryGetStringField(TEXT("path"), P); J->TryGetStringField(TEXT("error"), Err); }
+        if (Response->GetResponseCode() != 200 || P.IsEmpty()) { OnDone(FString(), Err.IsEmpty() ? FString::Printf(TEXT("upload refused (%d)"), Response->GetResponseCode()) : Err.Left(200)); return; }
+        OnDone(P, FString());
+    });
+    Request->ProcessRequest();
+}

@@ -249,6 +249,14 @@ private:
     FString AuthorRefusal(const FString& Id) const;
     bool BuildToolAction(const FString& Action);
     void PushUndo(const FString& Verb, const TSharedRef<FJsonObject>& Args);
+    // Seat anchors (seatedit.js), sound and picture (sounds.js, pictures.js), uploads.
+    bool bArmSeat = false;
+    FString SelectedSlot;
+    UPROPERTY() TObjectPtr<UEditableTextBox> FileField;
+    UPROPERTY() TObjectPtr<UEditableTextBox> PartField;
+    void TickSeatPlacement(class APlayerController* PC, class AEidoverseScene* Scene);
+    void SendSockets(const FString& Id, const TSharedPtr<FJsonObject>& Sockets, const TSharedPtr<FJsonObject>& Before);
+    void SendComp(const FString& Id, const FString& Type, const TSharedPtr<FJsonObject>& Data);
     bool bGhostAimed = false;
     bool AimGhost(FVector& OutWorld) const;
     UButton* ActionButton(const FString& Text, const FString& Id, bool bPrimary = false);
