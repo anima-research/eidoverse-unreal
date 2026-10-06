@@ -13,6 +13,8 @@
 #include "GameFramework/PlayerController.h"
 #include "Kismet/GameplayStatics.h"
 #include "Dom/JsonObject.h"
+#include "EidoverseSTT.h"
+#include "Async/Async.h"
 
 void AEidoverseBridge::EnsureVoice()
 {
@@ -66,6 +68,7 @@ void AEidoverseBridge::VoiceJoined()
 
 void AEidoverseBridge::VoiceLost()
 {
+    if (Stt) { Stt->Stop(); if (Voice) Voice->SetMicTap(nullptr); }
     if (Voice) Voice->Stop();
     for (auto& Pair : VoiceSpeakers) if (Pair.Value.Audio.IsValid()) Pair.Value.Audio->DestroyComponent();
     VoiceSpeakers.Reset();
@@ -108,6 +111,7 @@ void AEidoverseBridge::TickVoice(float Dt)
     if (!Voice) return;
     Voice->Tick(Dt);
     TickTts(FPlatformTime::Seconds());
+    TickStt();
     const APawn* Me = UGameplayStatics::GetPlayerPawn(this, 0);
     if (Me) Voice->SetListenerPosition(ToWirePosition(Me->GetActorLocation() - OriginCentimeters));
     // V: toggle the mic, or talk while held in push-to-talk (never while typing).
@@ -159,5 +163,67 @@ void AEidoverseBridge::TickVoice(float Dt)
         if (bSynth && L > .045f) { SelfSpeakingUntil = FMath::Max(SelfSpeakingUntil, Now + .4); M->NoteSpeaking(Now + .4); }
         M->SetVoiceLevel(L);
         if (bLive && Voice->IsSpeaking() && L > .045f) { SelfSpeakingUntil = FMath::Max(SelfSpeakingUntil, Now + .4); M->NoteSpeaking(Now + .4); }
+    }
+}
+
+// ---------------------------------------------------------------- speech-to-text
+namespace { TAutoConsoleVariable<int32> CVarSttConsent(TEXT("Eidoverse.Audio.SttConsent"), -1,
+    TEXT("Speech-to-text consent: -1 never asked, 0 no, 1 yes (your mic audio goes to Apple's recognizer, on-device when supported).")); }
+
+bool AEidoverseBridge::IsSttRunning() const { return Stt && Stt->IsRunning(); }
+
+void AEidoverseBridge::SetSttConsent(bool bOn)
+{
+    EidoSettings::Set(TEXT("Eidoverse.Audio.SttConsent"), bOn ? TEXT("1") : TEXT("0"));
+    Narrate(bOn ? TEXT("speech-to-text on: while your mic is live, what you say becomes chat (Apple's recognizer — on-device when your language supports it)")
+                : TEXT("speech-to-text off"));
+}
+
+void AEidoverseBridge::TickStt()
+{
+    // stt.js: runs only with consent, a live mic, and a recognizer; finals become says.
+    const bool bWant = CVarSttConsent.GetValueOnGameThread() == 1 && Voice && Voice->IsMicLive() && !Voice->IsMuted() && bJoined;
+    if (!bWant)
+    {
+        if (Stt && Stt->IsRunning()) { Stt->Stop(); Voice->SetMicTap(nullptr); }
+        return;
+    }
+    if (!Stt) Stt = MakeShared<FEidoStt>();
+    if (!Stt->IsRunning())
+    {
+        const FEidoStt::EAuth Auth = FEidoStt::Authorization();
+        if (Auth == FEidoStt::EAuth::Unknown)
+        {
+            if (!bSttAuthPending)
+            {
+                bSttAuthPending = true;
+                TWeakObjectPtr<AEidoverseBridge> Weak(this);
+                FEidoStt::RequestAuthorization([Weak](bool bOk) { AsyncTask(ENamedThreads::GameThread, [Weak, bOk]() {
+                    if (!Weak.IsValid()) return;
+                    Weak->bSttAuthPending = false;
+                    if (!bOk) { Weak->Narrate(TEXT("speech-to-text: permission denied (System Settings → Privacy → Speech Recognition)")); EidoSettings::Set(TEXT("Eidoverse.Audio.SttConsent"), TEXT("0")); }
+                }); });
+            }
+            return;
+        }
+        if (Auth != FEidoStt::EAuth::Granted) { Narrate(TEXT("speech-to-text isn't permitted on this machine")); EidoSettings::Set(TEXT("Eidoverse.Audio.SttConsent"), TEXT("0")); return; }
+        FString Err;
+        if (!Stt->Start(Err)) { Narrate(TEXT("speech-to-text: ") + Err); EidoSettings::Set(TEXT("Eidoverse.Audio.SttConsent"), TEXT("0")); return; }
+        TWeakPtr<FEidoStt> WeakStt = Stt;
+        Voice->SetMicTap([WeakStt](const float* Data, int32 Num, double Rate) { if (TSharedPtr<FEidoStt> S = WeakStt.Pin()) S->Feed(Data, Num, Rate); });
+    }
+    TArray<FString> Finals; FString Err;
+    Stt->Poll(Finals, Err);
+    if (!Err.IsEmpty()) Narrate(TEXT("speech-to-text: ") + Err.Left(200));
+    for (const FString& F : Finals)
+    {
+        const FString Text = F.TrimStartAndEnd().Left(1000);
+        if (Text.IsEmpty()) continue;
+        auto A = MakeShared<FJsonObject>();
+        A->SetStringField(TEXT("text"), TEXT("\U0001F399 ") + Text);
+        A->SetBoolField(TEXT("voiced"), true); A->SetBoolField(TEXT("spoken"), true); A->SetNumberField(TEXT("utt"), ++SttUtt);
+        auto J = MakeShared<FJsonObject>();
+        J->SetStringField(TEXT("type"), TEXT("verb")); J->SetStringField(TEXT("verb"), TEXT("say")); J->SetObjectField(TEXT("args"), A);
+        Send(J);
     }
 }

@@ -48,7 +48,8 @@ Specs live in the four audit reports next to this file: `ui-protocol.md`, `avata
 
 ## M6 Audio
 - [x] sound components, WebRTC SFU receive, consent/volumes, mic publish (V / push-to-talk), mouths
-- [ ] TTS endpoints, STT
+- [x] TTS endpoints (ws synth / http), chunker conformance
+- [x] STT (SFSpeechRecognizer on the voice mic; built, awaiting an authorized run)
 
 ## M7 Polish
 - [x] chat: name colours, timestamps, grouping, links/markdown, ↓ recall

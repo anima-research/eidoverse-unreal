@@ -714,6 +714,7 @@ UWidget* UEidoverseHUD::BuildSettings()
     Row(TEXT("World sounds volume"), "volworld", {{TEXT("−"), "set:vw-"}, {TEXT("+"), "set:vw+"}});
     Row(TEXT("Echo cancellation"), "vpio", {{TEXT("toggle"), "set:vpio"}});
     Row(TEXT("Speak my messages (TTS, mic off)"), "tts", {{TEXT("toggle"), "set:tts"}});
+    Row(TEXT("Speech-to-text (mic on)"), "stt", {{TEXT("toggle"), "set:stt"}});
     Section(TEXT("Look"));
     Row(TEXT("Mouse sensitivity"), "sens", {{TEXT("−"), "set:sens-"}, {TEXT("+"), "set:sens+"}});
     Row(TEXT("Invert vertical"), "invert", {{TEXT("toggle"), "set:invert"}});
@@ -760,6 +761,7 @@ void UEidoverseHUD::RefreshSettings()
     Put("volworld", FString::Printf(TEXT("%.0f%%"), EidoSettings::WorldVolume() * 100));
     Put("vpio", EidoSettings::VoiceProcessing() ? TEXT("on") : TEXT("off"));
     Put("tts", Bridge && Bridge->IsTtsOn() ? TEXT("on") : TEXT("off"));
+    { IConsoleVariable* V = IConsoleManager::Get().FindConsoleVariable(TEXT("Eidoverse.Audio.SttConsent")); Put("stt", V && V->GetInt() == 1 ? (Bridge && Bridge->IsSttRunning() ? TEXT("listening") : TEXT("on")) : TEXT("off")); }
     const int32 Level = GEngine && GEngine->GetGameUserSettings() ? GEngine->GetGameUserSettings()->GetOverallScalabilityLevel() : -1;
     const TCHAR* Names[] = {TEXT("low"), TEXT("medium"), TEXT("high"), TEXT("epic"), TEXT("cinematic")};
     Put("quality", Level >= 0 && Level <= 4 ? Names[Level] : TEXT("custom"));
@@ -799,6 +801,7 @@ void UEidoverseHUD::OnSettingClicked()
     else if (Id.StartsWith(TEXT("set:pt"))) { EidoSettings::Set(TEXT("Eidoverse.Video.Particles"), Id.Mid(6)); Toast(TEXT("particles: applies to effects from now on (yours only)")); }
     else if (Id.StartsWith(TEXT("set:ad"))) EidoSettings::Set(TEXT("Eidoverse.Video.AvatarDetail"), Id.Mid(6));
     else if (Id == TEXT("set:mic")) { if (Bridge) Bridge->SetMicOn(!Bridge->IsMicOn()); }
+    else if (Id == TEXT("set:stt")) { IConsoleVariable* V = IConsoleManager::Get().FindConsoleVariable(TEXT("Eidoverse.Audio.SttConsent")); if (Bridge) Bridge->SetSttConsent(!(V && V->GetInt() == 1)); }
     else if (Id == TEXT("set:tts")) { if (Bridge) Bridge->SetTtsEnabled(!Bridge->IsTtsOn()); }
     else if (Id == TEXT("set:hear")) { if (Bridge) Bridge->SetHearVoices(!EidoSettings::HearVoices()); }
     else if (Id == TEXT("set:ptt") || Id == TEXT("set:vpio") || Id.StartsWith(TEXT("set:floor")))

@@ -26,7 +26,7 @@ public class EidoverseClient : ModuleRules
         if (Target.Platform == UnrealTargetPlatform.Mac)
         {
             AddEngineThirdPartyPrivateStaticDependencies(Target, "WebRTC", "libOpus");   // libwebrtc.a leaves Opus to UE's libOpus
-            PublicFrameworks.AddRange(new[] { "AVFoundation", "CoreAudio" });
+            PublicFrameworks.AddRange(new[] { "AVFoundation", "CoreAudio", "Speech" });
             PrivateDefinitions.Add("EIDOVERSE_VOICE_WEBRTC=1");
         }
         else PrivateDefinitions.Add("EIDOVERSE_VOICE_WEBRTC=0");

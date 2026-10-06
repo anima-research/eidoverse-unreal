@@ -318,6 +318,13 @@ public:
     UFUNCTION(BlueprintCallable,Category="Eidoverse|Voice") void SetTtsEnabled(bool bOn);
     UFUNCTION(BlueprintPure,Category="Eidoverse|Voice") bool IsTtsOn() const;
     UFUNCTION(BlueprintPure,Category="Eidoverse|Voice") int32 GetTtsSpokenChunks() const { return TtsSpokenChunks; }
+    // ---- STT (stt.js on SFSpeechRecognizer, fed by the voice mic): consent-gated, mic live only ----
+    TSharedPtr<class FEidoStt> Stt;
+    int32 SttUtt=0;
+    bool bSttAuthPending=false;
+    void TickStt();
+    UFUNCTION(BlueprintCallable,Category="Eidoverse|Voice") void SetSttConsent(bool bOn);
+    UFUNCTION(BlueprintPure,Category="Eidoverse|Voice") bool IsSttRunning() const;
     TOptional<bool> RightsFly;
     TSharedPtr<struct FEidoFlightRuntime> FlightRt;
     UFUNCTION(BlueprintCallable, Category="Eidoverse") void GoLimp();

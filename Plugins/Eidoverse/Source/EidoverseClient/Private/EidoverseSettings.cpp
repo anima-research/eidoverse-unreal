@@ -28,7 +28,7 @@ namespace
     const TCHAR* Names[] = {TEXT("Eidoverse.Look.Sensitivity"), TEXT("Eidoverse.Look.InvertY"), TEXT("Eidoverse.UI.Nameplates"),
                             TEXT("Eidoverse.UI.Bubbles"), TEXT("Eidoverse.UI.PanelOpacity"), TEXT("Eidoverse.UI.Scale"), TEXT("Eidoverse.World.Lumen"),
                             TEXT("Eidoverse.Consent.Posable"), TEXT("Eidoverse.Consent.Pushable"), TEXT("Eidoverse.Audio.World"), TEXT("Eidoverse.Audio.Voices"),
-                            TEXT("Eidoverse.Audio.HearVoices"), TEXT("Eidoverse.Audio.MicFloor"), TEXT("Eidoverse.Audio.PushToTalk"), TEXT("Eidoverse.Audio.VoiceProcessing"), TEXT("Eidoverse.Audio.Tts"), TEXT("Eidoverse.Audio.TtsEndpoint"), TEXT("Eidoverse.Audio.TtsVolume"),
+                            TEXT("Eidoverse.Audio.HearVoices"), TEXT("Eidoverse.Audio.MicFloor"), TEXT("Eidoverse.Audio.PushToTalk"), TEXT("Eidoverse.Audio.VoiceProcessing"), TEXT("Eidoverse.Audio.Tts"), TEXT("Eidoverse.Audio.TtsEndpoint"), TEXT("Eidoverse.Audio.TtsVolume"), TEXT("Eidoverse.Audio.SttConsent"),
                             TEXT("Eidoverse.Video.RenderScale"), TEXT("Eidoverse.Video.Shadows"), TEXT("Eidoverse.Video.Particles"), TEXT("Eidoverse.Video.AvatarDetail")};
 }
 
