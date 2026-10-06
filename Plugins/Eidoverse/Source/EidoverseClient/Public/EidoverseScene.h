@@ -60,6 +60,9 @@ struct FEidoverseSceneItem
     FString PictureApplied;                   // src|lit|flip last applied
     // Presentation data kept for sounds and particles (render-scene entity.data).
     TSharedPtr<FJsonObject> Sound, Particles;
+    // The particle emitter built from Particles (EidoverseSceneParticles.cpp).
+    TSharedPtr<struct FEidoParticleEmitter> Emitter;
+    FString EmitterKey;
 };
 
 // Disposable scene projection, never a second persistent fold.
@@ -174,6 +177,9 @@ private:
     void TickPlacedLights(double Now);
     void TickParts();
     void TickPictures();
+    void TickParticles(float Dt);
+    // A library texture fetched once and shared (pictures, particle sprites).
+    UTexture2D* LibraryTexture(const FString& Path, bool bFlip, bool& bPending);
     struct FPictureLoad { bool bDone=false; TWeakObjectPtr<UTexture2D> Texture; };
     TMap<FString,FPictureLoad> PictureLoads;      // url+flip -> texture
     UPROPERTY() TArray<TObjectPtr<UTexture2D>> PictureTextures;

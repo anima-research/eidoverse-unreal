@@ -53,27 +53,9 @@ void AEidoverseScene::TickPictures()
         UStaticMeshComponent* C = E.PartComps.FindRef(Part).Get();
         if (Want.IsEmpty()) { if (C) C->EmptyOverrideMaterials(); E.PictureApplied.Empty(); continue; }
         if (!C) continue;                            // the part has not loaded yet
-        const FString Url = LibraryBase + Src, Key = Url + (bFlip ? TEXT("#flip") : TEXT(""));
-        FPictureLoad* Load = PictureLoads.Find(Key);
-        if (!Load)
-        {
-            if (LibraryBase.IsEmpty() || PictureLoads.Num() >= 64) continue;
-            PictureLoads.Add(Key);
-            TWeakObjectPtr<AEidoverseScene> Weak(this);
-            auto Request = FHttpModule::Get().CreateRequest();
-            Request->SetURL(Url); Request->SetVerb(TEXT("GET")); Request->SetTimeout(20);
-            Request->OnProcessRequestComplete().BindLambda([Weak, Key, bFlip](FHttpRequestPtr, FHttpResponsePtr Response, bool bOk)
-            {
-                AEidoverseScene* Self = Weak.Get(); if (!Self) return;
-                FPictureLoad& L = Self->PictureLoads.FindOrAdd(Key); L.bDone = true;
-                if (!bOk || !Response.IsValid() || Response->GetResponseCode() != 200 || Response->GetContent().Num() > 32 * 1024 * 1024) return;
-                if (UTexture2D* T = DecodePicture(Response->GetContent(), bFlip)) { Self->PictureTextures.Add(T); L.Texture = T; }
-            });
-            Request->ProcessRequest();
-            continue;
-        }
-        if (!Load->bDone) continue;
-        UTexture2D* T = Load->Texture.Get();
+        bool bPending = false;
+        UTexture2D* T = LibraryTexture(Src, bFlip, bPending);
+        if (bPending) continue;
         if (!T) { E.PictureApplied = Want; UE_LOG(LogTemp, Warning, TEXT("EIDOVERSE picture failed to load: %s"), *Src); continue; }
         for (int32 I = 0; I < C->GetNumMaterials(); ++I)
         {
@@ -90,4 +72,31 @@ void AEidoverseScene::TickPictures()
         }
         E.PictureApplied = Want;
     }
+}
+
+UTexture2D* AEidoverseScene::LibraryTexture(const FString& Path, bool bFlip, bool& bPending)
+{
+    bPending = false;
+    const FString Url = LibraryBase + Path, Key = Url + (bFlip ? TEXT("#flip") : TEXT(""));
+    FPictureLoad* Load = PictureLoads.Find(Key);
+    if (!Load)
+    {
+        if (LibraryBase.IsEmpty() || PictureLoads.Num() >= 96) return nullptr;
+        PictureLoads.Add(Key);
+        bPending = true;
+        TWeakObjectPtr<AEidoverseScene> Weak(this);
+        auto Request = FHttpModule::Get().CreateRequest();
+        Request->SetURL(Url); Request->SetVerb(TEXT("GET")); Request->SetTimeout(20);
+        Request->OnProcessRequestComplete().BindLambda([Weak, Key, bFlip](FHttpRequestPtr, FHttpResponsePtr Response, bool bOk)
+        {
+            AEidoverseScene* Self = Weak.Get(); if (!Self) return;
+            FPictureLoad& L = Self->PictureLoads.FindOrAdd(Key); L.bDone = true;
+            if (!bOk || !Response.IsValid() || Response->GetResponseCode() != 200 || Response->GetContent().Num() > 32 * 1024 * 1024) return;
+            if (UTexture2D* T = DecodePicture(Response->GetContent(), bFlip)) { Self->PictureTextures.Add(T); L.Texture = T; }
+        });
+        Request->ProcessRequest();
+        return nullptr;
+    }
+    if (!Load->bDone) { bPending = true; return nullptr; }
+    return Load->Texture.Get();
 }
