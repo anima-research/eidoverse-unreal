@@ -360,6 +360,16 @@ private:
     bool bStructDragging = false;
     FIntPoint StructFrom = FIntPoint::ZeroValue;
     TArray<FString> StructUndo;
+    // The structure editor's preview (structure_ui.js): footprint grid +-3 cells, the
+    // would-be result as a translucent ghost, the cell/edge under the cursor.
+    UPROPERTY() TObjectPtr<AActor> StructPreviewHolder;
+    UPROPERTY() TArray<TObjectPtr<class UInstancedStaticMeshComponent>> StructPreviewSets;   // grid, ghost, hover
+    FString StructPreviewKey;
+    void DrawStructPreview(class AEidoverseScene* Scene, const TSharedPtr<FJsonObject>& Result, const FVector& Pos, double Yaw, double Scale, double PlaneY, FIntPoint HoverCell, int32 HoverAxis, FIntPoint HoverEdge);
+    void HideStructPreview();
+public:
+    UFUNCTION(BlueprintPure, Category="Eidoverse|UI") int32 GetStructPreviewCount(int32 Set) const;
+private:
     bool TickStructure(class APlayerController* PC, class AEidoverseScene* Scene);
     bool StructureAction(const FString& Action);
     void AddStructureRows(const FString& Id);

@@ -15,6 +15,10 @@
 #include "GameFramework/PlayerController.h"
 #include "Serialization/JsonSerializer.h"
 #include "Misc/Guid.h"
+#include "Engine/World.h"
+#include "Engine/StaticMesh.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "Components/InstancedStaticMeshComponent.h"
 
 namespace StructEdit
 {
@@ -193,7 +197,7 @@ bool UEidoverseHUD::StructureAction(const FString& Action)
 
 bool UEidoverseHUD::TickStructure(APlayerController* PC, AEidoverseScene* Scene)
 {
-    if (StructTool.IsEmpty() || StructTarget.IsEmpty()) return false;
+    if (StructTool.IsEmpty() || StructTarget.IsEmpty()) { HideStructPreview(); return false; }
     // The editable plan comes from the inspect reply (the folded comp bag).
     if (!StructData && Bridge->InspectedId == StructTarget && Bridge->InspectSerial != StructInspectSerial && Bridge->InspectReply)
     {
@@ -221,6 +225,21 @@ bool UEidoverseHUD::TickStructure(APlayerController* PC, AEidoverseScene* Scene)
         StructData = Next; SendComp(StructTarget, TEXT("structure"), Next);
     };
     const bool bDragTool = StructTool == TEXT("room") || StructTool == TEXT("erase");
+    {
+        // What a click would make, drawn before it is made.
+        TSharedPtr<FJsonObject> Result = StructData; int32 HAxis = -1; FIntPoint HEdge(0);
+        const TArray<FGridEdge> Edges = PickEdges(StructData, Lx, Lz);
+        if (bStructDragging) Result = StructTool == TEXT("room") ? DrawRoom(StructData, StructFrom, Cell, StructLevel) : EraseRoom(StructData, StructFrom, Cell, StructLevel);
+        else if (StructTool == TEXT("wall")) { Result = AddWall(StructData, Edges[0], StructLevel); HAxis = Edges[0].Axis; HEdge = {Edges[0].X, Edges[0].Z}; }
+        else if (StructTool == TEXT("floor")) Result = SetTile(StructData, Cell, StructLevel);
+        else if (StructTool == TEXT("door") || StructTool == TEXT("window"))
+        {
+            const FArr Walls = Get(Level(StructData, StructLevel), TEXT("walls"));
+            for (const FGridEdge& E : Edges)
+                if (Walls.ContainsByPredicate([&](const TSharedPtr<FJsonValue>& W) { return SameEdge(W, E.Axis, E.X, E.Z); })) { HAxis = E.Axis; HEdge = {E.X, E.Z}; break; }
+        }
+        DrawStructPreview(Scene, Result, Pos, Yaw, Scale, PlaneY, Cell, HAxis, HEdge);
+    }
     if (PC->WasInputKeyJustPressed(EKeys::LeftMouseButton))
     {
         if (bDragTool) { bStructDragging = true; StructFrom = Cell; return true; }
@@ -242,6 +261,97 @@ bool UEidoverseHUD::TickStructure(APlayerController* PC, AEidoverseScene* Scene)
     }
     if (bStructDragging) Hint(FString::Printf(TEXT("%s %d×%d"), *StructTool, FMath::Abs(Cell.X - StructFrom.X) + 1, FMath::Abs(Cell.Y - StructFrom.Y) + 1), .3f);
     return true;
+}
+
+
+void UEidoverseHUD::HideStructPreview()
+{
+    if (!StructPreviewKey.IsEmpty()) for (UInstancedStaticMeshComponent* Set : StructPreviewSets) if (Set) Set->ClearInstances();
+    StructPreviewKey.Empty();
+}
+
+int32 UEidoverseHUD::GetStructPreviewCount(int32 Set) const
+{
+    return StructPreviewSets.IsValidIndex(Set) && StructPreviewSets[Set] ? StructPreviewSets[Set]->GetInstanceCount() : 0;
+}
+
+void UEidoverseHUD::DrawStructPreview(AEidoverseScene* Scene, const TSharedPtr<FJsonObject>& Result, const FVector& Pos, double Yaw, double Scale, double PlaneY, FIntPoint HoverCell, int32 HoverAxis, FIntPoint HoverEdge)
+{
+    const FString Key = ToString(Result) + FString::Printf(TEXT("|%d,%d|%d:%d,%d|%.3f,%.3f,%.3f,%.3f,%.3f"), HoverCell.X, HoverCell.Y, HoverAxis, HoverEdge.X, HoverEdge.Y, Pos.X, Pos.Z, Yaw, Scale, PlaneY);
+    if (Key == StructPreviewKey) return;
+    StructPreviewKey = Key;
+    if (!StructPreviewHolder)
+    {
+        FActorSpawnParameters SP; SP.ObjectFlags |= RF_Transient;
+        StructPreviewHolder = GetWorld()->SpawnActor<AActor>(AActor::StaticClass(), FTransform::Identity, SP);
+        auto* Root = NewObject<USceneComponent>(StructPreviewHolder); StructPreviewHolder->SetRootComponent(Root); Root->RegisterComponent();
+        UMaterialInterface* Overlay = LoadObject<UMaterialInterface>(nullptr, TEXT("/Eidoverse/UI/M_EidoverseOverlay.M_EidoverseOverlay"));
+        const FLinearColor Colors[] = {FLinearColor(1, 1, 1), FLinearColor(FColor(0xf5, 0xc9, 0x6b)), FLinearColor(FColor(0x8f, 0xe8, 0xc8))};
+        const float Opacity[] = {.18f, .35f, .6f};
+        for (int32 I = 0; I < 3; ++I)
+        {
+            auto* C = NewObject<UInstancedStaticMeshComponent>(StructPreviewHolder);
+            C->SetupAttachment(Root); StructPreviewHolder->AddInstanceComponent(C);
+            C->SetStaticMesh(LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube")));
+            if (Overlay) { auto* MI = UMaterialInstanceDynamic::Create(Overlay, C); MI->SetVectorParameterValue(TEXT("Color"), Colors[I]); MI->SetScalarParameterValue(TEXT("Opacity"), Opacity[I]); C->SetMaterial(0, MI); }
+            C->SetCollisionEnabled(ECollisionEnabled::NoCollision); C->SetCastShadow(false); C->SetMobility(EComponentMobility::Movable);
+            C->RegisterComponent();
+            StructPreviewSets.Add(C);
+        }
+    }
+    for (UInstancedStaticMeshComponent* Set : StructPreviewSets) if (Set) Set->ClearInstances();
+    double T = 1, WallH = 2.8, WallT = .15;
+    Result->TryGetNumberField(TEXT("tile"), T); Result->TryGetNumberField(TEXT("wallH"), WallH); Result->TryGetNumberField(TEXT("wallT"), WallT);
+    const double C = FMath::Cos(Yaw), N = FMath::Sin(Yaw);
+    // Grid-local (tile units) -> UE world, on the level's plane plus a height.
+    auto World = [&](double Gx, double Gz, double H)
+    {
+        const double Lx = Gx * T, Lz = Gz * T;
+        const FVector Wire(Pos.X + Scale * (Lx * C + Lz * N), PlaneY + H * Scale, Pos.Z + Scale * (-Lx * N + Lz * C));
+        return Scene->GetSceneOrigin() + AEidoverseBridge::FromWirePosition(Wire);
+    };
+    // A box from A to B (UE), Thick wide and Tall high, standing on the line.
+    auto Bar = [](UInstancedStaticMeshComponent* Set, const FVector& A, const FVector& B, double Thick, double Tall)
+    {
+        const FVector D = B - A; const double Len = D.Size(); if (Len < 1) return;
+        FTransform X(D.Rotation(), (A + B) * .5 + FVector(0, 0, Tall * .5), FVector(Len / 100, Thick / 100, FMath::Max(Tall, 1.0) / 100));
+        Set->AddInstance(X, true);
+    };
+    auto EdgeEnds = [](int32 Axis, int32 X, int32 Z, FVector2D& A, FVector2D& B)
+    {
+        switch (Axis)
+        {
+        case 0: A = {double(X), double(Z)}; B = {double(X + 1), double(Z)}; break;
+        case 1: A = {double(X), double(Z)}; B = {double(X), double(Z + 1)}; break;
+        case 2: A = {double(X), double(Z)}; B = {double(X + 1), double(Z + 1)}; break;
+        default: A = {double(X + 1), double(Z)}; B = {double(X), double(Z + 1)}; break;
+        }
+    };
+    const TSharedPtr<FJsonObject> L = Level(Result, StructLevel);
+    const double Cm = 100 * Scale;
+    // The footprint +-3 cells as a faint grid.
+    int32 X0 = HoverCell.X, X1 = HoverCell.X, Z0 = HoverCell.Y, Z1 = HoverCell.Y;
+    for (const auto& Tile : Get(L, TEXT("tiles"))) { X0 = FMath::Min(X0, At(Tile, 0)); X1 = FMath::Max(X1, At(Tile, 0)); Z0 = FMath::Min(Z0, At(Tile, 1)); Z1 = FMath::Max(Z1, At(Tile, 1)); }
+    X0 -= 3; Z0 -= 3; X1 += 4; Z1 += 4;
+    if ((X1 - X0) * (Z1 - Z0) < 4000)
+    {
+        for (int32 X = X0; X <= X1; ++X) Bar(StructPreviewSets[0], World(X, Z0, 0), World(X, Z1, 0), 2, 1);
+        for (int32 Z = Z0; Z <= Z1; ++Z) Bar(StructPreviewSets[0], World(X0, Z, 0), World(X1, Z, 0), 2, 1);
+    }
+    // The result: floors as thin slabs, walls standing on their edges.
+    for (const auto& Tile : Get(L, TEXT("tiles")))
+    {
+        const int32 X = At(Tile, 0), Z = At(Tile, 1);
+        Bar(StructPreviewSets[1], World(X, Z + .5, 0), World(X + 1, Z + .5, 0), T * Cm, 3);
+    }
+    for (const auto& W : Get(L, TEXT("walls")))
+    {
+        FVector2D A, B; EdgeEnds(At(W, 0), At(W, 1), At(W, 2), A, B);
+        Bar(StructPreviewSets[1], World(A.X, A.Y, 0), World(B.X, B.Y, 0), WallT * Cm, WallH * Cm);
+    }
+    // What the cursor is on.
+    if (HoverAxis >= 0) { FVector2D A, B; EdgeEnds(HoverAxis, HoverEdge.X, HoverEdge.Y, A, B); Bar(StructPreviewSets[2], World(A.X, A.Y, 0), World(B.X, B.Y, 0), WallT * Cm * 1.6, WallH * Cm * 1.02); }
+    else Bar(StructPreviewSets[2], World(HoverCell.X, HoverCell.Y + .5, 0), World(HoverCell.X + 1, HoverCell.Y + .5, 0), T * Cm, 4);
 }
 
 #if WITH_DEV_AUTOMATION_TESTS
