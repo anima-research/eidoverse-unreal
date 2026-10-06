@@ -353,6 +353,14 @@ void AEidoverseBridge::TickAvatars(double Time)
         auto Want=[&Nearest](UEidoverseAvatarAsset* A,double D){if(A&&A->State==UEidoverseAvatarAsset::EState::Queued){double& Best=Nearest.FindOrAdd(A,D);Best=FMath::Min(Best,D);}};
         Want(SelfBody.AvatarAsset.Get(),-1);
         for(auto& Pair:Peers)if(Pair.Value.Actor.IsValid())Want(Pair.Value.AvatarAsset.Get(),FVector::DistSquared(Eye,Pair.Value.Actor->GetActorLocation()));
+        // Failed bodies retry (0.4 / 1.6 / 5 s), then stay as the fallback.
+        const double NowSec=FPlatformTime::Seconds();
+        for(auto& A:AvatarCache)if(UEidoverseAvatarAsset* Asset=A.Value.Get())if(Asset->State==UEidoverseAvatarAsset::EState::Failed&&Asset->Retries<3)
+        {
+            static const double Delays[3]={.4,1.6,5.};
+            if(Asset->RetryAt==0)Asset->RetryAt=NowSec+Delays[Asset->Retries];
+            else if(NowSec>=Asset->RetryAt){Asset->RetryAt=0;if(Asset->RetryAfterFailure())Want(Asset,0);}
+        }
         Nearest.ValueSort([](double A,double B){return A<B;});
         for(auto& N:Nearest){if(Loading>=3)break;N.Key->Start();++Loading;}
     }
@@ -384,6 +392,7 @@ void AEidoverseBridge::TickAvatars(double Time)
                 const bool bAquatic=FEidoverseSwimMotion::Evaluate(P.Mode,0,FVector::ZeroVector).bAquatic;
                 FString Slot=P.Clip;if(Slot.IsEmpty()||Slot==TEXT("ragdoll"))Slot=Fresh&&P.Speed>.05f?TEXT("walk"):TEXT("idle");
                 P.AvatarMesh->SetHeadPitch(P.Pitch);
+                P.AvatarMesh->SetWings(P.bWingsFolded,0);
                 if(P.bHeldPoseDirty){P.bHeldPoseDirty=false;if(P.HeldPose)P.AvatarMesh->SetHeldPose(P.HeldPose);else P.AvatarMesh->ClearHeldPose();}
                 if(bAquatic||!AnimateWithClips(P,Slot,Fresh?P.Speed:0,Time))
                 {
@@ -431,7 +440,8 @@ bool AEidoverseBridge::AnimateWithClips(FEidoversePeer& P,const FString& Slot,fl
     FString Played;
     if(TSharedPtr<const FEidoClip> Clip=ClipLibrary->Resolve(Slot,&Played))
     {
-        M->SetClip(Clip,Played,P.ClipRate>0?P.ClipRate:EidoClipRules::RateFor(Played,Speed),Played==TEXT("jump")?.1f:.22f);
+        const bool bEase=&P==&SelfBody&&bSelfJumpEase;
+        M->SetClip(Clip,Played,P.ClipRate>0?P.ClipRate:EidoClipRules::RateFor(Played,Speed),Played==TEXT("jump")?(bEase?.5f:.1f):.22f);
         if(P.bClipSample&&P.ClipTimeSlot==Played)M->SyncClipPhase(Played,P.ClipTime,P.ClipRate);
     }
     P.bClipSample=false;
@@ -476,7 +486,38 @@ void AEidoverseBridge::TickSelfBody(double Time)
     const float Ground=FVector(Velocity.X,Velocity.Y,0).Size();
     TickSeating(Explorer,FPlatformTime::Seconds());
     M->SetHeadPitch(SelfHeadPitch());
+    // G folds the wings (controller.js toggleFold): needs wing chains to start; releasing always works.
+    if(Explorer->bFoldPressed)
+    {
+        Explorer->bFoldPressed=false;
+        if(!bWingsFolded&&!M->CanFoldWings()){}
+        else
+        {
+            bWingsFolded=!bWingsFolded;
+            if(HUD)HUD->Hint(bWingsFolded?TEXT("wings folded \u2014 the vigil posture costs the sky (G to unfold)"):M->CanFoldWings()?TEXT("wings open"):TEXT("folded-wing posture released \u2014 this body has no wings"),3);
+        }
+    }
+    M->SetWings(bWingsFolded,0);
     SelfClipSlot=!SeatClip.IsEmpty()?SeatClip:EidoClipRules::SelectLocomotion(Explorer->bJumped,Explorer->AirborneSeconds,Explorer->bWantMove,Ground,Explorer->Posture);
+    // Walking off a ledge eases into the fall over 0.5 s; a deliberate jump snaps in 0.1 s.
+    bSelfJumpEase=SelfClipSlot==TEXT("jump")&&!Explorer->bJumped;
+    // First person while seated, lying or posed: the eye rides the head (fp_view.js).
+    {
+        static const TSet<FString> Upright={TEXT("idle"),TEXT("walk"),TEXT("run"),TEXT("jump"),TEXT("climb")};
+        FVector Head;
+        Explorer->bEyeOverride=Explorer->bFirstPerson&&(SelfHeldPose.IsValid()||!Upright.Contains(SelfClipSlot))&&M->HumanBonePosition(TEXT("head"),Head);
+        if(Explorer->bEyeOverride)
+            if(const APlayerController* PC=Cast<APlayerController>(Explorer->GetController()))
+                Explorer->EyeOverride=Head+FVector(0,0,6)+FRotator(0,PC->GetControlRotation().Yaw,0).Vector()*16;
+    }
+    // Movement bounds (controller.js constrainMovement): authored box, else a 78 m stage.
+    if(DynamicScene&&!Explorer->bSeated)
+    {
+        FVector Lo,Hi;FVector W=ToWirePosition(Explorer->GetActorLocation()-OriginCentimeters);const FVector Before=W;
+        if(DynamicScene->EnvironmentBounds(Lo,Hi)){for(int32 I=0;I<3;++I)W[I]=FMath::Clamp(W[I],FMath::Min(Lo[I],Hi[I]),FMath::Max(Lo[I],Hi[I]));}
+        else if(!DynamicScene->WaterAt(W-FVector(0,.88,0))){const double R=FVector2D(W.X,W.Z).Size();if(R>78){W.X*=78/R;W.Z*=78/R;}}
+        if(!W.Equals(Before,.001))Explorer->SetActorLocation(OriginCentimeters+FromWirePosition(W),false,nullptr,ETeleportType::TeleportPhysics);
+    }
     if(!bSwimming&&AnimateWithClips(SelfBody,SelfClipSlot,Ground,Time))return;
     M->Animate(Explorer->LocomotionMode,Speed,Local,Time);
     const double Now=FPlatformTime::Seconds();
@@ -499,6 +540,7 @@ void AEidoverseBridge::Pose(const FString& Id,const TSharedPtr<FJsonObject>& Dat
         {Peer->ClipTime=float(ClipTime);Peer->ClipTimeSlot=Eido::String(Data,TEXT("clipTimeSlot")).Left(48);Peer->bClipSample=true;}
         Peer->ClipRate=Data->TryGetNumberField(TEXT("clipRate"),ClipRate)&&FMath::IsFinite(ClipRate)&&ClipRate>0&&ClipRate<=3.2?float(ClipRate):0.f;
     }
+    {bool bFold=false;if(Data->TryGetBoolField(TEXT("wingsFolded"),bFold))Peer->bWingsFolded=bFold;}
     {const FString Presence=Eido::String(Data,TEXT("presence"));if(Presence==TEXT("present")||Presence==TEXT("away")||Presence==TEXT("busy"))Peer->Presence=Presence;}
     // Head pitch and a held pose (sent on every packet once set; null clears).
     {
@@ -510,10 +552,11 @@ void AEidoverseBridge::Pose(const FString& Id,const TSharedPtr<FJsonObject>& Dat
             if(Data->TryGetObjectField(TEXT("pose"),Held)&&(*Held)->Values.Num()>0)
             {auto W=TJsonWriterFactory<TCHAR,TCondensedJsonPrintPolicy<TCHAR>>::Create(&Key);FJsonSerializer::Serialize((*Held).ToSharedRef(),W);}
             if(Key!=Peer->HeldPoseKey){Peer->HeldPoseKey=Key;Peer->HeldPose=Key.IsEmpty()?nullptr:*Held;Peer->bHeldPoseDirty=true;}
+            if(Key.IsEmpty())Peer->HeldPose.Reset();
         }
     }
     TArray<double> P;if(!Eido::Vector(Data,TEXT("p"),3,P))return;
-    FEidoverseSample Sample;Sample.Time=Time;Sample.Position=OriginCentimeters+FromWirePosition(FVector(P[0],P[1],P[2]));
+    FEidoverseSample Sample;Sample.Time=Time;Sample.Pose=Peer->HeldPose;Sample.bLimp=Eido::String(Data,TEXT("clip"))==TEXT("ragdoll");Sample.Position=OriginCentimeters+FromWirePosition(FVector(P[0],P[1],P[2]));
     double Yaw=0;if(Data->HasField(TEXT("yaw"))&&(!Data->TryGetNumberField(TEXT("yaw"),Yaw)||!FMath::IsFinite(Yaw)))return;
     Sample.Orientation=FromWireRotation(FQuat(FVector::YAxisVector,Yaw));
     TArray<double> Q;if(Data->HasField(TEXT("q")))
@@ -796,6 +839,35 @@ void AEidoverseBridge::Tick(float DeltaSeconds)
         const auto& A=P.Samples[0];const auto& B=P.Samples.Num()>1?P.Samples[1]:A;
         const double Alpha=B.Time>A.Time?FMath::Clamp((RenderTime-A.Time)/(B.Time-A.Time),0.,1.):1.;
         P.Actor->SetActorLocationAndRotation(FMath::Lerp(A.Position,B.Position,Alpha),FQuat::Slerp(A.Orientation,B.Orientation,Alpha));
+        // A seated rider follows its seat every frame, not the 15 Hz stream (remotes.js).
+        if(const TSharedPtr<FJsonObject>* Mount=RemoteMounts.Find(Pair.Key))
+        {FTransform Seat;FString SeatPose;if(MountWorldTransform(*Mount,Seat,SeatPose))P.Actor->SetActorLocationAndRotation(Seat.GetLocation(),Seat.GetRotation());}
+        // A limp body: blend its streamed pose between packets with the root's alpha;
+        // a bone present in only one sample holds (remotes.js).
+        if(UEidoverseAvatarMesh* M=P.AvatarMesh.Get())
+        {
+            const bool bLimp=P.Samples.Last().bLimp;
+            M->SetLimp(bLimp);
+            if(bLimp&&(A.Pose||B.Pose))
+            {
+                TMap<FName,FQuat> Blend;
+                auto Read=[](const TSharedPtr<FJsonObject>& O,const FString& K,FQuat& Q)
+                {
+                    if(!O)return false;const TArray<TSharedPtr<FJsonValue>>* Arr=nullptr;const TSharedPtr<FJsonObject>* Bone=nullptr;
+                    if(!O->TryGetArrayField(K,Arr)){if(!O->TryGetObjectField(K,Bone)||!(*Bone)->TryGetArrayField(TEXT("q"),Arr))return false;}
+                    if(Arr->Num()!=4)return false;Q=FQuat((*Arr)[0]->AsNumber(),(*Arr)[1]->AsNumber(),(*Arr)[2]->AsNumber(),(*Arr)[3]->AsNumber());
+                    return !Q.ContainsNaN()&&Q.SizeSquared()>1e-6;
+                };
+                TSet<FString> Keys;if(A.Pose)for(const auto& K:A.Pose->Values)Keys.Add(FString(K.Key));if(B.Pose)for(const auto& K:B.Pose->Values)Keys.Add(FString(K.Key));
+                for(const FString& K:Keys)
+                {
+                    FQuat Qa,Qb;const bool bA=Read(A.Pose,K,Qa),bB=Read(B.Pose,K,Qb);
+                    if(bA&&bB)Blend.Add(FName(*K),FQuat::Slerp(Qa.GetNormalized(),Qb.GetNormalized(),Alpha));
+                    else if(bA||bB)Blend.Add(FName(*K),(bA?Qa:Qb).GetNormalized());
+                }
+                M->SetHeldPoseDirect(Blend);
+            }
+        }
         if(P.Label.IsValid())
         {
             // Feet-anchored avatars are not all 1.7 m tall; use the posed head,

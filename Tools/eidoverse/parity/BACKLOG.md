@@ -18,13 +18,13 @@ Specs live in the four audit reports next to this file: `ui-protocol.md`, `avata
 - [x] diver anchor bug (-85 cm for feet-anchored humanoid swimmers/climbers/pilots)
 
 ## M2 Bodies
-- [ ] remote ragdoll: per-sample pose blending, SetLimp (park non-driven bones, eyes shut, limp springs)
-- [ ] puppet consent (posable off / pushable on), self held pose sent in `pose`, anim rebroadcast
-- [ ] remote mounts from snapshot.state.mounts + log (riders pinned to seat), mount.yaw
-- [ ] wings: flap idle/power, fold (G), wingsFolded wire
-- [ ] jump walk-off ease, FP eye from head when posed, self gaze speaker-only, body load retry, movement bounds
-- [ ] seat hints, /sit, far-seat message
-- [ ] reach: weight easing, self solve, reached, narration
+- [x] remote ragdoll: per-sample pose blending, SetLimp (park non-driven bones, eyes shut, limp springs)
+- [x] puppet consent (posable off / pushable on), self held pose sent in `pose`, anim rebroadcast
+- [x] remote mounts from snapshot.state.mounts + log (riders pinned to seat), mount.yaw
+- [x] wings: flap idle/power, fold (G), wingsFolded wire
+- [x] jump walk-off ease, FP eye from head when posed, self gaze speaker-only, body load retry, movement bounds
+- [x] seat hints, /sit, far-seat message
+- [x] reach: weight easing, self solve, reached, narration
 
 ## M3 World rendering
 - [ ] fog/sky args (fog, sun, ambient, exposure, azimuth, clouds), night floor

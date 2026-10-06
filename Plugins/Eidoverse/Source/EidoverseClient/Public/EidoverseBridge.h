@@ -51,6 +51,9 @@ struct FEidoverseSample
     double Time=0;
     FVector Position=FVector::ZeroVector;
     FQuat Orientation=FQuat::Identity;
+    // The held/streamed pose this packet carried (remotes.js blends it between samples).
+    TSharedPtr<FJsonObject> Pose;
+    bool bLimp=false;
 };
 struct FEidoversePeer
 {
@@ -85,6 +88,13 @@ struct FEidoversePeer
     bool bHeldPoseDirty=false;
     double SpeakingUntil=0;
     FString Presence=TEXT("present");
+    bool bWingsFolded=false;
+    // Reach easing (12/s in and out), last targets for easing out, and narration state.
+    TMap<FName,float> ReachWeight;
+    TMap<FName,FVector> ReachLastTarget;
+    TMap<FString,FString> ReachSeen;        // limb -> "reach" | "touch"
+    TMap<FString,double> ReachQuietUntil;   // limb -> time
+    bool bReachBaseline=false;
 };
 
 struct FEidoverseObjectSim
@@ -131,6 +141,8 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Eidoverse|UI") TSubclassOf<UEidoverseHUD> HUDClass;
     UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse|UI") TObjectPtr<UEidoverseHUD> HUD;
     UFUNCTION(BlueprintPure, Category="Eidoverse") TArray<FString> GetParticipants() const;
+    UFUNCTION(BlueprintPure, Category="Eidoverse") AActor* GetPeerActor(const FString& Id) const { const auto* P=Peers.Find(Id); return P?P->Actor.Get():nullptr; }
+    UFUNCTION(BlueprintPure, Category="Eidoverse") UEidoverseAvatarMesh* GetPeerBody(const FString& Id) const { const auto* P=Peers.Find(Id); return P?P->AvatarMesh.Get():nullptr; }
     // Queue a gesture by name (server-validated vocabulary: /defs emotes).
     UFUNCTION(BlueprintCallable, Category="Eidoverse") bool Emote(const FString& Name);
     // Presence-only "composing" signal (never logged). To: whisper recipient, or empty.
@@ -220,7 +232,11 @@ public:
     TArray<TSharedRef<FJsonObject>> QueuedMessages;
     FString LastErrorText; double LastErrorAt=0,ResetReconnectAt=0,LastLocalInputAt=0;
     TSharedPtr<FJsonObject> SelfHeldPose;
-    bool bRetrying=false;
+    bool bRetrying=false,bSelfJumpEase=false;
+    double LastReachTick=0;
+    const FEidoversePeer& GetSelfBody() const { return SelfBody; }
+    const FEidoversePeer* FindPeer(const FString& Id) const { return Peers.Find(Id); }
+    double NextSeatHintAt=0; FString SeatHintFor;
 #if WITH_DEV_AUTOMATION_TESTS
     void ProbeLocalChatUI(bool bPrivate);
 #endif
@@ -317,6 +333,7 @@ private:
     bool TrySitOnFurniture(class AEidoverseExplorer* Explorer);
     void StandUp(class AEidoverseExplorer* Explorer,bool bSendDismount);
     bool MountedSeatTransform(FTransform& Out,FString& Pose) const;
+    bool MountWorldTransform(const TSharedPtr<FJsonObject>& Mount,FTransform& Out,FString& Pose) const;
     void ReceiveSeatLog(const FString& Verb,const TSharedPtr<FJsonObject>& Args);
     // Gaze, speaking and agent animations (avatar.js lookAt/speak/anim).
     double SelfSpeakingUntil=0,NextGazeAt=0;

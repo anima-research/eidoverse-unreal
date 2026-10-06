@@ -235,6 +235,11 @@ void UEidoverseAvatarAsset::Fail(const FString& Why)
 {State=EState::Failed;Failure=Why;Loader=nullptr;UE_LOG(LogTemp,Warning,TEXT("EIDOVERSE avatar fallback: %s (%s)"),*Why,*Url);}
 void UEidoverseAvatarAsset::Cancel()
 {bCancelled=true;if(Request){Request->OnProcessRequestComplete().Unbind();Request->CancelRequest();Request.Reset();}if(State!=EState::Ready)State=EState::Failed;}
+bool UEidoverseAvatarAsset::RetryAfterFailure()
+{
+    if(State!=EState::Failed||bCancelled||Retries>=3)return false;
+    ++Retries;State=EState::Queued;Failure.Empty();return true;
+}
 void UEidoverseAvatarAsset::Start()
 {
     if(State!=EState::Queued||bCancelled)return;State=EState::Loading;
@@ -473,6 +478,7 @@ void UEidoverseAvatarMesh::SetAvatar(UEidoverseAvatarAsset* Asset)
     CreateEmissiveLights();
     PrepareRetarget();
     PrepareSprings();
+    PrepareWings();
 }
 void UEidoverseAvatarMesh::RotateBone(FName HumanBone,const FVector& Axis,float Degrees)
 {

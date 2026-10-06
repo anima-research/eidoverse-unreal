@@ -63,9 +63,9 @@ bool AEidoverseBridge::ReachTo(const FString& Participant,const FString& Point,b
     if(!bJoined||bSpectator||(!Peers.Contains(Participant)&&Participant!=AssignedIdentity)||ReachWire::ContactBone(Point).IsNone())
     {InteractionStatus=TEXT("Reach requires a present participant and a canonical contact point (e.g. shoulder_l, hand_r).");return false;}
     auto T=MakeShared<FJsonObject>(),Entry=MakeShared<FJsonObject>();T->SetStringField(TEXT("who"),Participant);T->SetStringField(TEXT("point"),Point);Entry->SetObjectField(TEXT("t"),T);
-    // This first-person client has no locally solved hand: never forge reached:true.
+    // reached:true is attested by TickReaches only when my own solved hand arrives.
     if(!LocalReach)LocalReach=MakeShared<FJsonObject>();LocalReach->SetObjectField(Left?TEXT("leftHand"):TEXT("rightHand"),Entry);
-    InteractionStatus=TEXT("Reaching toward ")+Participant+TEXT(" · touch is not attested by this client.");return true;
+    return true;
 }
 void UEidoverseAvatarMesh::ApplyGesture(const FString& Gesture,double Time)
 {
@@ -79,32 +79,110 @@ void UEidoverseAvatarMesh::ApplyGesture(const FString& Gesture,double Time)
     MarkRefreshTransformDirty();
 }
 void AEidoverseBridge::ClearReach(){LocalReach.Reset();InteractionStatus=TEXT("Reach released.");}
+namespace ReachWire
+{
+    // A limb's target in world space, or false (the target body is missing).
+    bool ResolveTarget(AEidoverseBridge& B, const TSharedPtr<FJsonObject>& T, const FEidoversePeer& Owner, FVector& Target)
+    {
+        const FString Who = Str(T, TEXT("who"));
+        if (!Who.IsEmpty())
+        {
+            const FEidoversePeer* TargetPeer = Who == B.AssignedIdentity ? &B.GetSelfBody() : B.FindPeer(Who);
+            const FName Bone = ContactBone(Str(T, TEXT("point")));
+            if (Bone.IsNone() || !TargetPeer || !TargetPeer->AvatarMesh.IsValid() || !TargetPeer->AvatarMesh->HumanBonePosition(Bone, Target)) return false;
+            double Standoff = .02; T->TryGetNumberField(TEXT("standoff"), Standoff);
+            const AActor* TA = TargetPeer->AvatarMesh->GetOwner();
+            if (FMath::IsFinite(Standoff) && TA) Target += TA->GetActorForwardVector() * FMath::Clamp(Standoff, 0., .2) * 100;
+            return true;
+        }
+        const TArray<TSharedPtr<FJsonValue>>* A = nullptr; if (!T->TryGetArrayField(TEXT("p"), A) || A->Num() != 3) return false;
+        double V[3]; for (int I = 0; I < 3; ++I) if (!(*A)[I]->TryGetNumber(V[I]) || !FMath::IsFinite(V[I]) || FMath::Abs(V[I]) > 1e6) return false;
+        Target = AEidoverseBridge::FromWirePosition(FVector(V[0], V[1], V[2]));
+        const FString Space = Str(T, TEXT("space"));
+        if (Space.IsEmpty() || Space == TEXT("world")) Target += B.OriginCentimeters;
+        else if (Space == TEXT("self")) { if (!Owner.Actor.IsValid()) return false; Target = Owner.Actor->GetActorTransform().TransformPosition(Target); }
+        else
+        {
+            const FEidoversePeer* Other = Space == B.AssignedIdentity ? &B.GetSelfBody() : B.FindPeer(Space);
+            if (!Other || !Other->AvatarMesh.IsValid()) return false;
+            Target = Other->AvatarMesh->GetOwner()->GetActorTransform().TransformPosition(Target);
+        }
+        return true;
+    }
+}
+
+bool UEidoverseAvatarMesh::SolveReachWeighted(FName Limb, const FVector& WorldTarget, float Weight)
+{
+    if (Weight <= .001f || !Avatar) return false;
+    const bool Left = Limb == TEXT("leftHand") || Limb == TEXT("leftFoot"), Hand = Limb == TEXT("leftHand") || Limb == TEXT("rightHand");
+    const FName Upper = Hand ? (Left ? TEXT("leftUpperArm") : TEXT("rightUpperArm")) : (Left ? TEXT("leftUpperLeg") : TEXT("rightUpperLeg"));
+    const FName Lower = Hand ? (Left ? TEXT("leftLowerArm") : TEXT("rightLowerArm")) : (Left ? TEXT("leftLowerLeg") : TEXT("rightLowerLeg"));
+    int32 Idx[2];
+    for (int32 N = 0; N < 2; ++N) { const auto* B = Avatar->Humanoid.Find(N ? Lower : Upper); if (!B) return false; Idx[N] = GetBoneIndex(*B); if (!BoneSpaceTransforms.IsValidIndex(Idx[N])) return false; }
+    const FQuat Before[2] = {BoneSpaceTransforms[Idx[0]].GetRotation(), BoneSpaceTransforms[Idx[1]].GetRotation()};
+    if (!SolveReach(Limb, WorldTarget)) return false;
+    if (Weight < .999f)
+        for (int32 N = 0; N < 2; ++N) BoneSpaceTransforms[Idx[N]].SetRotation(FQuat::Slerp(Before[N], BoneSpaceTransforms[Idx[N]].GetRotation(), Weight).GetNormalized());
+    MarkRefreshTransformDirty();
+    return true;
+}
+
 void AEidoverseBridge::TickReaches()
 {
-    for(auto& Pair:Peers)
+    const double Now = FPlatformTime::Seconds();
+    const float Dt = LastReachTick > 0 ? FMath::Clamp(float(Now - LastReachTick), 0.f, .1f) : 1.f / 60;
+    LastReachTick = Now;
+    static const TCHAR* Limbs[] = {TEXT("leftHand"), TEXT("rightHand"), TEXT("leftFoot"), TEXT("rightFoot")};
+    auto Solve = [&](FEidoversePeer& P, const TSharedPtr<FJsonObject>& Reach, bool bSelf)
     {
-        auto& P=Pair.Value;if(!P.AvatarMesh.IsValid()||!P.Reach||P.bSubmarine)continue;
-        for(const TCHAR* Limb:{TEXT("leftHand"),TEXT("rightHand"),TEXT("leftFoot"),TEXT("rightFoot")})
+        UEidoverseAvatarMesh* M = P.AvatarMesh.Get();
+        if (!M || P.bSubmarine || M->IsLimp()) return;
+        for (const TCHAR* Limb : Limbs)
         {
-            auto Entry=ReachWire::Obj(P.Reach,Limb),T=ReachWire::Obj(Entry,TEXT("t"));if(!T)continue;
-            FVector Target;FString Who=ReachWire::Str(T,TEXT("who"));
-            if(!Who.IsEmpty())
+            const FName L(Limb);
+            const TSharedPtr<FJsonObject> Entry = ReachWire::Obj(Reach, Limb), T = ReachWire::Obj(Entry, TEXT("t"));
+            FVector Target; const bool bHas = T && ReachWire::ResolveTarget(*this, T, P, Target);
+            if (bHas) P.ReachLastTarget.Add(L, Target);
+            float& W = P.ReachWeight.FindOrAdd(L);
+            W += ((bHas ? 1.f : 0.f) - W) * FMath::Min(1.f, 12 * Dt);
+            if (W < .01f) { W = 0; P.ReachLastTarget.Remove(L); continue; }
+            const FVector* Goal = P.ReachLastTarget.Find(L);
+            if (!Goal || !M->SolveReachWeighted(L, *Goal, W)) continue;
+            // My own hand attests touch only when it truly arrives (reachwire.js TOUCH_GAP 0.05 m).
+            if (bSelf && Entry && bHas)
             {
-                auto* TargetPeer=Peers.Find(Who);const FName Bone=ReachWire::ContactBone(ReachWire::Str(T,TEXT("point")));
-                if(Bone.IsNone()||!TargetPeer||!TargetPeer->AvatarMesh.IsValid()||!TargetPeer->AvatarMesh->HumanBonePosition(Bone,Target))continue;
-                double Standoff=0;T->TryGetNumberField(TEXT("standoff"),Standoff);if(FMath::IsFinite(Standoff))Target+=TargetPeer->Actor->GetActorForwardVector()*FMath::Clamp(Standoff,0.,.2)*100;
+                FVector HandAt; const bool bReached = W > .5f && M->HumanBonePosition(L, HandAt) && FVector::Dist(HandAt, *Goal) <= 5;
+                Entry->SetBoolField(TEXT("reached"), bReached);
             }
-            else
-            {
-                const TArray<TSharedPtr<FJsonValue>>* A=nullptr;if(!T->TryGetArrayField(TEXT("p"),A)||A->Num()!=3)continue;
-                double V[3];bool Valid=true;for(int I=0;I<3;++I)if(!(*A)[I]->TryGetNumber(V[I])||!FMath::IsFinite(V[I])||FMath::Abs(V[I])>1e6)Valid=false;if(!Valid)continue;
-                Target=FromWirePosition(FVector(V[0],V[1],V[2]));const FString Space=ReachWire::Str(T,TEXT("space"));
-                if(Space.IsEmpty()||Space==TEXT("world"))Target+=OriginCentimeters;
-                else if(Space==TEXT("self"))Target=P.Actor->GetActorTransform().TransformPosition(Target);
-                else if(Space==AssignedIdentity){auto* Pawn=UGameplayStatics::GetPlayerPawn(this,0);if(!Pawn)continue;Target=Pawn->GetActorTransform().TransformPosition(Target)-FVector(0,0,88);}
-                else {auto* Other=Peers.Find(Space);if(!Other||!Other->Actor.IsValid())continue;Target=Other->Actor->GetActorTransform().TransformPosition(Target);}
-            }
-            P.AvatarMesh->SolveReach(FName(Limb),Target);
         }
+    };
+    for (auto& Pair : Peers) Solve(Pair.Value, Pair.Value.Reach, false);
+    if (LocalReach || !SelfBody.ReachWeight.IsEmpty()) Solve(SelfBody, LocalReach, true);
+    // Narrate reaches aimed at me (reachnet.js diffReach), 10 s quiet per (who, limb).
+    for (auto& Pair : Peers)
+    {
+        FEidoversePeer& P = Pair.Value;
+        TMap<FString, FString> Now2;
+        for (const TCHAR* Limb : Limbs)
+        {
+            const TSharedPtr<FJsonObject> Entry = ReachWire::Obj(P.Reach, Limb), T = ReachWire::Obj(Entry, TEXT("t"));
+            if (!T || (ReachWire::Str(T, TEXT("who")) != AssignedIdentity && ReachWire::Str(T, TEXT("space")) != AssignedIdentity)) continue;
+            bool bReached = false; Entry->TryGetBoolField(TEXT("reached"), bReached);
+            Now2.Add(Limb, bReached ? TEXT("touch") : TEXT("reach"));
+        }
+        if (!P.bReachBaseline) { P.bReachBaseline = true; P.ReachSeen = Now2; continue; }
+        auto LimbName = [](const FString& L) { return L == TEXT("leftHand") ? TEXT("left hand") : L == TEXT("rightHand") ? TEXT("right hand") : L == TEXT("leftFoot") ? TEXT("left foot") : TEXT("right foot"); };
+        for (const auto& N : Now2)
+        {
+            const FString* Was = P.ReachSeen.Find(N.Key);
+            if (Was && *Was == N.Value) continue;
+            if (Now < P.ReachQuietUntil.FindRef(N.Key) && N.Value == TEXT("reach")) continue;
+            const FString Point = ReachWire::Str(ReachWire::Obj(ReachWire::Obj(P.Reach, *N.Key), TEXT("t")), TEXT("point"));
+            if (N.Value == TEXT("touch")) Narrate(FString::Printf(TEXT("%s's %s touches your %s"), *Pair.Key, LimbName(N.Key), Point.IsEmpty() ? TEXT("body") : *Point.Replace(TEXT("_"), TEXT(" "))));
+            else Narrate(FString::Printf(TEXT("%s reaches toward your %s (%s)"), *Pair.Key, Point.IsEmpty() ? TEXT("body") : *Point.Replace(TEXT("_"), TEXT(" ")), LimbName(N.Key)));
+            P.ReachQuietUntil.Add(N.Key, Now + 10);
+        }
+        for (const auto& W : P.ReachSeen) if (!Now2.Contains(W.Key)) Narrate(FString::Printf(TEXT("%s withdraws their %s"), *Pair.Key, LimbName(W.Key)));
+        P.ReachSeen = Now2;
     }
 }

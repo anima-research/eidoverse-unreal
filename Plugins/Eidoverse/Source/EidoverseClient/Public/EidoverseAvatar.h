@@ -53,6 +53,9 @@ class EIDOVERSECLIENT_API UEidoverseAvatarAsset : public UObject
 public:
     enum class EState { Queued, Loading, Ready, Failed };
     EState State=EState::Queued;
+    // A failed body retries 3 times, at 0.4 / 1.6 / 5 s (remotes.js), unless cancelled.
+    int32 Retries=0; double RetryAt=0;
+    bool RetryAfterFailure();
     FString Url;
     FString Failure;
     bool bVRM0=false;
@@ -129,6 +132,8 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Eidoverse|Animation") float AquaticBlend=0;
     void Animate(const FString& Mode,float Speed,const FVector& LocalVelocity,double Time);
     UFUNCTION(BlueprintCallable,Category="Eidoverse|Animation") bool HumanBonePosition(FName Bone,FVector& WorldPosition) const;
+    // Two-bone reach toward a world point, blended over the animated pose by Weight.
+    bool SolveReachWeighted(FName Limb,const FVector& WorldTarget,float Weight);
     bool SolveReach(FName Limb,const FVector& WorldTarget);
     void ApplyGesture(const FString& Gesture,double Time);
 
@@ -191,6 +196,17 @@ public:
     // Eyes held shut (/eyes, limp): lids ease at 12/s. False when the rig has no lids.
     bool SetEyesHeldShut(bool bShut);
     bool EyesHeldShut() const { return bEyesHeld; }
+    // Limp (a ragdolling owner streams clip 'ragdoll' + DRIVEN_BONES): the streamed pose
+    // drives those bones at full weight, every other humanoid bone parks at rest, the
+    // head stops pitching, eyes ease shut, springs go slack (avatar.js setLimp).
+    void SetLimp(bool bOn);
+    UFUNCTION(BlueprintPure,Category="Eidoverse|Animation") bool IsLimp() const { return bLimp; }
+    // Wings (EidoverseWings.cpp): fold (G, wingsFolded on the wire) and effort (flight).
+    void SetWings(bool bFolded, float Effort) { bWingsFoldedWant = bFolded; WingEffortWant = Effort; }
+    bool CanFoldWings() const { return bCanFoldWings; }
+    bool HasWings() const { return !Wings.IsEmpty(); }
+    // Per-frame interpolated pose (normalized rotations), applied immediately.
+    void SetHeldPoseDirect(const TMap<FName,FQuat>& Pose);
     // Expression weights for this frame (0..1), applied with the pose (blend shapes).
     void SetExpression(FName Expression,float Weight);
     void ApplyExpressions();
@@ -206,7 +222,14 @@ private:
     float HeadPitch=0;
     FVector GazeGoal=FVector::ZeroVector, GazePoint=FVector::ZeroVector; bool bGazeTarget=false, bGazeInit=false;
     double SpeakingUntil=0, NextBlink=0, BlinkStart=-1;
-    bool bEyesHeld=false; float LidHold=0;
+    bool bEyesHeld=false, bEyesHeldBeforeLimp=false, bLimp=false; float LidHold=0;
+    struct FWing { int32 Bone=INDEX_NONE; FName Name; float Side=1; bool bLower=false; int32 Depth=0; FQuat From=FQuat::Identity; };
+    TArray<FWing> Wings;
+    int32 WingRef=INDEX_NONE;
+    bool bCanFoldWings=false, bWingsFoldedWant=false;
+    float WingEffortWant=0, WingEffort=0, WingFold=0, WingT=0, WingBlend=1;
+    void PrepareWings();
+    void UpdateWings(float Dt);
     // Applied inside AnimateClips: modifies the normalized humanoid rotations / hips offset.
     void ApplyNormalizedLayers(TMap<FName,FQuat>& Normalized,FVector& HipsOffsetModel,float Dt,double Time);
     // Applied after spring bones: raw-bone held pose, custom eyes and eyelids, blink, mouth.

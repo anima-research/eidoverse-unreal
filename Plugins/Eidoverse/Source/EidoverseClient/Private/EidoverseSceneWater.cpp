@@ -117,6 +117,13 @@ bool AEidoverseScene::EnvironmentSpawn(FVector& OutWire) const
     return Vector3(CurrentEnvironment(), TEXT("spawn"), OutWire);
 }
 
+bool AEidoverseScene::EnvironmentBounds(FVector& MinWire, FVector& MaxWire) const
+{
+    const TSharedPtr<FJsonObject> Env = CurrentEnvironment();
+    const TSharedPtr<FJsonObject>* B = nullptr;
+    return Env && Env->TryGetObjectField(TEXT("bounds"), B) && Vector3(*B, TEXT("min"), MinWire) && Vector3(*B, TEXT("max"), MaxWire);
+}
+
 double AEidoverseScene::WaterTime() const
 {
     return EidoWater::WaveTime(ServerNowMs());

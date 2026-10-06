@@ -170,7 +170,7 @@ void UEidoverseAvatarMesh::UpdateSprings(float Dt)
         {
             // three-vrm VRMSpringBoneJoint.update, in centimetres.
             FVector Next = S.Tail + (S.Tail - S.PrevTail) * (1 - J.DragForce)
-                + RestDir * (J.Stiffness * Step * 100) + J.GravityDir * (J.GravityPower * Step * 100);
+                + RestDir * (J.Stiffness * (bLimp ? .2f : 1.f) * Step * 100) + J.GravityDir * ((bLimp ? FMath::Max(J.GravityPower, .45f) : J.GravityPower) * Step * 100);   // limp: hair falls (avatar.js)
             Next = Head + (Next - Head).GetSafeNormal() * S.Length;
             for (int32 C : J.Colliders)
             {

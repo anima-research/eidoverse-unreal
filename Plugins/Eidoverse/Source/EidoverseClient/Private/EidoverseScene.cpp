@@ -301,6 +301,7 @@ void AEidoverseExplorer::UpdateCamera(float Dt,APlayerController* PC)
         Boom->TargetArmLength=0;Boom->bDoCollisionTest=false;Boom->bEnableCameraLag=false;
         Boom->SocketOffset=FVector::ZeroVector;Boom->SetWorldRotation(View);
         Eyes->SetRelativeLocationAndRotation(FVector(16,0,0),FRotator::ZeroRotator);
+        if(bEyeOverride)Eyes->SetWorldLocation(EyeOverride);
         return;
     }
     // Web camPitch rests at 0.32 rad above the look direction: the orbit sits a little
@@ -394,6 +395,7 @@ void AEidoverseExplorer::Tick(float Dt)
     // Postures: X sit, Z lie (Ctrl+Z stays build-mode undo); walking or jumping stands up.
     const bool bCtrl=PC->IsInputKeyDown(EKeys::LeftControl)||PC->IsInputKeyDown(EKeys::RightControl)||PC->IsInputKeyDown(EKeys::LeftCommand);
     if(PC->WasInputKeyJustPressed(EKeys::X)){if(bSeatHandled)bSitPressed=true;else Posture=Posture==TEXT("sit")?FString():TEXT("sit");}
+    if(PC->WasInputKeyJustPressed(EKeys::G))bFoldPressed=true;
     if(!bCtrl&&PC->WasInputKeyJustPressed(EKeys::Z))Posture=Posture==TEXT("lie")?FString():TEXT("lie");
     if(bWantMove||PC->WasInputKeyJustPressed(EKeys::SpaceBar))Posture.Empty();
     if(PC->WasInputKeyJustPressed(EKeys::SpaceBar)){if(!GetCharacterMovement()->IsFalling())bJumped=true;Jump();}

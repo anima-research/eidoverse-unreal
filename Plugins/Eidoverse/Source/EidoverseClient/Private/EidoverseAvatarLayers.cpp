@@ -89,6 +89,25 @@ void UEidoverseAvatarMesh::PlayAgentAnimation(const TSharedPtr<FJsonObject>& Tra
     AnimLayers.Add(MoveTemp(Layer));
 }
 
+void UEidoverseAvatarMesh::SetLimp(bool bOn)
+{
+    if (bLimp == bOn) return;
+    bLimp = bOn;
+    if (bOn) { bEyesHeldBeforeLimp = bEyesHeld; bEyesHeld = true; AnimLayers.Reset(); if (HasOneShot()) CancelOneShot(); }
+    else { bEyesHeld = bEyesHeldBeforeLimp; HeldWant = HeldPose.IsEmpty() ? 0.f : 1.f; }
+}
+
+void UEidoverseAvatarMesh::SetHeldPoseDirect(const TMap<FName, FQuat>& Pose)
+{
+    for (const auto& Pair : Pose)
+    {
+        FHeldBone& B = HeldPose.FindOrAdd(Pair.Key);
+        B.Q = Pair.Value; B.bQ = true;
+    }
+    HeldWant = 1;
+    if (bLimp) HeldWeight = 1;
+}
+
 bool UEidoverseAvatarMesh::SetEyesHeldShut(bool bShut)
 {
     bool bHasLids = HasExpression(TEXT("blink"));
@@ -107,6 +126,19 @@ void UEidoverseAvatarMesh::SetGazeTarget(const FVector& World, bool bHasTarget)
 void UEidoverseAvatarMesh::ApplyNormalizedLayers(TMap<FName, FQuat>& Normalized, FVector& HipsOffsetModel, float Dt, double Time)
 {
     const bool bVRM0 = Avatar && Avatar->bVRM0;
+    if (bLimp)
+    {
+        // rigmeasure.js DRIVEN_BONES carry the streamed pose; everything else rests.
+        static const TSet<FName> Driven = {TEXT("hips"), TEXT("spine"), TEXT("chest"), TEXT("neck"), TEXT("leftUpperArm"), TEXT("leftLowerArm"),
+            TEXT("rightUpperArm"), TEXT("rightLowerArm"), TEXT("leftUpperLeg"), TEXT("leftLowerLeg"), TEXT("rightUpperLeg"), TEXT("rightLowerLeg")};
+        for (auto& Pair : Normalized)
+        {
+            const FHeldBone* B = Driven.Contains(Pair.Key) ? HeldPose.Find(Pair.Key) : nullptr;
+            Pair.Value = B && B->bQ ? B->Q : FQuat::Identity;
+        }
+        HeldWeight = 1;
+        return;
+    }
     // Head pitch: a rotation about X in the parent's frame (premultiplied).
     if (FQuat* H = Normalized.Find(LayerHead)) *H = (FQuat(FVector(1, 0, 0), HeadPitch) * *H).GetNormalized();
 

@@ -28,14 +28,14 @@ namespace SeatWire
     TSharedPtr<FJsonObject> SeatObj(const TSharedPtr<FJsonObject>& O, const TCHAR* K) { const TSharedPtr<FJsonObject>* V = nullptr; return O && O->TryGetObjectField(K, V) ? *V : nullptr; }
     // A socket's world transform: model-local pos through the parent's transform
     // (scale included), yaw = parent yaw + socket yaw (world.js mountTransform).
-    bool SocketWorld(const AActor* Parent, const TSharedPtr<FJsonObject>& Sock, const FVector* OffsetWire, FTransform& Out)
+    bool SocketWorld(const AActor* Parent, const TSharedPtr<FJsonObject>& Sock, const FVector* OffsetWire, FTransform& Out, const double* YawOverride = nullptr)
     {
         if (!Parent) return false;
         FVector Pos(0, .5, 0);
         if (OffsetWire) Pos = *OffsetWire; else SeatVec(Sock, TEXT("pos"), Pos);
         const FVector World = Parent->GetActorTransform().TransformPosition(AEidoverseBridge::FromWirePosition(Pos));
         const FQuat Yaw = FRotator(0, Parent->GetActorRotation().Yaw, 0).Quaternion()
-            * AEidoverseBridge::FromWireRotation(FQuat(FVector::YAxisVector, SeatNum(Sock, TEXT("yaw"), 0)));
+            * AEidoverseBridge::FromWireRotation(FQuat(FVector::YAxisVector, YawOverride ? *YawOverride : SeatNum(Sock, TEXT("yaw"), 0)));
         Out = FTransform(Yaw, World);
         return true;
     }
@@ -55,9 +55,24 @@ float AEidoverseBridge::SelfHeadPitch() const
 
 // ---- seats ------------------------------------------------------------------------
 
+bool AEidoverseBridge::MountWorldTransform(const TSharedPtr<FJsonObject>& Mount, FTransform& Out, FString& Pose) const
+{
+    // world.js mountTransform: offset ?? socket pos, yaw = parent yaw + (mount.yaw ?? socket yaw).
+    if (!Mount || !DynamicScene) return false;
+    const FString To = SeatStr(Mount, TEXT("to"));
+    const AActor* Parent = DynamicScene->EntityActor(To);
+    const TSharedPtr<FJsonObject> Sock = SeatObj(SeatObj(DynamicScene->Interaction(To), TEXT("sockets")), *SeatStr(Mount, TEXT("slot")));
+    Pose = SeatStr(Sock, TEXT("pose")); if (Pose.IsEmpty()) Pose = TEXT("sitchair");
+    FVector Offset; const bool bOffset = SeatVec(Mount, TEXT("offset"), Offset);
+    double Yaw = 0; const bool bYaw = Mount->TryGetNumberField(TEXT("yaw"), Yaw) && FMath::IsFinite(Yaw);
+    return SocketWorld(Parent, Sock, bOffset ? &Offset : nullptr, Out, bYaw ? &Yaw : nullptr);
+}
+
 bool AEidoverseBridge::MountedSeatTransform(FTransform& Out, FString& Pose) const
 {
     if (SeatTo.IsEmpty() || !DynamicScene) return false;
+    if (const TSharedPtr<FJsonObject>* Folded = RemoteMounts.Find(AssignedIdentity))
+        if (SeatStr(*Folded, TEXT("to")) == SeatTo) return MountWorldTransform(*Folded, Out, Pose);
     const AActor* Parent = DynamicScene->EntityActor(SeatTo);
     const TSharedPtr<FJsonObject> Sock = SeatObj(SeatObj(DynamicScene->Interaction(SeatTo), TEXT("sockets")), *SeatSlot);
     Pose = SeatStr(Sock, TEXT("pose"));
@@ -172,7 +187,11 @@ void AEidoverseBridge::StandUp(AEidoverseExplorer* Explorer, bool bSendDismount)
 
 void AEidoverseBridge::ReceiveSeatLog(const FString& Verb, const TSharedPtr<FJsonObject>& Args)
 {
-    if (SeatStr(Args, TEXT("id")) != AssignedIdentity || AssignedIdentity.IsEmpty()) return;
+    // Every body's mount is folded state: riders are pinned to their seat each frame.
+    const FString Rider = SeatStr(Args, TEXT("id"));
+    if (Verb == TEXT("mount") && !Rider.IsEmpty() && !SeatStr(Args, TEXT("to")).IsEmpty()) RemoteMounts.Add(Rider, Args);
+    else if (Verb == TEXT("dismount")) RemoteMounts.Remove(Rider);
+    if (Rider != AssignedIdentity || AssignedIdentity.IsEmpty()) return;
     auto* Explorer = Cast<AEidoverseExplorer>(UGameplayStatics::GetPlayerPawn(this, 0));
     if (Verb == TEXT("mount"))
     {
@@ -197,6 +216,20 @@ void AEidoverseBridge::TickSeating(AEidoverseExplorer* Explorer, double Now)
         return;
     }
     const bool bSeatedNow = !SeatTo.IsEmpty() || bChairSeat;
+    // The standing offer (localbody.js, every 0.45 s): a declared seat within reach says so.
+    if (Now >= NextSeatHintAt && DynamicScene && !bSeatedNow)
+    {
+        NextSeatHintAt = Now + .45;
+        FString Near; double Best = 350; const FVector Feet = Explorer->GetActorLocation();
+        for (const auto& Pair : DynamicScene->GetItems())
+            if (const TSharedPtr<FJsonObject> Sockets = SeatObj(Pair.Value.Interact, TEXT("sockets")))
+                for (const auto& Slot : Sockets->Values)
+                {
+                    FTransform W; if (!SocketWorld(Pair.Value.Actor.Get(), Slot.Value ? Slot.Value->AsObject() : nullptr, nullptr, W)) continue;
+                    const double D = FVector::Dist2D(W.GetLocation(), Feet); if (D < Best) { Best = D; Near = Pair.Key; }
+                }
+        if (Near != SeatHintFor) { SeatHintFor = Near; if (!Near.IsEmpty() && HUD) HUD->Hint(FString::Printf(TEXT("%s \u2014 X to sit"), *Near.Left(16)), 2.5f); }
+    }
     if (bSeatedNow && (bPressed || Explorer->bWantMove)) { StandUp(Explorer, true); return; }
     if (!bSeatedNow && bPressed)
     {
@@ -300,6 +333,7 @@ void AEidoverseBridge::TickGaze(double Now)
     TArray<FBody> Bodies;
     for (auto& Pair : Peers) if (auto* M = Pair.Value.AvatarMesh.Get()) if (M->IsVisible()) Bodies.Add({M, M->GetComponentLocation(), Pair.Value.SpeakingUntil});
     if (auto* M = SelfBody.AvatarMesh.Get()) Bodies.Add({M, M->GetComponentLocation(), SelfSpeakingUntil});
+    const UEidoverseAvatarMesh* Mine = SelfBody.AvatarMesh.Get();
     for (const FBody& Me : Bodies)
     {
         const FBody* Speaker = nullptr; const FBody* Nearest = nullptr; double Best = 900. * 900.;
@@ -310,7 +344,8 @@ void AEidoverseBridge::TickGaze(double Now)
             const double D = FVector::DistSquared(Other.Root, Me.Root);
             if (D < Best) { Best = D; Nearest = &Other; }
         }
-        const FBody* Target = Speaker ? Speaker : Nearest;
+        // My own body looks only at whoever is speaking (remotes.js); others also at the nearest.
+        const FBody* Target = Speaker ? Speaker : (Me.Mesh == Mine ? nullptr : Nearest);
         Me.Mesh->SetGazeTarget(Target ? Target->Root + FVector(0, 0, 150) : FVector::ZeroVector, Target != nullptr);
     }
 }

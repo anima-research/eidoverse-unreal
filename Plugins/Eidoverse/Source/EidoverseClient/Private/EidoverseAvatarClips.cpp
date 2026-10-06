@@ -201,6 +201,7 @@ bool UEidoverseAvatarMesh::AnimateClips(double Time)
     }
     AnimationState = CurrentClipSlot();
     UpdateSprings(Dt);
+    UpdateWings(Dt);
     ApplyRawLayers(Dt, Time);
     ApplyExpressions();
     MarkRefreshTransformDirty();

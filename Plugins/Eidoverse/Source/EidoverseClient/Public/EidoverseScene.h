@@ -91,6 +91,8 @@ public:
     bool DryAt(const FVector& WorldPosition) const;
     // Authored environment spawn in WIRE coordinates, if any.
     bool EnvironmentSpawn(FVector& OutWire) const;
+    // environment.bounds {min,max} (wire metres); false when the world authored none.
+    bool EnvironmentBounds(FVector& MinWire,FVector& MaxWire) const;
     FVector GetSceneOrigin() const { return SceneOrigin; }
     // Entities as projected: id -> library path (or kind for lights/structures), sorted by id.
     void GetEntities(TArray<TPair<FString, FString>>& Out) const;
@@ -206,6 +208,9 @@ public:
     // body is placed by the bridge each frame and movement only signals "get up".
     UPROPERTY(Transient,BlueprintReadWrite,Category="Eidoverse") bool bSitPressed=false;
     bool bSeatHandled=false;
+    UPROPERTY(Transient,BlueprintReadWrite,Category="Eidoverse") bool bFoldPressed=false;
+    // First person while seated, lying or posed: the eye rides the head bone (fp_view.js).
+    bool bEyeOverride=false; FVector EyeOverride=FVector::ZeroVector;
     UPROPERTY(Transient,BlueprintReadOnly,Category="Eidoverse") bool bSeated=false;
     void SetSeated(bool bOn);
     UFUNCTION(BlueprintCallable,Category="Eidoverse") void SetCameraDistance(float Meters);
