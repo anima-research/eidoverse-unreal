@@ -549,6 +549,7 @@ UWidget* UEidoverseHUD::BuildRail()
     Panel->SetBrush(FEidoverseTheme::Rounded(FEidoverseTheme::Panel(), 10, FEidoverseTheme::Edge(), 1));
     Panel->SetPadding(FMargin(3, 4));
     PanelBorders.Add(Panel);
+    RailWidget = Panel;
     auto* Column = WidgetTree->ConstructWidget<UVerticalBox>();
     Panel->SetContent(Column);
     // ∃ leads the rail; its ink is the connection truth.
@@ -578,7 +579,7 @@ UWidget* UEidoverseHUD::BuildMenu()
         {"profile", TEXT("Profile"), TEXT("profile")}, {"chat", TEXT("Chat"), TEXT("chat")},
         {"world", TEXT("World"), TEXT("world")}, {"emotes", TEXT("Emotes"), TEXT("emotes")},
         {"people", TEXT("People"), TEXT("people here  \u00B7  Tab")}, {"build", TEXT("Build"), TEXT("build  \u00B7  B")}, {"settings", TEXT("Settings"), TEXT("settings")}, {"help", TEXT("Search"), TEXT("help  \u00B7  ?")},
-        {"pointer", TEXT("Eye"), TEXT("pointer / mouselook  \u00B7  M")},
+        {"pointer", TEXT("Eye"), TEXT("pointer / mouselook  \u00B7  M")}, {"railedge", TEXT("Menu"), TEXT("rail on the other side")},
         {"lock", TEXT("Lock"), TEXT("layout unlocked")}, {"reset", TEXT("Reset"), TEXT("reset layout")}};
     for (const FEntry& E : Entries)
     {
@@ -602,7 +603,20 @@ UWidget* UEidoverseHUD::BuildMenu()
         if (auto* ContentSlot = Cast<UButtonSlot>(B->GetContentSlot())) ContentSlot->SetHorizontalAlignment(HAlign_Fill);
         B->OnClicked.AddDynamic(this, &UEidoverseHUD::OnMenuEntry);
         ButtonIds.Add(B, E.Id);
-        Column->AddChildToVerticalBox(B);
+        // Windows get a pin beside them: pinned icons stay on the rail when closed.
+        const bool bWindow = E.Id != "pointer" && E.Id != "lock" && E.Id != "reset" && E.Id != "railedge";
+        if (!bWindow) { Column->AddChildToVerticalBox(B); continue; }
+        auto* Line = WidgetTree->ConstructWidget<UHorizontalBox>();
+        Line->AddChildToHorizontalBox(B)->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+        auto* Pin = WidgetTree->ConstructWidget<UButton>();
+        Pin->SetStyle(FlatButton(FLinearColor::Transparent, FEidoverseTheme::Hover(), 6));
+        auto* PinText = Label(TEXT("pinned"), 9, FEidoverseTheme::Dim()); PinText->SetAutoWrapText(false);
+        Pin->SetContent(PinText); Pin->SetToolTipText(FText::FromString(TEXT("keep on the rail when closed")));
+        Pin->OnClicked.AddDynamic(this, &UEidoverseHUD::OnMenuEntry);
+        ButtonIds.Add(Pin, FName(*(TEXT("pin:") + E.Id.ToString())));
+        MenuPinLabels.Add(E.Id, PinText);
+        Line->AddChildToHorizontalBox(Pin)->SetVerticalAlignment(VAlign_Center);
+        Column->AddChildToVerticalBox(Line);
     }
     Panel->SetVisibility(ESlateVisibility::Collapsed);
     return Panel;
@@ -1054,6 +1068,7 @@ UWidget* UEidoverseHUD::BuildHelp()
 
 void UEidoverseHUD::RefreshRail()
 {
+    if (!bRailLoaded) LoadRail();
     for (const auto& Pair : RailIcons)
     {
         if (!Pair.Value) continue;
@@ -1062,6 +1077,10 @@ void UEidoverseHUD::RefreshRail()
             : IsFrameOpen(Pair.Key);
         if (Pair.Key == "menu") continue;
         Pair.Value->SetColorAndOpacity(bOn ? FEidoverseTheme::Brand() : FEidoverseTheme::Icon());
+        // Image -> padding border -> button: hide the button unless pinned or open.
+        if (UWidget* Button = Pair.Value->GetParent() ? Pair.Value->GetParent()->GetParent() : nullptr)
+            Button->SetVisibility(bOn || RailPins.Contains(Pair.Key) ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+        if (UTextBlock* T = MenuPinLabels.FindRef(Pair.Key)) T->SetText(FText::FromString(RailPins.Contains(Pair.Key) ? TEXT("pinned") : TEXT("pin")));
     }
     if (MarkIcon)
     {
@@ -1789,6 +1808,9 @@ void UEidoverseHUD::OnRailClicked()
 void UEidoverseHUD::OnMenuEntry()
 {
     const FName Id = ResolveClicked();
+    const FString IdS = Id.ToString();
+    if (IdS.StartsWith(TEXT("pin:"))) { const FName W(*IdS.Mid(4)); SetRailPinned(W, !RailPins.Contains(W)); return; }   // the menu stays open
+    if (Id == "railedge") { SetRailRight(!bRailRight); ToggleMenu(); return; }
     if (Id == "lock") SetLayoutLocked(!bLayoutLocked);
     else if (Id == "reset") ResetLayout();
     else if (Id != NAME_None) ToggleFrame(Id);
@@ -2118,3 +2140,55 @@ static FAutoConsoleCommandWithWorld HUDNameProbe(TEXT("Eidoverse.TestHUDNameClic
         }), .3f);
     }));
 #endif
+
+// ---------------------------------------------------------------- rail pins / edge
+namespace { const TCHAR* RailSection = TEXT("/Script/EidoverseClient.Layout"); }
+
+void UEidoverseHUD::LoadRail()
+{
+    bRailLoaded = true;
+    FString Pins;
+    if (GConfig->GetString(RailSection, TEXT("RailPins"), Pins, GGameUserSettingsIni))
+    { TArray<FString> Ids; Pins.ParseIntoArray(Ids, TEXT(",")); RailPins.Reset(); for (const FString& I : Ids) RailPins.Add(FName(*I)); }
+    else for (const auto& Pair : RailIcons) if (Pair.Key != "menu") RailPins.Add(Pair.Key);   // every window starts pinned
+    GConfig->GetBool(RailSection, TEXT("RailRight"), bRailRight, GGameUserSettingsIni);
+    ApplyRailEdge();
+}
+
+void UEidoverseHUD::SaveRail() const
+{
+    TArray<FString> Ids; for (const FName& N : RailPins) Ids.Add(N.ToString());
+    GConfig->SetString(RailSection, TEXT("RailPins"), *FString::Join(Ids, TEXT(",")), GGameUserSettingsIni);
+    GConfig->SetBool(RailSection, TEXT("RailRight"), bRailRight, GGameUserSettingsIni);
+    GConfig->Flush(false, GGameUserSettingsIni);
+}
+
+void UEidoverseHUD::ApplyRailEdge()
+{
+    if (auto* S = RailWidget ? Cast<UCanvasPanelSlot>(RailWidget->Slot) : nullptr)
+    {
+        S->SetAnchors(FAnchors(bRailRight ? 1.f : 0.f, 0.f));
+        S->SetAlignment(FVector2D(bRailRight ? 1.f : 0.f, 0.f));
+        S->SetPosition(FVector2D(bRailRight ? -8.f : 8.f, 8.f));
+    }
+}
+
+void UEidoverseHUD::SetRailPinned(FName Id, bool bPinned)
+{
+    if (bPinned) RailPins.Add(Id); else RailPins.Remove(Id);
+    SaveRail(); RefreshRail();
+}
+
+void UEidoverseHUD::SetRailRight(bool bRight)
+{
+    bRailRight = bRight; ApplyRailEdge(); SaveRail();
+}
+
+int32 UEidoverseHUD::GetRailVisibleCount() const
+{
+    int32 N = 0;
+    for (const auto& Pair : RailIcons)
+        if (Pair.Value && Pair.Key != "menu")
+            if (const UWidget* B = Pair.Value->GetParent() ? Pair.Value->GetParent()->GetParent() : nullptr) N += B->GetVisibility() != ESlateVisibility::Collapsed;
+    return N;
+}

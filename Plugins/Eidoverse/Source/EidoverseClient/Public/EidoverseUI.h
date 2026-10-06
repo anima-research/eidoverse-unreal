@@ -151,6 +151,15 @@ private:
     UPROPERTY() TObjectPtr<UCanvasPanel> Canvas;
     UPROPERTY() TMap<FName, TObjectPtr<UEidoverseFrame>> Frames;
     UPROPERTY() TMap<FName, TObjectPtr<UImage>> RailIcons;
+    // ui.js dock: a window's icon shows while pinned or open (all pinned by default);
+    // the rail sits on the left or right edge. Saved with the layout.
+    TSet<FName> RailPins;
+    bool bRailRight = false, bRailLoaded = false;
+    UPROPERTY() TObjectPtr<UWidget> RailWidget;
+    UPROPERTY() TMap<FName, TObjectPtr<UTextBlock>> MenuPinLabels;
+    void LoadRail();
+    void SaveRail() const;
+    void ApplyRailEdge();
     UPROPERTY() TObjectPtr<UImage> MarkIcon;
     UPROPERTY() TObjectPtr<UBorder> Menu;
     UPROPERTY() TObjectPtr<UBorder> HelpOverlay;
@@ -215,6 +224,9 @@ public:
     UFUNCTION(BlueprintPure, Category="Eidoverse|UI") FString GetDoorAvatar() const { return DoorAvatar; }
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void ShowDoorKey(bool bShow);
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void DoorEnter() { OnDoorJoin(); }
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void SetRailPinned(FName Id, bool bPinned);
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void SetRailRight(bool bRight);
+    UFUNCTION(BlueprintPure, Category="Eidoverse|UI") int32 GetRailVisibleCount() const;
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void SetDoorFields(const FString& Server, const FString& World, const FString& Name);
     // Chat markdown (chat.js CH-E): **b**, *i* / _i_, `code` on a rich text block.
     UFUNCTION(BlueprintPure, Category="Eidoverse|UI") static FString ChatMarkup(const FString& Text);
