@@ -17,5 +17,9 @@ public class EidoverseClient : ModuleRules
         if (Target.bBuildEditor) PrivateDependencyModuleNames.Add("UnrealEd");
         // Keychain for the saved production sign-in (EidoverseSecureStore).
         if (Target.Platform == UnrealTargetPlatform.Mac) PublicFrameworks.Add("Security");
+        // Placed sounds (sounds.js): AudioToolbox decodes mp3/m4a/wav/aiff on the Mac,
+        // the engine's Vorbis decodes ogg.
+        if (Target.Platform == UnrealTargetPlatform.Mac) PublicFrameworks.Add("AudioToolbox");
+        AddEngineThirdPartyPrivateStaticDependencies(Target, "UEOgg", "Vorbis", "VorbisFile");
     }
 }

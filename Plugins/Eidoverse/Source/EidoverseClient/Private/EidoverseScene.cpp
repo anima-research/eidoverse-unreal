@@ -202,7 +202,7 @@ void AEidoverseScene::Apply(const TSharedPtr<FJsonObject>& Message,const FVector
 }
 void AEidoverseScene::Tick(float Dt)
 {
-    Super::Tick(Dt);TickWeather(Dt);TickPlacedLights(FPlatformTime::Seconds());TickParts();TickPictures();TickParticles(Dt);int Loading=0;for(auto& A:Assets)Loading+=A.Value->State==UEidoverseAvatarAsset::EState::Loading;
+    Super::Tick(Dt);TickWeather(Dt);TickPlacedLights(FPlatformTime::Seconds());TickParts();TickPictures();TickParticles(Dt);TickSounds();int Loading=0;for(auto& A:Assets)Loading+=A.Value->State==UEidoverseAvatarAsset::EState::Loading;
     // Stream nearest first: start queued models in order of distance to the viewer.
     if(Loading<4)
     {

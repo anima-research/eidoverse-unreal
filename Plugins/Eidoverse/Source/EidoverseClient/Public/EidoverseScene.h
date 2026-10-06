@@ -64,6 +64,7 @@ struct FEidoverseSceneItem
     TSharedPtr<FJsonObject> Traversal, Vehicle;   // climb routes, helm (traversal.js, vehicles.js)
     // The particle emitter built from Particles (EidoverseSceneParticles.cpp).
     TSharedPtr<struct FEidoParticleEmitter> Emitter;
+    TSharedPtr<struct FEidoSoundPlayer> SoundPlayer;
     FString EmitterKey;
 };
 
@@ -183,6 +184,10 @@ private:
     void TickParts();
     void TickPictures();
     void TickParticles(float Dt);
+    void TickSounds();
+    // Decoded PCM per library path (shared by every entity playing it).
+    TMap<FString, TSharedPtr<struct FEidoPcm>> SoundCache;
+    TSet<FString> SoundLoading;
     // A library texture fetched once and shared (pictures, particle sprites).
     UTexture2D* LibraryTexture(const FString& Path, bool bFlip, bool& bPending);
     struct FPictureLoad { bool bDone=false; TWeakObjectPtr<UTexture2D> Texture; };
