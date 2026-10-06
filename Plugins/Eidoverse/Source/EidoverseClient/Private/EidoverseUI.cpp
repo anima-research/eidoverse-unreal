@@ -574,6 +574,7 @@ UWidget* UEidoverseHUD::BuildChat()
 {
     auto* Column = WidgetTree->ConstructWidget<UVerticalBox>();
     auto* Tabs = WidgetTree->ConstructWidget<UHorizontalBox>();
+    ChatTabBar = Tabs;
     const TCHAR* Names[] = {TEXT("all"), TEXT("mentions"), TEXT("system")};
     for (int32 I = 0; I < 3; ++I)
     {
@@ -595,6 +596,9 @@ UWidget* UEidoverseHUD::BuildChat()
     TypingLine = Label(TEXT(""), 10, FEidoverseTheme::Dim());
     TypingLine->SetVisibility(ESlateVisibility::Collapsed);
     Column->AddChildToVerticalBox(TypingLine)->SetPadding(FMargin(2, 4, 0, 0));
+    AutoList = WidgetTree->ConstructWidget<UVerticalBox>();
+    AutoList->SetVisibility(ESlateVisibility::Collapsed);
+    Column->AddChildToVerticalBox(AutoList)->SetPadding(FMargin(0, 4, 0, 0));
     ChatInput = Input(TEXT("say something…  @ to mention · / for commands"));
     ChatInput->OnTextChanged.AddDynamic(this, &UEidoverseHUD::OnChatChanged);
     ChatInput->OnTextCommitted.AddDynamic(this, &UEidoverseHUD::OnChatCommitted);
@@ -1098,7 +1102,7 @@ void UEidoverseHUD::RefreshChat()
     FString PrevSender; FDateTime PrevAt;
     for (const FLine& L : Lines)
     {
-        if ((ChatTab == 1 && !L.bMention) || (ChatTab == 2 && !L.bSystem)) continue;
+        if ((ChatTab == 1 && !L.bMention) || (ChatTab == 2 && !L.bSystem) || (ChatTab == 3 && !(L.bPrivate && L.Peer == ActiveDm))) continue;
         auto* Row = WidgetTree->ConstructWidget<UHorizontalBox>();
         // Same author within 90 s: one block, the name shown once (system lines don't break it).
         const bool bGrouped = !L.bSystem && L.Sender == PrevSender && (L.At - PrevAt).GetTotalSeconds() < 90;
@@ -1335,6 +1339,12 @@ FReply UEidoverseHUD::NativeOnPreviewKeyDown(const FGeometry& Geometry, const FK
 {
     if (ChatInput && ChatInput->HasKeyboardFocus())
     {
+        if (AutoItems.Num())
+        {
+            const FKey K = Event.GetKey();
+            if (K == EKeys::Up || K == EKeys::Down || K == EKeys::Tab || K == EKeys::Enter || K == EKeys::Escape)
+                if (ChatKey(K.ToString())) return FReply::Handled();
+        }
         if (Event.GetKey() == EKeys::Escape)
         {
             ChatInput->SetText(FText::GetEmpty());
@@ -1421,6 +1431,7 @@ void UEidoverseHUD::SendChat()
         ChatInput->SetText(FText::GetEmpty());
         // Every slash command goes through the command table; nothing unknown is posted.
         if (Text.StartsWith(TEXT("/"))) bOk = Bridge->HandleInteractionCommand(Text);
+        else if (ChatTab == 3 && !ActiveDm.IsEmpty()) bOk = Bridge->Whisper(ActiveDm, Text);   // a DM tab whispers
         else bOk = Bridge->Say(Text);
         if (!bOk && !Text.StartsWith(TEXT("/"))) Toast(TEXT("Not sent: join a world first, and wait a moment between messages."), true);
         // A command that refilled the composer (/w name, /r) keeps chat open.
@@ -1434,6 +1445,15 @@ void UEidoverseHUD::NotifyChatLine(const FString& Sender, const FString& Text, b
 {
     FLine L{Sender, Text, bPrivate, false, false};
     L.bMention = Bridge && Sender != Bridge->AssignedIdentity && Mentions(Text, Bridge->AssignedIdentity);
+    if (bPrivate)
+    {
+        // The conversation: "to X" is my own (echoed) whisper; otherwise X whispered me.
+        const bool bMine = Sender.StartsWith(TEXT("to "));
+        L.Peer = bMine ? Sender.Mid(3) : Sender;
+        if (!DmTabs.Contains(L.Peer)) DmTabs.Add(L.Peer);
+        if (!bMine && !(ChatTab == 3 && ActiveDm == L.Peer)) DmUnread.FindOrAdd(L.Peer)++;
+        RebuildDmTabs();
+    }
     Lines.Add(L);
     if (Lines.Num() > 400) Lines.RemoveAt(0, Lines.Num() - 400);
     if (L.bMention) Toast(Sender + TEXT(" mentioned you"), true);
@@ -1486,6 +1506,7 @@ void UEidoverseHUD::NoteTyping(const FString& Id)
 
 void UEidoverseHUD::OnChatChanged(const FText& Text)
 {
+    UpdateAutocomplete(Text.ToString());
     const FString Draft = Text.ToString().TrimStartAndEnd();
     const double Now = FPlatformTime::Seconds();
     // Web cadence: at most every 2.5 s while there is a draft; slash commands are not speech.
@@ -1493,6 +1514,7 @@ void UEidoverseHUD::OnChatChanged(const FText& Text)
     LastTypingSent = Now;
     FString To;
     if (Draft.StartsWith(TEXT("/w "))) { FString Rest = Draft.Mid(3); Rest.Split(TEXT(" "), &To, nullptr); }
+    else if (ChatTab == 3) To = ActiveDm;
     Bridge->SendTyping(To);
 }
 
@@ -1698,9 +1720,9 @@ void UEidoverseHUD::OnLocalCommonsClicked() { if (Bridge) Bridge->JoinLocalCommo
 void UEidoverseHUD::OnSignInClicked() { if (Bridge) Bridge->BeginProductionLogin(); }
 void UEidoverseHUD::OnSignOutClicked() { if (Bridge) Bridge->LogoutProduction(); }
 void UEidoverseHUD::OnDisconnectClicked() { if (Bridge) Bridge->Disconnect(); }
-void UEidoverseHUD::OnChatTabAll() { ChatTab = 0; RefreshChat(); }
-void UEidoverseHUD::OnChatTabMentions() { ChatTab = 1; RefreshChat(); }
-void UEidoverseHUD::OnChatTabSystem() { ChatTab = 2; RefreshChat(); }
+void UEidoverseHUD::OnChatTabAll() { SwitchChatTab(0, FString()); }
+void UEidoverseHUD::OnChatTabMentions() { SwitchChatTab(1, FString()); }
+void UEidoverseHUD::OnChatTabSystem() { SwitchChatTab(2, FString()); }
 void UEidoverseHUD::OnHelpClose() { ToggleHelp(); }
 
 #if WITH_DEV_AUTOMATION_TESTS

@@ -118,13 +118,13 @@ bool AEidoverseBridge::HandleInteractionCommand(const FString& Text)
     {
         if (Args.IsEmpty()) { Usage(); return true; }
         const FString To = Args[0], Body = Rest.Mid(To.Len()).TrimStartAndEnd();
-        if (Body.IsEmpty()) { if (HUD) HUD->InsertIntoChat(TEXT("/w ") + To + TEXT(" "), true); return true; }
+        if (Body.IsEmpty()) { if (HUD) HUD->OpenDm(To); return true; }   // a DM tab, as chat.js
         if (!Whisper(To, Body)) Narrate(TEXT("couldn't send that whisper"));
     }
     else if (Name == TEXT("r"))
     {
         if (LastWhisperFrom.IsEmpty()) { Narrate(TEXT("nobody has whispered you yet")); return true; }
-        if (Rest.IsEmpty()) { if (HUD) HUD->InsertIntoChat(TEXT("/w ") + LastWhisperFrom + TEXT(" "), true); return true; }
+        if (Rest.IsEmpty()) { if (HUD) HUD->OpenDm(LastWhisperFrom); return true; }
         Whisper(LastWhisperFrom, Rest);
     }
     else if (Name == TEXT("name"))
@@ -384,3 +384,4 @@ bool AEidoverseBridge::PuntNearest(const FString& Named, float Power)
     if (Dist > 3.3) { Narrate(FString::Printf(TEXT("%s is too far away to kick"), *Id)); return false; }
     return PuntEntity(Id, FMath::Clamp(Power, 1.f, 10.f));
 }
+

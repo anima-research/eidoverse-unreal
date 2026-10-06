@@ -363,6 +363,7 @@ public:
     UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Eidoverse|Interaction") FString InteractionStatus;
     UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Eidoverse|Interaction") int32 ActivePhysicsObjects=0;
     UFUNCTION(BlueprintCallable, Category="Eidoverse") bool HandleInteractionCommand(const FString& Text);
+    UFUNCTION(BlueprintPure, Category="Eidoverse") TArray<FString> GetPresentIds() const { TArray<FString> Ids; Peers.GetKeys(Ids); Ids.Sort(); return Ids; }
 
     // Three.js is right-handed, UE is left-handed. Facing wire +Z, wire +X
     // must appear on the LEFT (UE -Y). An axis permutation alone mirrors views.

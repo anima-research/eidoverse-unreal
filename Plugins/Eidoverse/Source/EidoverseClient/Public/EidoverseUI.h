@@ -137,7 +137,7 @@ public:
     bool IsChatFocused() const;
     UFUNCTION(BlueprintPure, Category="Eidoverse|UI") UEidoverseFrame* GetFrame(FName Id) const { return Frames.FindRef(Id); }
     UScrollBox* GetChatLog() const { return ChatLog; }
-    FString ChatDraft() const;
+    UFUNCTION(BlueprintPure, Category="Eidoverse|UI") FString ChatDraft() const;
     void ReloadDefs();
 
 protected:
@@ -177,8 +177,38 @@ private:
     UPROPERTY() TObjectPtr<UScrollBox> ChatLog;
     UPROPERTY() TObjectPtr<UEditableTextBox> ChatInput;
     UPROPERTY() TArray<TObjectPtr<UButton>> ChatTabs;
-    int32 ChatTab = 0;  // 0 all, 1 mentions, 2 system
-    struct FLine { FString Sender, Text; bool bPrivate = false, bSystem = false, bMention = false; FDateTime At = FDateTime::Now(); };
+    int32 ChatTab = 0;  // 0 all, 1 mentions, 2 system, 3 the DM tab ActiveDm
+    // Whisper tabs (chat.js): one per conversation, unread counts, a draft per tab;
+    // Enter in one whispers that person. And the composer's / and @ autocomplete.
+    UPROPERTY() TObjectPtr<UHorizontalBox> ChatTabBar;
+    UPROPERTY() TArray<TObjectPtr<UWidget>> DmTabWidgets;
+    TArray<FString> DmTabs;
+    TMap<FString, int32> DmUnread;
+    TMap<FString, FString> Drafts;
+    FString ActiveDm;
+    void RebuildDmTabs();
+    void SwitchChatTab(int32 Tab, const FString& Dm);
+    UFUNCTION() void OnDmTabClicked();
+    UPROPERTY() TObjectPtr<UVerticalBox> AutoList;
+    TArray<TPair<FString, FString>> AutoItems;   // value inserted, help shown
+    int32 AutoIndex = 0, AutoStart = -1;
+    void UpdateAutocomplete(const FString& Draft);
+    void RefreshAutocomplete();
+    void AcceptAutocomplete();
+    UFUNCTION() void OnAutoClicked();
+public:
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void OpenDm(const FString& Name);
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void CloseDm(const FString& Name);
+    UFUNCTION(BlueprintPure, Category="Eidoverse|UI") TArray<FString> GetDmTabs() const { return DmTabs; }
+    UFUNCTION(BlueprintPure, Category="Eidoverse|UI") FString GetActiveDm() const { return ChatTab == 3 ? ActiveDm : FString(); }
+    UFUNCTION(BlueprintPure, Category="Eidoverse|UI") int32 GetDmUnread(const FString& Name) const { return DmUnread.FindRef(Name); }
+    UFUNCTION(BlueprintPure, Category="Eidoverse|UI") TArray<FString> GetAutocomplete() const;
+    UFUNCTION(BlueprintPure, Category="Eidoverse|UI") int32 GetVisibleChatLineCount() const;
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void SetChatDraft(const FString& Text);
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") bool ChatKey(const FString& KeyName);
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void SubmitChat() { SendChat(); }
+private:
+    struct FLine { FString Sender, Text; bool bPrivate = false, bSystem = false, bMention = false; FDateTime At = FDateTime::Now(); FString Peer; };
     // chat.js polish: name colours (FNV-1a over a 12-colour palette, collisions step),
     // grouping within 90 s, HH:MM, links, the unread jump, persisted recall.
     TMap<FString, int32> NameColours;

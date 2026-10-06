@@ -41,11 +41,16 @@ Specs live in the four audit reports next to this file: `ui-protocol.md`, `avata
       sky sliders, ground auto-apply, structure editor, uploads, sound/picture editors, scripts panel
 
 ## M5 Locomotion
-- [ ] traversal climb (E), mantle, vehicles/helm, flight (F), local ragdoll (R, shoves, force), bodydrag
+- [x] traversal climb (E), mantle, vehicles/helm, flight (F), local ragdoll (R, shoves, force)
+- [x] bodydrag owner half: grab/stream/release handover, nails (pinAt/unpin), pins in presence, markers
+- [ ] bodydrag dragger half (LMB on a limp body, wheel depth, P nails)
 
 ## M6 Audio
-- [ ] sound components, WebRTC SFU receive, consent/volumes, mic publish, TTS endpoints, STT
+- [x] sound components, WebRTC SFU receive, consent/volumes, mic publish (V / push-to-talk), mouths
+- [ ] TTS endpoints, STT
 
 ## M7 Polish
-- [ ] chat: name colours, timestamps, grouping, links/markdown, DM tabs, autocomplete, ↓ recall
-- [ ] toasts coalescing, photo mode, remote XR, distance LOD update rate, video settings, emote bar posture tiles
+- [x] chat: name colours, timestamps, grouping, links/markdown, ↓ recall
+- [x] chat: DM tabs, autocomplete
+- [x] toasts coalescing, photo mode, remote XR, distance LOD update rate, emote bar posture tiles
+- [ ] video settings
