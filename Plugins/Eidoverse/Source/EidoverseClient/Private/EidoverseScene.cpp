@@ -130,7 +130,7 @@ void AEidoverseScene::Apply(const TSharedPtr<FJsonObject>& Message,const FVector
         FEidoverseSceneItem Item;Item.Actor=A;Item.Revision=Revision;Item.Lib=Str(E,TEXT("lib"));Item.Kind=Str(E,TEXT("kind"));Item.Interact=Obj(E,TEXT("interact"));Item.bCollide=Str(E,TEXT("collide"))!=TEXT("none");
         // comp collision {enabled:false}: non-solid by authorship (colliders.js).
         {bool bEnabled=true;if(auto Coll=Obj(Obj(E,TEXT("data")),TEXT("collision")))if(Coll->TryGetBoolField(TEXT("enabled"),bEnabled)&&!bEnabled)Item.bCollide=false;}
-        if(auto Plan=Obj(E,TEXT("structure")))BuildStructure(A,Plan);
+        if(auto Plan=Obj(E,TEXT("structure"))){BuildStructure(A,Plan);Item.bStructure=true;}
         else if(Str(E,TEXT("kind"))==TEXT("light"))
         {
             auto* L=NewObject<UPointLightComponent>(A);A->AddInstanceComponent(L);L->SetupAttachment(R);L->SetIntensityUnits(ELightUnits::Candelas);

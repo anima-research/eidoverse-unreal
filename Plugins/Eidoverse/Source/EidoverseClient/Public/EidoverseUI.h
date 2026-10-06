@@ -257,6 +257,16 @@ private:
     void TickSeatPlacement(class APlayerController* PC, class AEidoverseScene* Scene);
     void SendSockets(const FString& Id, const TSharedPtr<FJsonObject>& Sockets, const TSharedPtr<FJsonObject>& Before);
     void SendComp(const FString& Id, const FString& Type, const TSharedPtr<FJsonObject>& Data);
+    // Structure editor (structure_ui.js over shared/structure_edit.js), EidoverseUIStructure.cpp.
+    FString StructTool, StructTarget;
+    TSharedPtr<FJsonObject> StructData;
+    int32 StructLevel = 0, StructInspectSerial = -1;
+    bool bStructDragging = false;
+    FIntPoint StructFrom = FIntPoint::ZeroValue;
+    TArray<FString> StructUndo;
+    bool TickStructure(class APlayerController* PC, class AEidoverseScene* Scene);
+    bool StructureAction(const FString& Action);
+    void AddStructureRows(const FString& Id);
     bool bGhostAimed = false;
     bool AimGhost(FVector& OutWorld) const;
     UButton* ActionButton(const FString& Text, const FString& Id, bool bPrimary = false);

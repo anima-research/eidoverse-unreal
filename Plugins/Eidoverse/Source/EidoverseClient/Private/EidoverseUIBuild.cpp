@@ -84,7 +84,7 @@ UWidget* UEidoverseHUD::BuildBuild()
         {TEXT("↺ turn"), TEXT("build:turn:15")}, {TEXT("↻ turn"), TEXT("build:turn:-15")},
         {TEXT("raise"), TEXT("build:raise:0.25")}, {TEXT("lower"), TEXT("build:raise:-0.25")},
         {TEXT("smaller"), TEXT("build:size:0.92")}, {TEXT("bigger"), TEXT("build:size:1.087")},
-        {TEXT("remove"), TEXT("build:remove")}, {TEXT("undo"), TEXT("build:undo")}};
+        {TEXT("remove"), TEXT("build:remove")}, {TEXT("undo"), TEXT("build:undo")}, {TEXT("+ new building"), TEXT("struct:new")}};
     for (const auto& B : Buttons)
     {
         UButton* Button = TextButton(B.Key);
@@ -236,7 +236,7 @@ bool UEidoverseHUD::PlaceSelected(TFunctionRef<void(FVector& Pos, double& Yaw, d
 void UEidoverseHUD::BuildAction(const FString& Action)
 {
     if (!Bridge) return;
-    if (BuildToolAction(Action)) return;
+    if (BuildToolAction(Action) || StructureAction(Action)) return;
     if (!Bridge->CanBuild()) { Toast(TEXT("You can't build in this world."), true); return; }
     AEidoverseScene* Scene = Bridge->GetScene();
     if (Action.StartsWith(TEXT("build:spawn:")))
@@ -488,6 +488,7 @@ void UEidoverseHUD::TickBuild(double Now)
         return;
     }
     // Click to select; press-and-drag moves (build.js); "attach to…" takes the next click as the parent.
+    if (TickStructure(PC, Scene)) return;
     TickSeatPlacement(PC, Scene);
     if (bArmSeat) return;
     TickDrag(PC, Scene, bShift);

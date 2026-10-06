@@ -287,7 +287,7 @@ void UEidoverseHUD::RebuildBuildExtras()
     const AEidoverseScene* Scene = Bridge->GetScene();
     const FString Id = GetSelectedEntity();
     const FEidoverseSceneItem* E = Scene && !Id.IsEmpty() ? Scene->GetItems().Find(Id) : nullptr;
-    const FString Key = E ? Id + TEXT("|") + E->Revision + (E->MountTo.IsEmpty() ? TEXT("") : TEXT("|m")) : FString();
+    const FString Key = E ? Id + TEXT("|") + E->Revision + (E->MountTo.IsEmpty() ? TEXT("") : TEXT("|m")) + StructTool + FString::FromInt(StructLevel) : FString();
     if (Key == ExtrasFor) return;
     ExtrasFor = Key;
     BuildExtras->ClearChildren();
@@ -310,6 +310,7 @@ void UEidoverseHUD::RebuildBuildExtras()
     if (E->MountTo.IsEmpty()) Add(TEXT("attach to…"), TEXT("tool:attach"), TEXT("make it ride another thing, keeping its pose"));
     else Add(TEXT("detach from ") + E->MountTo, TEXT("tool:detach"), TEXT("stop riding, staying where it is"));
     BuildExtras->AddChildToVerticalBox(Row);
+    if (E->bStructure) AddStructureRows(Id);
     // Seats (seatedit.js): each anchor with turn and remove; "+ seat" arms a click on the thing.
     {
         const TSharedPtr<FJsonObject>* Sockets = nullptr;

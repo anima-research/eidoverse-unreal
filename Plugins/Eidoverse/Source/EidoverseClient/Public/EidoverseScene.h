@@ -55,6 +55,7 @@ struct FEidoverseSceneItem
     TMap<FString,TWeakObjectPtr<UStaticMeshComponent>> PartComps;
     TSharedPtr<FJsonObject> PartMotions;      // transforms[].parts: {part: motion with t0}
     FString MountPart;                        // mounted on a socket that rides a part
+    bool bStructure=false;                    // a griddled building (structure component)
     // picture (pictures.js): an image hung on a named part's material.
     TSharedPtr<FJsonObject> Picture;
     FString PictureApplied;                   // src|lit|flip last applied
