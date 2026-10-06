@@ -40,14 +40,26 @@
 namespace
 {
     FLinearColor Hex(uint32 Rgb, float Alpha = 1) { return FLinearColor(FColor((Rgb >> 16) & 255, (Rgb >> 8) & 255, Rgb & 255)).CopyWithNewOpacity(Alpha); }
+    // stylepanel.js tokens: a chosen hex (Eidoverse.UI.Style.*) over the sheet's own value.
+    uint32 Token(const TCHAR* Name, uint32 Default)
+    {
+        static TMap<FString, IConsoleVariable*> Vars;
+        IConsoleVariable*& V = Vars.FindOrAdd(Name);
+        if (!V) V = IConsoleManager::Get().FindConsoleVariable(Name);
+        if (!V) V = IConsoleManager::Get().RegisterConsoleVariable(Name, TEXT(""), TEXT("Style token: #rrggbb, empty for the default."), ECVF_Default);
+        FString S = V->GetString().TrimStartAndEnd(); S.RemoveFromStart(TEXT("#"));
+        if (S.Len() != 6) return Default;
+        for (const TCHAR C : S) if (!FChar::IsHexDigit(C)) return Default;
+        return FParse::HexNumber(*S);
+    }
 }
-FLinearColor FEidoverseTheme::Brand() { return Hex(0x8fe8c8); }
-FLinearColor FEidoverseTheme::Attention() { return Hex(0xffc46b); }
+FLinearColor FEidoverseTheme::Brand() { return Hex(Token(TEXT("Eidoverse.UI.Style.Accent"), 0x8fe8c8)); }
+FLinearColor FEidoverseTheme::Attention() { return Hex(Token(TEXT("Eidoverse.UI.Style.Attention"), 0xffc46b)); }
 FLinearColor FEidoverseTheme::Error() { return Hex(0xff8f8f); }
-FLinearColor FEidoverseTheme::Text() { return Hex(0xebebe9); }
+FLinearColor FEidoverseTheme::Text() { return Hex(Token(TEXT("Eidoverse.UI.Style.Text"), 0xebebe9)); }
 FLinearColor FEidoverseTheme::Dim() { return Hex(0x97979b); }
 FLinearColor FEidoverseTheme::Icon() { return FMath::Lerp(Hex(0xc2c2c6), Brand(), .55f); }
-FLinearColor FEidoverseTheme::Panel() { return Hex(0x051414, EidoSettings::PanelOpacity()); }
+FLinearColor FEidoverseTheme::Panel() { return Hex(Token(TEXT("Eidoverse.UI.Style.Panel"), 0x051414), EidoSettings::PanelOpacity()); }
 FLinearColor FEidoverseTheme::Chip() { return FLinearColor(0, 0, 0, .62f); }
 FLinearColor FEidoverseTheme::Well() { return FLinearColor(0, 0, 0, .4f); }
 FLinearColor FEidoverseTheme::Edge() { return FLinearColor(1, 1, 1, .10f); }
@@ -757,6 +769,26 @@ UWidget* UEidoverseHUD::BuildSettings()
     Row(TEXT("Panel opacity"), "opacity", {{TEXT("−"), "set:opacity-"}, {TEXT("+"), "set:opacity+"}});
     Row(TEXT("Names over people"), "plates", {{TEXT("toggle"), "set:plates"}});
     Row(TEXT("Chat bubbles"), "bubbles", {{TEXT("toggle"), "set:bubbles"}});
+    Section(TEXT("Style"));
+    // stylepanel.js swatches: a caption + current value, then the choices wrapping below.
+    auto Swatches = [&](const TCHAR* Name, FName Key, std::initializer_list<TPair<const TCHAR*, const char*>> Choices)
+    {
+        Row(Name, Key, {});
+        auto* Wrap = WidgetTree->ConstructWidget<UWrapBox>();
+        Wrap->SetInnerSlotPadding(FVector2D(4, 4));
+        for (const auto& C : Choices)
+        {
+            auto* Button = TextButton(C.Key);
+            Button->OnClicked.AddDynamic(this, &UEidoverseHUD::OnSettingClicked);
+            ButtonIds.Add(Button, FName(C.Value));
+            Wrap->AddChildToWrapBox(Button);
+        }
+        Column->AddChildToVerticalBox(Wrap)->SetPadding(FMargin(0, 0, 0, 4));
+    };
+    Swatches(TEXT("Accent"), "st-accent", {{TEXT("seafoam"), "style:Accent:"}, {TEXT("sky"), "style:Accent:8fc8ff"}, {TEXT("rose"), "style:Accent:ff9fc8"}, {TEXT("gold"), "style:Accent:f5c96b"}, {TEXT("violet"), "style:Accent:c8a8ff"}});
+    Swatches(TEXT("Attention"), "st-attn", {{TEXT("amber"), "style:Attention:"}, {TEXT("coral"), "style:Attention:ff9b7a"}, {TEXT("lemon"), "style:Attention:f2e27a"}});
+    Swatches(TEXT("Text"), "st-text", {{TEXT("default"), "style:Text:"}, {TEXT("warm"), "style:Text:f3e9d8"}, {TEXT("cool"), "style:Text:e4eef5"}});
+    Swatches(TEXT("Panel"), "st-panel", {{TEXT("teal"), "style:Panel:"}, {TEXT("slate"), "style:Panel:10141c"}, {TEXT("ink"), "style:Panel:000000"}, {TEXT("plum"), "style:Panel:160d1a"}});
     Section(TEXT("Chat"));
     Row(TEXT("Chat text size"), "chatsize", {{TEXT("−"), "set:cs-"}, {TEXT("+"), "set:cs+"}});
     Row(TEXT("Markdown (**bold**, *italic*, `code`)"), "chatmd", {{TEXT("toggle"), "set:md"}});
@@ -818,6 +850,15 @@ void UEidoverseHUD::RefreshSettings()
     { IConsoleVariable* V = IConsoleManager::Get().FindConsoleVariable(TEXT("Eidoverse.Chat.TextSize")); Put("chatsize", V ? FString::FromInt(V->GetInt()) : FString(TEXT("11"))); }
     { IConsoleVariable* V = IConsoleManager::Get().FindConsoleVariable(TEXT("Eidoverse.Chat.Markdown")); Put("chatmd", !V || V->GetInt() ? TEXT("on") : TEXT("off")); }
     Put("tts", Bridge && Bridge->IsTtsOn() ? TEXT("on") : TEXT("off"));
+    {
+        auto Tok = [](const TCHAR* N) { const IConsoleVariable* V = IConsoleManager::Get().FindConsoleVariable(N); return V ? V->GetString() : FString(); };
+        auto Name = [](const FString& Hex, std::initializer_list<TPair<const TCHAR*, const TCHAR*>> Names, const TCHAR* Default)
+        { for (const auto& P : Names) if (Hex.Equals(P.Key, ESearchCase::IgnoreCase)) return FString(P.Value); return Hex.IsEmpty() ? FString(Default) : TEXT("#") + Hex; };
+        Put("st-accent", Name(Tok(TEXT("Eidoverse.UI.Style.Accent")), {{TEXT("8fc8ff"), TEXT("sky")}, {TEXT("ff9fc8"), TEXT("rose")}, {TEXT("f5c96b"), TEXT("gold")}, {TEXT("c8a8ff"), TEXT("violet")}}, TEXT("seafoam")));
+        Put("st-attn", Name(Tok(TEXT("Eidoverse.UI.Style.Attention")), {{TEXT("ff9b7a"), TEXT("coral")}, {TEXT("f2e27a"), TEXT("lemon")}}, TEXT("amber")));
+        Put("st-text", Name(Tok(TEXT("Eidoverse.UI.Style.Text")), {{TEXT("f3e9d8"), TEXT("warm")}, {TEXT("e4eef5"), TEXT("cool")}}, TEXT("default")));
+        Put("st-panel", Name(Tok(TEXT("Eidoverse.UI.Style.Panel")), {{TEXT("10141c"), TEXT("slate")}, {TEXT("000000"), TEXT("ink")}, {TEXT("160d1a"), TEXT("plum")}}, TEXT("teal")));
+    }
     { IConsoleVariable* V = IConsoleManager::Get().FindConsoleVariable(TEXT("Eidoverse.Audio.SttConsent")); Put("stt", V && V->GetInt() == 1 ? (Bridge && Bridge->IsSttRunning() ? TEXT("listening") : TEXT("on")) : TEXT("off")); }
     const int32 Level = GEngine && GEngine->GetGameUserSettings() ? GEngine->GetGameUserSettings()->GetOverallScalabilityLevel() : -1;
     const TCHAR* Names[] = {TEXT("low"), TEXT("medium"), TEXT("high"), TEXT("epic"), TEXT("cinematic")};
@@ -863,6 +904,19 @@ void UEidoverseHUD::OnSettingClicked()
     { IConsoleVariable* V = IConsoleManager::Get().FindConsoleVariable(TEXT("Eidoverse.Chat.TextSize")); if (V) { V->Set(FMath::Clamp(V->GetInt() + (Id.EndsWith(TEXT("+")) ? 1 : -1), 9, 20), ECVF_SetByGameSetting); RefreshChat(); } }
     else if (Id == TEXT("set:md"))
     { IConsoleVariable* V = IConsoleManager::Get().RegisterConsoleVariable(TEXT("Eidoverse.Chat.Markdown"), 1, TEXT("Render **bold**, *italic*, `code` in chat."), ECVF_Default); V->Set(V->GetInt() ? 0 : 1, ECVF_SetByGameSetting); RefreshChat(); }
+    else if (Id.StartsWith(TEXT("style:")))
+    {
+        // style:<Token>:<hex or empty> — saved, then the interface rebuilds in the new colours.
+        TArray<FString> P; Id.ParseIntoArray(P, TEXT(":"), false);
+        if (P.Num() >= 2 && Bridge)
+        {
+            const FString Var = TEXT("Eidoverse.UI.Style.") + P[1];
+            if (!IConsoleManager::Get().FindConsoleVariable(*Var)) IConsoleManager::Get().RegisterConsoleVariable(*Var, TEXT(""), TEXT("Style token"), ECVF_Default);
+            EidoSettings::Set(*Var, P.Num() > 2 ? P[2] : FString());
+            Bridge->RebuildHUD();
+            return;
+        }
+    }
     else if (Id == TEXT("set:tts")) { if (Bridge) Bridge->SetTtsEnabled(!Bridge->IsTtsOn()); }
     else if (Id == TEXT("set:hear")) { if (Bridge) Bridge->SetHearVoices(!EidoSettings::HearVoices()); }
     else if (Id == TEXT("set:ptt") || Id == TEXT("set:vpio") || Id.StartsWith(TEXT("set:floor")))

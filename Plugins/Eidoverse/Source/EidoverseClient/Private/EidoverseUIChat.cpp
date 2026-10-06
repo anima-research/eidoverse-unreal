@@ -264,3 +264,10 @@ UWidget* UEidoverseHUD::ChatTextWidget(const FString& Text, int32 Size, const FL
     R->SetText(FText::FromString(ChatMarkup(Text)));
     return R;
 }
+
+void UEidoverseHUD::AdoptFrom(const UEidoverseHUD* Old)
+{
+    if (!Old) return;
+    Lines = Old->Lines; DmTabs = Old->DmTabs; DmUnread = Old->DmUnread; Drafts = Old->Drafts; SentHistory = Old->SentHistory;
+    RebuildDmTabs(); RefreshChat();
+}

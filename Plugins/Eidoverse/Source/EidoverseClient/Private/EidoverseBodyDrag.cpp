@@ -230,3 +230,17 @@ void AEidoverseBridge::TickDebugOverlay()
     if (HeldBody.IsValid()) Draw(*HeldBody->Rd);
     if (HUD) HUD->Hint(DebugStats(), .3f);
 }
+
+void AEidoverseBridge::RebuildHUD()
+{
+    APlayerController* PC = UGameplayStatics::GetPlayerController(this, 0);
+    if (!HUD || !PC) return;
+    UEidoverseHUD* Old = HUD;
+    const bool bPointer = Old->IsPointerMode();
+    Old->RemoveFromParent();
+    HUD = CreateWidget<UEidoverseHUD>(PC, HUDClass ? HUDClass.Get() : UEidoverseHUD::StaticClass());
+    HUD->Bridge = this; HUD->AddToViewport(20);
+    HUD->AdoptFrom(Old);
+    HUD->SetPointerMode(bPointer);
+    HUD->ShowFrame(TEXT("settings"), true);
+}

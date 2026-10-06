@@ -293,6 +293,8 @@ public:
     // the ragdoll joints, and a stats line.
     bool bDebugOverlay=false;
     UFUNCTION(BlueprintCallable,Category="Eidoverse") void ToggleDebugOverlay();
+    // Rebuild the interface (new style tokens), carrying chat and DM state across.
+    UFUNCTION(BlueprintCallable,Category="Eidoverse") void RebuildHUD();
     UFUNCTION(BlueprintPure,Category="Eidoverse") FString DebugStats() const;
     void TickDebugOverlay();
     UPROPERTY(Transient) TObjectPtr<class UMaterialParameterCollection> FloraCollection;

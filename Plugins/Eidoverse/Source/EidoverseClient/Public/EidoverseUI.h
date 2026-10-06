@@ -226,6 +226,7 @@ public:
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void DoorEnter() { OnDoorJoin(); }
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void SetRailPinned(FName Id, bool bPinned);
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void SetRailRight(bool bRight);
+    void AdoptFrom(const UEidoverseHUD* Old);   // chat lines, DM tabs, recall across a rebuild
     UFUNCTION(BlueprintPure, Category="Eidoverse|UI") int32 GetRailVisibleCount() const;
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void SetDoorFields(const FString& Server, const FString& World, const FString& Name);
     // Chat markdown (chat.js CH-E): **b**, *i* / _i_, `code` on a rich text block.

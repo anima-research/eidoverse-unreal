@@ -24,11 +24,13 @@ namespace
     TAutoConsoleVariable<int32> CVarShadows(TEXT("Eidoverse.Video.Shadows"), 2048, TEXT("Sun shadows: 0 off, else 1024 / 2048 / 4096."));
     TAutoConsoleVariable<int32> CVarParticles(TEXT("Eidoverse.Video.Particles"), 0, TEXT("Particles: 0 auto (full), 1 med (half), 2 low (quarter); new emitters."));
     TAutoConsoleVariable<int32> CVarAvatarDetail(TEXT("Eidoverse.Video.AvatarDetail"), 0, TEXT("Far bodies' animation rate: 0 auto, 1 full, 2 half, 3 low."));
+    struct FStyleVars { FStyleVars() { for (const TCHAR* N : {TEXT("Eidoverse.UI.Style.Accent"), TEXT("Eidoverse.UI.Style.Attention"), TEXT("Eidoverse.UI.Style.Text"), TEXT("Eidoverse.UI.Style.Panel")})
+        if (!IConsoleManager::Get().FindConsoleVariable(N)) IConsoleManager::Get().RegisterConsoleVariable(N, TEXT(""), TEXT("Style token: #rrggbb, empty for the default."), ECVF_Default); } } StyleVars;
     const TCHAR* Section = TEXT("/Script/EidoverseClient.Settings");
     const TCHAR* Names[] = {TEXT("Eidoverse.Look.Sensitivity"), TEXT("Eidoverse.Look.InvertY"), TEXT("Eidoverse.UI.Nameplates"),
                             TEXT("Eidoverse.UI.Bubbles"), TEXT("Eidoverse.UI.PanelOpacity"), TEXT("Eidoverse.UI.Scale"), TEXT("Eidoverse.World.Lumen"),
                             TEXT("Eidoverse.Consent.Posable"), TEXT("Eidoverse.Consent.Pushable"), TEXT("Eidoverse.Audio.World"), TEXT("Eidoverse.Audio.Voices"),
-                            TEXT("Eidoverse.Audio.HearVoices"), TEXT("Eidoverse.Audio.MicFloor"), TEXT("Eidoverse.Audio.PushToTalk"), TEXT("Eidoverse.Audio.VoiceProcessing"), TEXT("Eidoverse.Audio.Tts"), TEXT("Eidoverse.Audio.TtsEndpoint"), TEXT("Eidoverse.Audio.TtsVolume"), TEXT("Eidoverse.Audio.SttConsent"),
+                            TEXT("Eidoverse.Audio.HearVoices"), TEXT("Eidoverse.Audio.MicFloor"), TEXT("Eidoverse.Audio.PushToTalk"), TEXT("Eidoverse.Audio.VoiceProcessing"), TEXT("Eidoverse.Audio.Tts"), TEXT("Eidoverse.Audio.TtsEndpoint"), TEXT("Eidoverse.Audio.TtsVolume"), TEXT("Eidoverse.Audio.SttConsent"), TEXT("Eidoverse.UI.Style.Accent"), TEXT("Eidoverse.UI.Style.Attention"), TEXT("Eidoverse.UI.Style.Text"), TEXT("Eidoverse.UI.Style.Panel"),
                             TEXT("Eidoverse.Video.RenderScale"), TEXT("Eidoverse.Video.Shadows"), TEXT("Eidoverse.Video.Particles"), TEXT("Eidoverse.Video.AvatarDetail")};
 }
 

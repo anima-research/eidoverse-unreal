@@ -8,9 +8,9 @@ held poses, remote and local ragdoll, bodydrag (both halves, nails), flight, cli
 reach, wings, sky/fog/weather surfaces, parts/pictures/particles/sounds, residency, flora
 pushers and keep(d), build tools (lights, drag, lock/guard, seat gizmos, structure editor with
 preview, inspector fields, scene Find), voice (WebRTC SFU), TTS endpoints, STT (built; needs
-an authorized run), front door roster and key, video settings, frames resize/snap, F3 overlay.
+an authorized run), front door roster and key, video settings, frames resize/snap, F3 overlay, rail pins/edge, style tokens.
 
-Open: flora local placement past the server's 12k cap and real species meshes; the rail's
+Open: flora local placement past the server's 12k cap and real species meshes;
 pin/edge-drag and style tokens; STT verified by ear.
 
 Tests: `Automation RunTests Eidoverse` (all pass; VoiceLoopback needs an SFU preview on 8994),
