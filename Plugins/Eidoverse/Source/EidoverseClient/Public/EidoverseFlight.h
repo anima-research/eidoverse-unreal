@@ -127,6 +127,8 @@ namespace EidoFlight
      *  impossible ranges. Returns false and fills OutError ("flight config: ...") on reject. */
     EIDOVERSECLIENT_API bool MakeConfig(const TSharedPtr<FJsonObject>& Over, FConfig& Out, FString* OutError = nullptr);
     inline FConfig MakeConfig() { return FConfig(); }
+    /** The effective config as JSON with flight.js key names (diagnostics, conformance). */
+    EIDOVERSECLIENT_API TSharedPtr<FJsonObject> ConfigToJson(const FConfig& Cfg);
 
     // ---------------------------------------------------------------- polar
     /** Sink rate (m/s, positive = descending), airspeed clamped to [minSpeed, maxSpeed]. */
@@ -160,7 +162,7 @@ namespace EidoFlight
     /** One emitted event ({t, kind, ...} in the JS). Optional payload fields are named in
      *  Values (altitude, impactV, impactSpeed, entrySink, beatWait, total, radius) and
      *  Strings (reason, eventId, recoveryGeneration). */
-    struct FEvent
+    struct FFlightEvent
     {
         double T = 0;
         FString Kind;
@@ -193,7 +195,7 @@ namespace EidoFlight
         TOptional<FString> DownEventId;
         TOptional<FString> RecoveryGeneration;
         bool bBoundNote = false, bCeilNote = false;   // _boundNote/_ceilNote: R3 events once per excursion
-        TArray<FEvent> Events;             // emitted this step; caller drains
+        TArray<FFlightEvent> Events;             // emitted this step; caller drains
     };
 
     /** initialState(over, cfg): a fresh GROUND state; the stamina pool comes from the
@@ -315,16 +317,18 @@ namespace EidoFlight
         bool bEnded = false;       // drop the flight state; walking resumes (grounded, vy = 0)
         FString EndReason;         // "landed" | "ground" | "ragdoll" | "released" (phase was GROUND) | "" ; see Hint
         TOptional<FFlightEnd> End; // lastFlightEnd, for FlightReport
+        bool bEarlyEnd = false;    // ended before 1.5 s of flight: a bug reporting itself (Hint carries the numbers)
         FString Hint;              // flashHint text when the controller shows one (revoked, early landing, released)
-        TArray<FEvent> Events;     // the step's events, plus a capability-revoked bodyDown's
+        TArray<FFlightEvent> Events;     // the step's events, plus a capability-revoked bodyDown's
     };
     /** One frame of controller.js's flight branch: GROUND-state release, a withdrawn grant
-     *  hands the body to the leaf (bStillGranted false -> bodyDown 'capability-revoked'),
+     *  hands the body to the leaf (StillGranted re-resolved this frame and denied -> bodyDown
+     *  'capability-revoked'; nullptr = still granted),
      *  pilotInput -> step with the ground -> pose/clip/effort -> end on LANDED/GROUND/RAGDOLL.
      *  GroundY is the floor under the flier (the JS probes at the flier's altitude). Swimming
      *  cancels flight in the client: the caller drops the state when it enters swimming. */
-    EIDOVERSECLIENT_API FFrameResult TickFlight(const FConfig& Cfg, FState& State, const FPilotInput& Keys, double Dt, double GroundY, bool bStillGranted = true);
-    EIDOVERSECLIENT_API FFrameResult TickFlight(const FConfig& Cfg, FState& State, const FPilotInput& Keys, double Dt, TFunction<double(double X, double Z)> GroundAt, bool bStillGranted = true);
+    EIDOVERSECLIENT_API FFrameResult TickFlight(const FConfig& Cfg, FState& State, const FPilotInput& Keys, double Dt, double GroundY, const FVerdict* StillGranted = nullptr);
+    EIDOVERSECLIENT_API FFrameResult TickFlight(const FConfig& Cfg, FState& State, const FPilotInput& Keys, double Dt, TFunction<double(double X, double Z)> GroundAt, const FVerdict* StillGranted = nullptr);
 
     /** flightReport(): the /flight diagnostic, line for line. Flight null = not flying;
      *  GroundHere is the floor under the flier (ignored when not flying). */

@@ -218,6 +218,9 @@ public:
     void SetWings(bool bFolded, float Effort) { bWingsFoldedWant = bFolded; WingEffortWant = Effort; }
     bool CanFoldWings() const { return bCanFoldWings; }
     bool HasWings() const { return !Wings.IsEmpty(); }
+    // Remote VR bodies (xrbody.js applyRemoteXR): head relative to the facing frame (glTF
+    // quaternion), finger curls [lIndex,lGrip,rIndex,rGrip]; hands are solved by the bridge.
+    void SetXR(bool bOn, const FQuat& HeadRel, const FVector4f& Curls) { bXR=bOn; XRHead=HeadRel; XRCurls=Curls; }
     // Per-frame interpolated pose (normalized rotations), applied immediately.
     void SetHeldPoseDirect(const TMap<FName,FQuat>& Pose);
     // Expression weights for this frame (0..1), applied with the pose (blend shapes).
@@ -236,6 +239,7 @@ private:
     FVector GazeGoal=FVector::ZeroVector, GazePoint=FVector::ZeroVector; bool bGazeTarget=false, bGazeInit=false;
     double SpeakingUntil=0, NextBlink=0, BlinkStart=-1;
     bool bEyesHeld=false, bEyesHeldBeforeLimp=false, bLimp=false; float LidHold=0;
+    bool bXR=false; FQuat XRHead=FQuat::Identity; FVector4f XRCurls=FVector4f(0,0,0,0); FVector XRLook=FVector::ZeroVector;
     struct FWing { int32 Bone=INDEX_NONE; FName Name; float Side=1; bool bLower=false; int32 Depth=0; FQuat From=FQuat::Identity; };
     TArray<FWing> Wings;
     int32 WingRef=INDEX_NONE;

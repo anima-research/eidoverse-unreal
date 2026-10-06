@@ -89,6 +89,7 @@ struct FEidoversePeer
     double SpeakingUntil=0;
     FString Presence=TEXT("present");
     bool bWingsFolded=false;
+    TSharedPtr<FJsonObject> XR;   // pose.xr: VR head, grips, curls (rendered, never sent by this client)
     // Reach easing (12/s in and out), last targets for easing out, and narration state.
     TMap<FName,float> ReachWeight;
     TMap<FName,FVector> ReachLastTarget;

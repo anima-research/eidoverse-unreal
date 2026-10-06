@@ -157,6 +157,30 @@ void AEidoverseBridge::TickReaches()
         }
     };
     for (auto& Pair : Peers) Solve(Pair.Value, Pair.Value.Reach, false);
+    // VR grips (xrbody.js): hands to their root-relative positions unless an emote plays.
+    for (auto& Pair : Peers)
+    {
+        FEidoversePeer& P = Pair.Value; UEidoverseAvatarMesh* M = P.AvatarMesh.Get();
+        if (!M) continue;
+        const TArray<TSharedPtr<FJsonValue>>* H = nullptr;
+        const bool bXR = P.XR && P.XR->TryGetArrayField(TEXT("h"), H) && H->Num() == 4;
+        FVector4f Curls(0, 0, 0, 0);
+        if (bXR)
+        {
+            const TArray<TSharedPtr<FJsonValue>>* C = nullptr;
+            if (P.XR->TryGetArrayField(TEXT("c"), C) && C->Num() == 4) Curls = FVector4f((*C)[0]->AsNumber(), (*C)[1]->AsNumber(), (*C)[2]->AsNumber(), (*C)[3]->AsNumber());
+            M->SetXR(true, FQuat((*H)[0]->AsNumber(), (*H)[1]->AsNumber(), (*H)[2]->AsNumber(), (*H)[3]->AsNumber()).GetNormalized(), Curls);
+            if (M->HasOneShot() || !P.Actor.IsValid()) continue;
+            for (const TPair<const TCHAR*, const TCHAR*>& S : {TPair<const TCHAR*, const TCHAR*>{TEXT("l"), TEXT("leftHand")}, {TEXT("r"), TEXT("rightHand")}})
+            {
+                const TArray<TSharedPtr<FJsonValue>>* G = nullptr;
+                if (!P.XR->TryGetArrayField(S.Key, G) || G->Num() != 7) continue;
+                const FVector Local((*G)[0]->AsNumber(), (*G)[1]->AsNumber(), (*G)[2]->AsNumber());
+                M->SolveReachWeighted(FName(S.Value), P.Actor->GetActorTransform().TransformPosition(FromWirePosition(Local)), 1);
+            }
+        }
+        else M->SetXR(false, FQuat::Identity, Curls);
+    }
     if (LocalReach || !SelfBody.ReachWeight.IsEmpty()) Solve(SelfBody, LocalReach, true);
     // Narrate reaches aimed at me (reachnet.js diffReach), 10 s quiet per (who, limb).
     for (auto& Pair : Peers)

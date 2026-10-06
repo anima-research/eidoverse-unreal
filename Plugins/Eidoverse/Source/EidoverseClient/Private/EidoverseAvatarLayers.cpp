@@ -172,6 +172,46 @@ void UEidoverseAvatarMesh::ApplyNormalizedLayers(TMap<FName, FQuat>& Normalized,
     }
     AnimLayers.RemoveAll([](const FAnimLayer& L) { return L.Want <= 0 && L.Weight < .02f; });
 
+    // A VR body: the head's look spread down the chain (replacing the clip there), fingers curled.
+    if (bXR)
+    {
+        // three.js Euler 'YXZ' from the head quaternion.
+        const FQuat& Q = XRHead;
+        const double M13 = 2 * (Q.X * Q.Z + Q.W * Q.Y), M23 = 2 * (Q.Y * Q.Z - Q.W * Q.X), M33 = 1 - 2 * (Q.X * Q.X + Q.Y * Q.Y);
+        const double M21 = 2 * (Q.X * Q.Y + Q.W * Q.Z), M22 = 1 - 2 * (Q.X * Q.X + Q.Z * Q.Z), M31 = 2 * (Q.X * Q.Z - Q.W * Q.Y), M11 = 1 - 2 * (Q.Y * Q.Y + Q.Z * Q.Z);
+        const double Ex = FMath::Asin(-FMath::Clamp(M23, -1., 1.));
+        const double Ey = FMath::Abs(M23) < .9999999 ? FMath::Atan2(M13, M33) : FMath::Atan2(-M31, M11);
+        const double Ez = FMath::Abs(M23) < .9999999 ? FMath::Atan2(M21, M22) : 0;
+        const double Pitch = FMath::Clamp(Ex, -.7, .7), Roll = FMath::Clamp(Ez, -.5, .5);
+        const float S = Dt > 0 ? FMath::Min(1.f, Dt * 9) : .5f;
+        XRLook.X += (Pitch - XRLook.X) * S; XRLook.Y += (Ey - XRLook.Y) * S; XRLook.Z += (Roll - XRLook.Z) * S;
+        const double YawFade = FMath::Max(0., FMath::Cos(XRLook.X));
+        static const TCHAR* Chain[] = {TEXT("spine"), TEXT("chest"), TEXT("upperChest"), TEXT("neck"), TEXT("head")};
+        static const double WY[] = {.12, .12, .16, .25, .35}, WP[] = {.10, .12, .16, .26, .36}, WR[] = {.08, .10, .14, .28, .40};
+        double SY = 0, SP = 0, SR = 0;
+        for (int32 I = 0; I < 5; ++I) if (Normalized.Contains(FName(Chain[I]))) { SY += WY[I]; SP += WP[I]; SR += WR[I]; }
+        auto FromYXZ = [](double X, double Y, double Z)
+        {
+            const double C1 = FMath::Cos(X / 2), C2 = FMath::Cos(Y / 2), C3 = FMath::Cos(Z / 2), S1 = FMath::Sin(X / 2), S2 = FMath::Sin(Y / 2), S3 = FMath::Sin(Z / 2);
+            return FQuat(S1 * C2 * C3 + C1 * S2 * S3, C1 * S2 * C3 - S1 * C2 * S3, C1 * C2 * S3 - S1 * S2 * C3, C1 * C2 * C3 + S1 * S2 * S3);
+        };
+        for (int32 I = 0; I < 5; ++I)
+            if (FQuat* B = Normalized.Find(FName(Chain[I])))
+                *B = FromYXZ(XRLook.X * WP[I] / FMath::Max(SP, 1e-6), XRLook.Y * WY[I] / FMath::Max(SY, 1e-6) * YawFade, XRLook.Z * WR[I] / FMath::Max(SR, 1e-6));
+        // Curls: distal 1.22 / 1.57 / 0.96 rad for a full fist, handed sign, onto the clip's pose.
+        static const double Curl[] = {1.22, 1.57, .96};
+        for (const TCHAR* Side : {TEXT("left"), TEXT("right")})
+        {
+            const bool bLeft = Side[0] == 'l'; const double Sgn = bLeft ? -1 : 1;
+            for (const TPair<const TCHAR*, int32>& F : {TPair<const TCHAR*, int32>{TEXT("Index"), 0}, {TEXT("Middle"), 1}, {TEXT("Ring"), 1}, {TEXT("Little"), 1}})
+            {
+                const float Amt = FMath::Clamp(bLeft ? (F.Value ? XRCurls.Y : XRCurls.X) : (F.Value ? XRCurls.W : XRCurls.Z), 0.f, 1.f);
+                const TCHAR* Segs[] = {TEXT("Proximal"), TEXT("Intermediate"), TEXT("Distal")};
+                for (int32 I = 0; I < 3; ++I)
+                    if (FQuat* B = Normalized.Find(FName(FString(Side) + F.Key + Segs[I]))) *B = (*B * FQuat(FVector(0, 0, 1), Sgn * Curl[I] * Amt)).GetNormalized();
+            }
+        }
+    }
     // Gaze point: eases toward its target, or drifts 1.5 m up and 3 m ahead.
     if (const AActor* Owner = GetOwner())
     {

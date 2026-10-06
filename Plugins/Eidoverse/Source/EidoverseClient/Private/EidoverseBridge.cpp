@@ -547,6 +547,7 @@ void AEidoverseBridge::Pose(const FString& Id,const TSharedPtr<FJsonObject>& Dat
         Peer->ClipRate=Data->TryGetNumberField(TEXT("clipRate"),ClipRate)&&FMath::IsFinite(ClipRate)&&ClipRate>0&&ClipRate<=3.2?float(ClipRate):0.f;
     }
     {bool bFold=false;if(Data->TryGetBoolField(TEXT("wingsFolded"),bFold))Peer->bWingsFolded=bFold;}
+    {const TSharedPtr<FJsonObject>* X=nullptr;Peer->XR=Data->TryGetObjectField(TEXT("xr"),X)?*X:nullptr;}
     {const FString Presence=Eido::String(Data,TEXT("presence"));if(Presence==TEXT("present")||Presence==TEXT("away")||Presence==TEXT("busy"))Peer->Presence=Presence;}
     // Head pitch and a held pose (sent on every packet once set; null clears).
     {
