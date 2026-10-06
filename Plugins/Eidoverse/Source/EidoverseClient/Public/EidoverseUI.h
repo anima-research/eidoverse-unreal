@@ -74,6 +74,7 @@ private:
     UFUNCTION() void HandleClose();
     UPROPERTY() TObjectPtr<class USizeBox> SizeBox;
     enum class EDrag : uint8 { None, Move, Resize } Drag = EDrag::None;
+    uint8 ResizeEdges = 0;   // 1 left, 2 right, 4 top, 8 bottom (frames.js: 8 zones)
     FVector2D DragMouse = FVector2D::ZeroVector, DragPosition = FVector2D::ZeroVector, DragSize = FVector2D::ZeroVector;
     bool MakeTopLeft();
     FVector2D CanvasPoint(const FPointerEvent& Event) const;

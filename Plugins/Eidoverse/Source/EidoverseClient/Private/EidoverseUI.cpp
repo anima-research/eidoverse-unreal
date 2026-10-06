@@ -241,9 +241,17 @@ FReply UEidoverseFrame::NativeOnMouseButtonDown(const FGeometry& Geometry, const
 {
     if (bLocked || Event.GetEffectingButton() != EKeys::LeftMouseButton || !MakeTopLeft()) return Super::NativeOnMouseButtonDown(Geometry, Event);
     const FVector2D Local = Geometry.AbsoluteToLocal(Event.GetScreenSpacePosition()), Extent = Geometry.GetLocalSize();
-    if (Local.X > Extent.X - ResizeCorner && Local.Y > Extent.Y - ResizeCorner) Drag = EDrag::Resize;
-    else if (Local.Y < FrameHeader) Drag = EDrag::Move;
-    else return Super::NativeOnMouseButtonDown(Geometry, Event);
+    // frames.js: resize from any edge (6 px) or corner (12 px); move from the title, from
+    // empty panel area (clicks no control took), or from anywhere with Alt held.
+    const float Edge = 6, Corner = 12;
+    const bool bL = Local.X < Edge || (Local.X < Corner && (Local.Y < Corner || Local.Y > Extent.Y - Corner));
+    const bool bR = Local.X > Extent.X - Edge || (Local.X > Extent.X - Corner && (Local.Y < Corner || Local.Y > Extent.Y - Corner));
+    const bool bT = Local.Y < 4 || (Local.Y < Corner && (Local.X < Corner || Local.X > Extent.X - Corner));
+    const bool bB = Local.Y > Extent.Y - Edge || (Local.Y > Extent.Y - Corner && (Local.X < Corner || Local.X > Extent.X - Corner));
+    ResizeEdges = (bL ? 1 : 0) | (bR ? 2 : 0) | (bT ? 4 : 0) | (bB ? 8 : 0);
+    if (Local.X > Extent.X - ResizeCorner && Local.Y > Extent.Y - ResizeCorner) ResizeEdges = 2 | 8;
+    if (ResizeEdges && !Event.IsAltDown()) Drag = EDrag::Resize;
+    else Drag = EDrag::Move;
     DragMouse = CanvasPoint(Event);
     DragPosition = Cast<UCanvasPanelSlot>(Slot)->GetPosition();
     DragSize = PanelSize;
@@ -259,6 +267,30 @@ FReply UEidoverseFrame::NativeOnMouseMove(const FGeometry& Geometry, const FPoin
     {
         const FVector2D Extent = GetCachedGeometry().GetLocalSize();
         FVector2D P = DragPosition + Delta;
+        // Snap 11 px to the screen's edges and to other open frames' edges (frames.js).
+        if (const UPanelWidget* Parent = GetParent())
+        {
+            TArray<double> Xs = {0, Bounds.X}, Ys = {0, Bounds.Y};
+            for (int32 I = 0; I < Parent->GetChildrenCount(); ++I)
+            {
+                const auto* F = Cast<UEidoverseFrame>(Parent->GetChildAt(I));
+                FVector2D FP, FS;
+                if (!F || F == this || !F->IsVisible() || !F->GetLayout(FP, FS)) continue;
+                const FVector2D FE = F->GetCachedGeometry().GetLocalSize();
+                Xs.Append({FP.X, FP.X + FE.X}); Ys.Append({FP.Y, FP.Y + FE.Y});
+            }
+            auto Snap = [](double V, double Size, const TArray<double>& Lines)
+            {
+                double Best = 11, Out = V;
+                for (const double L : Lines)
+                {
+                    if (FMath::Abs(V - L) < Best) { Best = FMath::Abs(V - L); Out = L; }
+                    if (FMath::Abs(V + Size - L) < Best) { Best = FMath::Abs(V + Size - L); Out = L - Size; }
+                }
+                return Out;
+            };
+            P.X = Snap(P.X, Extent.X, Xs); P.Y = Snap(P.Y, Extent.Y, Ys);
+        }
         // Keep the title reachable: never fully off screen.
         P.X = FMath::Clamp(P.X, 40 - Extent.X, Bounds.X - 40);
         P.Y = FMath::Clamp(P.Y, 0.0, Bounds.Y - FrameHeader);
@@ -266,9 +298,15 @@ FReply UEidoverseFrame::NativeOnMouseMove(const FGeometry& Geometry, const FPoin
     }
     else
     {
-        const FVector2D Max = Bounds - DragPosition - FVector2D(0, FrameHeader);
-        SetLayout(DragPosition, FVector2D(FMath::Clamp(DragSize.X + Delta.X, MinFrame.X, FMath::Max(MinFrame.X, Max.X)),
-                                          FMath::Clamp(DragSize.Y + Delta.Y, MinFrame.Y, FMath::Max(MinFrame.Y, Max.Y))));
+        // Each grabbed edge follows the mouse; the opposite edge stays put.
+        FVector2D Pos = DragPosition, Size = DragSize;
+        if (ResizeEdges & 2) Size.X = DragSize.X + Delta.X;
+        if (ResizeEdges & 8) Size.Y = DragSize.Y + Delta.Y;
+        if (ResizeEdges & 1) { Size.X = DragSize.X - Delta.X; Size.X = FMath::Max(Size.X, MinFrame.X); Pos.X = DragPosition.X + DragSize.X - Size.X; }
+        if (ResizeEdges & 4) { Size.Y = DragSize.Y - Delta.Y; Size.Y = FMath::Max(Size.Y, MinFrame.Y); Pos.Y = DragPosition.Y + DragSize.Y - Size.Y; }
+        Pos.X = FMath::Max(0.0, Pos.X); Pos.Y = FMath::Max(0.0, Pos.Y);
+        const FVector2D Max = Bounds - Pos - FVector2D(0, FrameHeader);
+        SetLayout(Pos, FVector2D(FMath::Clamp(Size.X, MinFrame.X, FMath::Max(MinFrame.X, Max.X)), FMath::Clamp(Size.Y, MinFrame.Y, FMath::Max(MinFrame.Y, Max.Y))));
     }
     return FReply::Handled();
 }
@@ -1828,6 +1866,39 @@ static FAutoConsoleCommandWithWorld HUDChatProbe(TEXT("Eidoverse.TestHUDChat"), 
 #if WITH_DEV_AUTOMATION_TESTS
 // Drags the chat frame by its title with synthetic Slate mouse events and
 // reports the slot move and the persisted layout. EIDOVERSE_HUD_DRAG_PROBE.
+// Resizes the chat frame from its LEFT edge (frames.js 8 zones) with synthetic Slate
+// events, reports the change, then puts the layout back. EIDOVERSE_HUD_RESIZE_PROBE.
+static FAutoConsoleCommandWithWorld HUDResizeProbe(TEXT("Eidoverse.TestHUDResize"), TEXT("Resize the chat frame from its left edge."),
+    FConsoleCommandWithWorldDelegate::CreateLambda([](UWorld* World)
+    {
+        TActorIterator<AEidoverseBridge> It(World);
+        UEidoverseHUD* HUD = It ? It->HUD.Get() : nullptr;
+        UEidoverseFrame* Frame = HUD ? HUD->GetFrame("chat") : nullptr;
+        if (!Frame) { UE_LOG(LogTemp, Warning, TEXT("EIDOVERSE_HUD_RESIZE_PROBE no frame")); return; }
+        HUD->SetPointerMode(true);
+        const FGeometry G = Frame->GetCachedGeometry();
+        const FVector2D Grab = G.LocalToAbsolute(FVector2D(3, G.GetLocalSize().Y * .5f));
+        const FVector2D Delta(-60, 0);
+        auto Event = [](const FVector2D& At, const FVector2D& Last, bool bDown) {
+            TSet<FKey> Pressed; if (bDown) Pressed.Add(EKeys::LeftMouseButton);
+            return FPointerEvent(0, At, Last, Pressed, EKeys::LeftMouseButton, 0, FModifierKeysState());
+        };
+        auto& App = FSlateApplication::Get();
+        // A still click first: the frame takes a top-left layout on its first grab.
+        const FVector2D Title = G.LocalToAbsolute(FVector2D(G.GetLocalSize().X * .5f, 8));
+        App.SetCursorPos(Title); App.ProcessMouseButtonDownEvent(nullptr, Event(Title, Title, true)); App.ProcessMouseButtonUpEvent(Event(Title, Title, false));
+        FVector2D P0, S0;
+        if (!Frame->GetLayout(P0, S0)) { UE_LOG(LogTemp, Warning, TEXT("EIDOVERSE_HUD_RESIZE_PROBE no layout")); return; }
+        App.SetCursorPos(Grab);
+        App.ProcessMouseButtonDownEvent(nullptr, Event(Grab, Grab, true));
+        for (int32 I = 1; I <= 6; ++I) { const FVector2D At = Grab + Delta * (I / 6.f); App.SetCursorPos(At); App.ProcessMouseMoveEvent(Event(At, Grab + Delta * ((I - 1) / 6.f), true)); }
+        App.ProcessMouseButtonUpEvent(Event(Grab + Delta, Grab + Delta, false));
+        FVector2D P1, S1; Frame->GetLayout(P1, S1);
+        const float Scale = G.GetAccumulatedLayoutTransform().GetScale();
+        UE_LOG(LogTemp, Warning, TEXT("EIDOVERSE_HUD_RESIZE_PROBE dx=%.0f dw=%.0f expected=(%.0f,%.0f)"), P1.X - P0.X, S1.X - S0.X, Delta.X / Scale, -Delta.X / Scale);
+        Frame->SetLayout(P0, S0);   // leave the person's layout as it was
+    }));
+
 static FAutoConsoleCommandWithWorld HUDDragProbe(TEXT("Eidoverse.TestHUDDrag"), TEXT("Drag the chat frame through real Slate mouse events."),
     FConsoleCommandWithWorldDelegate::CreateLambda([](UWorld* World)
     {
