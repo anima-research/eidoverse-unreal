@@ -217,6 +217,16 @@ public:
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void SetDoorFields(const FString& Server, const FString& World, const FString& Name);
     // Chat markdown (chat.js CH-E): **b**, *i* / _i_, `code` on a rich text block.
     UFUNCTION(BlueprintPure, Category="Eidoverse|UI") static FString ChatMarkup(const FString& Text);
+    // Inspector transform fields (scenegraph.js:137-154): x y z (wire m), yaw degrees, scale.
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") bool ApplyInspectTransform(FVector Pos, float YawDegrees, float Scale);
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void SetSceneFind(const FString& Query);
+    UFUNCTION(BlueprintPure, Category="Eidoverse|UI") int32 GetSceneListCount() const;
+private:
+    UPROPERTY() TArray<TObjectPtr<UEditableTextBox>> InspectFields;
+    UPROPERTY() TObjectPtr<UEditableTextBox> SceneFind;
+    UFUNCTION() void OnInspectFieldCommitted(const FText& Text, ETextCommit::Type Kind);
+    UFUNCTION() void OnSceneFindChanged(const FText& Text);
+public:
 private:
     UPROPERTY() TMap<FString, TObjectPtr<class UDataTable>> ChatStyleSets;
     class UDataTable* ChatStyleSet(int32 Size, const FLinearColor& Color);

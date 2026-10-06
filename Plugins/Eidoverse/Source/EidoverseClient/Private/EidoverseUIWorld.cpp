@@ -3,6 +3,7 @@
 // scenegraph.js, mybody.js). The UI only enables what the server would accept
 // (yourRights); the server remains the authority and refuses with 'error'.
 #include "EidoverseUI.h"
+#include "Components/EditableTextBox.h"
 #include "Components/Slider.h"
 #include "Components/SizeBox.h"
 #include "EidoverseBridge.h"
@@ -194,6 +195,9 @@ UWidget* UEidoverseHUD::BuildWorldScene()
     auto* Column = WidgetTree->ConstructWidget<UVerticalBox>();
     SceneNote = Label(TEXT(""), 10, FEidoverseTheme::Dim());
     Column->AddChildToVerticalBox(SceneNote)->SetPadding(FMargin(0, 0, 0, 6));
+    SceneFind = Input(TEXT("find — name, id or model"));
+    SceneFind->OnTextChanged.AddDynamic(this, &UEidoverseHUD::OnSceneFindChanged);
+    Column->AddChildToVerticalBox(SceneFind)->SetPadding(FMargin(0, 0, 0, 6));
     auto* Scroll = WidgetTree->ConstructWidget<UScrollBox>();
     SceneList = WidgetTree->ConstructWidget<UVerticalBox>();
     Scroll->AddChild(SceneList);
@@ -376,6 +380,11 @@ void UEidoverseHUD::RefreshWorldPanels()
         if (AEidoverseScene* Scene = Bridge->GetScene()) Scene->GetEntities(Entities);
         const FString Selected = GetSelectedEntity();
         int32 SHash = HashCombine(GetTypeHash(bBuild), GetTypeHash(Selected));
+        // Find: a flat list of what matches (scenegraph.js find), the tree otherwise.
+        const FString Query = SceneFind ? SceneFind->GetText().ToString().TrimStartAndEnd() : FString();
+        if (!Query.IsEmpty())
+            Entities.RemoveAll([&](const TPair<FString, FString>& E) { return !E.Key.Contains(Query) && !E.Value.Contains(Query) && !Leaf(E.Value).Contains(Query); });
+        SHash = HashCombine(SHash, GetTypeHash(Query));
         for (const auto& E : Entities) SHash = HashCombine(SHash, GetTypeHash(E.Key));
         if (SHash != SceneHash)
         {
@@ -556,3 +565,7 @@ void UEidoverseHUD::PreviewSkyDraft(bool bOn)
     }
     else { Scene->SetSkyArgs(Bridge->WorldSky); Scene->SetPreviewHour(-1); }
 }
+
+void UEidoverseHUD::OnSceneFindChanged(const FText&) { NextSceneRefresh = 0; }
+void UEidoverseHUD::SetSceneFind(const FString& Query) { if (SceneFind) SceneFind->SetText(FText::FromString(Query)); NextSceneRefresh = 0; }
+int32 UEidoverseHUD::GetSceneListCount() const { return SceneList ? SceneList->GetChildrenCount() : 0; }

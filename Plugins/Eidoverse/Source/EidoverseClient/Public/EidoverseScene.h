@@ -194,6 +194,7 @@ private:
 public:
     UFUNCTION(BlueprintPure,Category="Eidoverse") int32 GetDemotedCount() const;
     UFUNCTION(BlueprintPure,Category="Eidoverse") FString DescribeResidency(const FString& Id) const;
+    UFUNCTION(BlueprintPure,Category="Eidoverse") AActor* GetEntityActor(const FString& Id) const { return EntityActor(Id); }
     UFUNCTION(BlueprintPure,Category="Eidoverse") bool IsItemDemoted(const FString& Id) const { const FEidoverseSceneItem* E=Items.Find(Id); return E&&E->bDemoted; }
     UFUNCTION(BlueprintPure,Category="Eidoverse") bool IsItemModelLoaded(const FString& Id) const;
 private:

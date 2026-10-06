@@ -95,6 +95,15 @@ void UEidoverseHUD::RefreshInspector(double Now)
         if (InspectPose && Scene->GetEntityPose(Selected, Pos, Yaw, Scale, Lib, bAnimated))
             InspectPose->SetText(FText::FromString(FString::Printf(TEXT("(%.2f, %.2f, %.2f)  yaw %.0f°  scale %.2f%s"),
                 Pos.X, Pos.Y, Pos.Z, FMath::RadiansToDegrees(Yaw), Scale, bAnimated ? TEXT("  ·  moving") : TEXT(""))));
+        if (InspectFields.Num() == 5 && Scene->GetEntityPose(Selected, Pos, Yaw, Scale, Lib, bAnimated))
+        {
+            bool bTyping = false; for (UEditableTextBox* B : InspectFields) bTyping |= B && B->HasKeyboardFocus();
+            if (!bTyping)
+            {
+                const double V[] = {Pos.X, Pos.Y, Pos.Z, FMath::RadiansToDegrees(Yaw), Scale};
+                for (int32 I = 0; I < 5; ++I) InspectFields[I]->SetText(FText::FromString(I == 3 ? FString::Printf(TEXT("%.0f"), V[I]) : FString::Printf(TEXT("%.2f"), V[I])));
+            }
+        }
     }
     int32 Hash = HashCombine(GetTypeHash(Selected), GetTypeHash(Bridge ? Bridge->InspectSerial : 0));
     Hash = HashCombine(Hash, HashCombine(GetTypeHash(EditingComp), GetTypeHash(bAddingComp)));
@@ -118,6 +127,23 @@ void UEidoverseHUD::RebuildInspector()
     SceneInspector->AddChildToVerticalBox(Label((Lib.IsEmpty() ? TEXT("thing") : FPaths::GetBaseFilename(Lib)) + TEXT("  ·  ") + InspectingId, 12, FEidoverseTheme::Text(), true));
     InspectPose = Label(TEXT(""), 10, FEidoverseTheme::Dim());
     SceneInspector->AddChildToVerticalBox(InspectPose)->SetPadding(FMargin(0, 2, 0, 8));
+    InspectFields.Reset();
+    if (bBuild && !bAnimated)
+    {
+        // Typed transforms: x y z (m), yaw (deg), scale; Enter or leaving a field places it.
+        auto* Row = WidgetTree->ConstructWidget<UHorizontalBox>();
+        const TCHAR* Names[] = {TEXT("x"), TEXT("y"), TEXT("z"), TEXT("yaw"), TEXT("scale")};
+        for (int32 I = 0; I < 5; ++I)
+        {
+            Row->AddChildToHorizontalBox(Label(Names[I], 9, FEidoverseTheme::Dim()))->SetPadding(FMargin(I ? 6 : 0, 4, 3, 0));
+            UEditableTextBox* Box = Input(TEXT(""));
+            Box->OnTextCommitted.AddDynamic(this, &UEidoverseHUD::OnInspectFieldCommitted);
+            auto* Size = WidgetTree->ConstructWidget<USizeBox>(); Size->SetWidthOverride(I < 3 ? 58 : 48); Size->SetContent(Box);
+            Row->AddChildToHorizontalBox(Size);
+            InspectFields.Add(Box);
+        }
+        SceneInspector->AddChildToVerticalBox(Row)->SetPadding(FMargin(0, 0, 0, 8));
+    }
 
     auto StyleEditor = [](UMultiLineEditableTextBox* Box)
     {
@@ -230,4 +256,31 @@ void UEidoverseHUD::InspectorAction(const FString& Action)
         if (SetComponentJson(InspectingId, Type, Text)) bAddingComp = false;
     }
     InspectHash = 0;   // repaint now
+}
+
+bool UEidoverseHUD::ApplyInspectTransform(FVector Pos, float YawDegrees, float Scale)
+{
+    if (Pos.ContainsNaN() || !FMath::IsFinite(YawDegrees) || !FMath::IsFinite(Scale)) return false;
+    return PlaceSelected([&](FVector& P, double& Yaw, double& S)
+    {
+        P = Pos; Yaw = FMath::DegreesToRadians(double(YawDegrees)); S = FMath::Clamp(double(Scale), .05, 50.);
+    });
+}
+
+void UEidoverseHUD::OnInspectFieldCommitted(const FText&, ETextCommit::Type Kind)
+{
+    if (Kind == ETextCommit::OnCleared || InspectFields.Num() != 5) return;
+    double V[5];
+    for (int32 I = 0; I < 5; ++I)
+    {
+        const FString T = InspectFields[I]->GetText().ToString().TrimStartAndEnd();
+        if (!T.IsNumeric()) { Toast(TEXT("Numbers only in the transform fields."), true); return; }
+        V[I] = FCString::Atod(*T);
+    }
+    // Only place when something actually changed (leaving a field commits too).
+    AEidoverseScene* Scene = Bridge ? Bridge->GetScene() : nullptr;
+    FVector Pos; double Yaw, Scale; FString Lib; bool bAnimated;
+    if (!Scene || !Scene->GetEntityPose(GetSelectedEntity(), Pos, Yaw, Scale, Lib, bAnimated)) return;
+    const bool bSame = FVector::Dist(Pos, FVector(V[0], V[1], V[2])) < .005 && FMath::Abs(FMath::RadiansToDegrees(Yaw) - V[3]) < .5 && FMath::Abs(Scale - V[4]) < .005;
+    if (!bSame) ApplyInspectTransform(FVector(V[0], V[1], V[2]), float(V[3]), float(V[4]));
 }
