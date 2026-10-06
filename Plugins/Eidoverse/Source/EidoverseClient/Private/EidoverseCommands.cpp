@@ -29,6 +29,8 @@ namespace
             {TEXT("letgo"), {TEXT("release"), TEXT("clear_reach")}, TEXT("let go — lower your reaching hand (or just one: /letgo left|right)"), true, false},
             {TEXT("eyes"), {}, TEXT("/eyes close|open — hold your eyes shut, if your rig has eyelids"), true, false},
             {TEXT("pushable"), {}, TEXT("/pushable on|off — whether shoves and blasts can knock you over (on by default)"), true, false},
+            {TEXT("mic"), {}, TEXT("/mic on|off — your microphone (V toggles; push-to-talk in settings)"), true, false},
+            {TEXT("hear"), {TEXT("voices")}, TEXT("/hear on|off|hush — whether other people's voices reach you (off by default)"), true, false},
             {TEXT("posable"), {}, TEXT("/posable on|off — whether others may pose or animate your body (off by default)"), true, false},
             {TEXT("boom"), {TEXT("blast")}, TEXT("/boom [power] [radius] — a blast where you stand, you included (builder)"), true, false},
             {TEXT("kick"), {}, TEXT("/kick <name> [reason] — moderation: remove someone from this world (owner). Objects fly with /punt"), true, false},
@@ -208,6 +210,17 @@ bool AEidoverseBridge::HandleInteractionCommand(const FString& Text)
         if (Args.Num() && (Args[0] == TEXT("on") || Args[0] == TEXT("off"))) EidoSettings::Set(Var, Args[0] == TEXT("on") ? TEXT("1") : TEXT("0"));
         if (bPush) Narrate(EidoSettings::Pushable() ? TEXT("shoves and blasts CAN knock you over (/pushable off to stop them)") : TEXT("shoves and blasts can NOT knock you over (/pushable on to allow)"));
         else Narrate(EidoSettings::Posable() ? TEXT("others MAY pose and animate your body (/posable off to stop them)") : TEXT("others may NOT pose your body (/posable on to allow)"));
+    }
+    else if (Name == TEXT("mic"))
+    {
+        if (Args.Num() && (Args[0] == TEXT("on") || Args[0] == TEXT("off"))) SetMicOn(Args[0] == TEXT("on"));
+        else Narrate(FString::Printf(TEXT("mic %s · %s"), IsMicOn() ? TEXT("on") : TEXT("off"), *VoiceDiagnostic()));
+    }
+    else if (Name == TEXT("hear"))
+    {
+        if (Args.Num() && (Args[0] == TEXT("on") || Args[0] == TEXT("off"))) SetHearVoices(Args[0] == TEXT("on"));
+        else if (Args.Num() && Args[0] == TEXT("hush")) { bVoiceHushed = !bVoiceHushed; Narrate(bVoiceHushed ? TEXT("voices hushed") : TEXT("voices unhushed")); }
+        else Narrate(EidoSettings::HearVoices() ? TEXT("you hear voices (/hear off to stop, /hear hush to quiet them)") : TEXT("voices are off (/hear on to connect)"));
     }
     else if (Name == TEXT("boom"))
     {

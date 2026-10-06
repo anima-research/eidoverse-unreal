@@ -16,6 +16,10 @@ namespace EidoSettings
     EIDOVERSECLIENT_API bool Pushable();           // Eidoverse.Consent.Pushable (default on)
     EIDOVERSECLIENT_API float WorldVolume();       // Eidoverse.Audio.World
     EIDOVERSECLIENT_API float VoiceVolume();       // Eidoverse.Audio.Voices
+    EIDOVERSECLIENT_API bool HearVoices();         // Eidoverse.Audio.HearVoices (receive consent, default off)
+    EIDOVERSECLIENT_API float MicFloor();          // Eidoverse.Audio.MicFloor, 0..0.2 (web micFloor, default .12 = -24 dBFS)
+    EIDOVERSECLIENT_API bool PushToTalk();         // Eidoverse.Audio.PushToTalk (default off): V held opens the mic
+    EIDOVERSECLIENT_API bool VoiceProcessing();    // Eidoverse.Audio.VoiceProcessing: OS echo cancellation (default on)
     EIDOVERSECLIENT_API void Set(const TCHAR* Name, const FString& Value);
     EIDOVERSECLIENT_API void Load();
     EIDOVERSECLIENT_API void Save();

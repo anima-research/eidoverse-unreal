@@ -332,6 +332,13 @@ void UEidoverseAvatarMesh::ApplyRawLayers(float Dt, double Time)
 
     // Mouth while speaking (no voice level here): avatar.js's fallback envelope on 'aa'.
     const float T = float(FMath::Fmod(Time, 1000.0));
+    // A live voice drives it directly: speaking above 0.045, target min(1, level x 3.2).
+    if (VoiceLevel >= 0)
+    {
+        const float Target = VoiceLevel > .045f ? FMath::Min(1.f, VoiceLevel * 3.2f) : 0.f;
+        VoiceMouth += (Target - VoiceMouth) * .5f;
+        if (VoiceMouth > .01f || Time >= SpeakingUntil) { SetExpression(TEXT("aa"), VoiceMouth); return; }
+    }
     SetExpression(TEXT("aa"), Time < SpeakingUntil ? FMath::Max(0.f, .5f + .5f * FMath::Sin(17 * T) * FMath::Sin(7.3f * T)) * .65f : 0.f);
 }
 

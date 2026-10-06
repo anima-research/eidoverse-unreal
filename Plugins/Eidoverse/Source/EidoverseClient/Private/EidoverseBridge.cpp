@@ -189,7 +189,7 @@ void AEidoverseBridge::ClearPeers()
 void AEidoverseBridge::Disconnect()
 {
     if(!bRetrying)QueuedMessages.Reset();
-    ClearInteractions();
+    ClearInteractions();VoiceLost();
     bWanted=false;bJoined=false;++Generation;RetryAt=0;bCaptureAdvertised=false;
     if(Socket){Socket->OnConnected().Clear();Socket->OnMessage().Clear();Socket->OnClosed().Clear();Socket->OnConnectionError().Clear();Socket->Close();Socket.Reset();}
     ClearPeers();EndDynamicScene();ConnectionStatus=TEXT("offline");AssignedIdentity.Empty();
@@ -270,7 +270,7 @@ bool AEidoverseBridge::SendVerbJson(const FString& Verb,const FString& ArgsJson)
 }
 void AEidoverseBridge::Lost(int32 Code)
 {
-    ClearInteractions();
+    ClearInteractions();VoiceLost();
     bJoined=false;ClearPeers();EndDynamicScene();
     bool bRetry=true;const FString Why=CloseReason(Code,bRetry);
     if(!bRetry){bWanted=false;RetryAt=0;QueuedMessages.Reset();Status(Why);ToastText(Why,true);if(Code==4003&&HasProductionSession())LogoutProduction();}
@@ -609,11 +609,13 @@ void AEidoverseBridge::Receive(const FString& Message)
 {
     TSharedPtr<FJsonObject> J;if(!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Message),J)||!J)return;
     FString Type=Eido::String(J,TEXT("type"));const double Now=FPlatformTime::Seconds();
+    if(ForwardVoiceSignal(Type,J))return;
     if(Type==TEXT("snapshot"))
     {
         AssignedIdentity=Eido::String(J,TEXT("you"));if(AssignedIdentity.IsEmpty())return;
         ClearPeers();LastFrameTime=-1;bJoined=true;RetryDelay=1;RetryAt=0;
         const TSharedPtr<FJsonObject>* Rights=nullptr;ReadRights(J->TryGetObjectField(TEXT("yourRights"),Rights)?*Rights:nullptr);
+        VoiceJoined();
         AvatarChoices.Reset();
         const TArray<TSharedPtr<FJsonValue>>* Avatars=nullptr;
         if(J->TryGetArrayField(TEXT("avatars"),Avatars))for(const auto& V:*Avatars)if(const auto O=V->AsObject())
@@ -814,6 +816,7 @@ void AEidoverseBridge::Tick(float DeltaSeconds)
     EidoLoadTrace::Tick(FApp::GetDeltaTime());
     TickCommandLine(Now);
     TickProductionLogin(Now);
+    TickVoice(DeltaSeconds);
     if(!ProductionSession.IsEmpty()&&Now>=ProductionSessionExpires){LogoutProduction();LoginStatus=TEXT("Session expired. Please sign in again.");}
     static IConsoleVariable* LegacyUI=IConsoleManager::Get().RegisterConsoleVariable(TEXT("Eidoverse.UI.Legacy"),0,
         TEXT("1: use the original Slate chat/login panel instead of the UMG shell (for older test scripts)."),ECVF_Default);

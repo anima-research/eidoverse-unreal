@@ -21,5 +21,15 @@ public class EidoverseClient : ModuleRules
         // the engine's Vorbis decodes ogg.
         if (Target.Platform == UnrealTargetPlatform.Mac) PublicFrameworks.Add("AudioToolbox");
         AddEngineThirdPartyPrivateStaticDependencies(Target, "UEOgg", "Vorbis", "VorbisFile");
+        // Voice (EidoverseVoice*): UE's bundled libwebrtc (M109) for the SFU leg; AVFoundation for the
+        // mic (AVAudioEngine voice processing + the TCC permission prompt). Other platforms build inert.
+        if (Target.Platform == UnrealTargetPlatform.Mac)
+        {
+            AddEngineThirdPartyPrivateStaticDependencies(Target, "WebRTC", "libOpus");   // libwebrtc.a leaves Opus to UE's libOpus
+            PublicFrameworks.AddRange(new[] { "AVFoundation", "CoreAudio" });
+            PrivateDefinitions.Add("EIDOVERSE_VOICE_WEBRTC=1");
+        }
+        else PrivateDefinitions.Add("EIDOVERSE_VOICE_WEBRTC=0");
+        PrivateDependencyModuleNames.Add("AudioExtensions");   // USoundWaveProcedural subclass (speaker waves)
     }
 }

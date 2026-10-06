@@ -16,10 +16,15 @@ namespace
     TAutoConsoleVariable<int32> CVarPushable(TEXT("Eidoverse.Consent.Pushable"), 1, TEXT("1: shoves and blasts may knock you over (web: pushable, default on)."));
     TAutoConsoleVariable<float> CVarWorldVolume(TEXT("Eidoverse.Audio.World"), 1.f, TEXT("World sound volume, 0..1."));
     TAutoConsoleVariable<float> CVarVoiceVolume(TEXT("Eidoverse.Audio.Voices"), 1.f, TEXT("Voice volume, 0..1."));
+    TAutoConsoleVariable<int32> CVarHearVoices(TEXT("Eidoverse.Audio.HearVoices"), 0, TEXT("1: connect to other people's voices (receive consent; web recvVoice, default off)."));
+    TAutoConsoleVariable<float> CVarMicFloor(TEXT("Eidoverse.Audio.MicFloor"), .12f, TEXT("Voice-activation sensitivity, 0..0.2 (threshold dB = -60 + floor/0.2*60)."));
+    TAutoConsoleVariable<int32> CVarPtt(TEXT("Eidoverse.Audio.PushToTalk"), 0, TEXT("1: the mic opens only while V is held."));
+    TAutoConsoleVariable<int32> CVarVpio(TEXT("Eidoverse.Audio.VoiceProcessing"), 1, TEXT("1: OS echo cancellation / noise suppression on the mic (next mic start)."));
     const TCHAR* Section = TEXT("/Script/EidoverseClient.Settings");
     const TCHAR* Names[] = {TEXT("Eidoverse.Look.Sensitivity"), TEXT("Eidoverse.Look.InvertY"), TEXT("Eidoverse.UI.Nameplates"),
                             TEXT("Eidoverse.UI.Bubbles"), TEXT("Eidoverse.UI.PanelOpacity"), TEXT("Eidoverse.UI.Scale"), TEXT("Eidoverse.World.Lumen"),
-                            TEXT("Eidoverse.Consent.Posable"), TEXT("Eidoverse.Consent.Pushable"), TEXT("Eidoverse.Audio.World"), TEXT("Eidoverse.Audio.Voices")};
+                            TEXT("Eidoverse.Consent.Posable"), TEXT("Eidoverse.Consent.Pushable"), TEXT("Eidoverse.Audio.World"), TEXT("Eidoverse.Audio.Voices"),
+                            TEXT("Eidoverse.Audio.HearVoices"), TEXT("Eidoverse.Audio.MicFloor"), TEXT("Eidoverse.Audio.PushToTalk"), TEXT("Eidoverse.Audio.VoiceProcessing")};
 }
 
 namespace EidoSettings
@@ -34,6 +39,10 @@ bool Posable() { return CVarPosable.GetValueOnGameThread() != 0; }
 bool Pushable() { return CVarPushable.GetValueOnGameThread() != 0; }
 float WorldVolume() { return FMath::Clamp(CVarWorldVolume.GetValueOnGameThread(), 0.f, 1.f); }
 float VoiceVolume() { return FMath::Clamp(CVarVoiceVolume.GetValueOnGameThread(), 0.f, 1.f); }
+bool HearVoices() { return CVarHearVoices.GetValueOnGameThread() != 0; }
+float MicFloor() { return FMath::Clamp(CVarMicFloor.GetValueOnGameThread(), 0.f, .2f); }
+bool PushToTalk() { return CVarPtt.GetValueOnGameThread() != 0; }
+bool VoiceProcessing() { return CVarVpio.GetValueOnGameThread() != 0; }
 float InterfaceScale() { return FMath::Clamp(CVarScale.GetValueOnGameThread(), .75f, 1.5f); }
 
 void Set(const TCHAR* Name, const FString& Value)

@@ -206,6 +206,8 @@ public:
     void SetGazeTarget(const FVector& World,bool bHasTarget);
     // Seconds the mouth should move as if talking (chat/captions).
     void NoteSpeaking(double Until) { SpeakingUntil=FMath::Max(SpeakingUntil,Until); }
+    // Live voice level (peak 0..1, voicemouths.js); below 0 = no voice, the envelope fallback.
+    void SetVoiceLevel(float Level) { VoiceLevel=Level; }
     // Eyes held shut (/eyes, limp): lids ease at 12/s. False when the rig has no lids.
     bool SetEyesHeldShut(bool bShut);
     bool EyesHeldShut() const { return bEyesHeld; }
@@ -243,6 +245,7 @@ private:
     float HeadPitch=0;
     FVector GazeGoal=FVector::ZeroVector, GazePoint=FVector::ZeroVector; bool bGazeTarget=false, bGazeInit=false;
     double SpeakingUntil=0, NextBlink=0, BlinkStart=-1;
+    float VoiceLevel=-1, VoiceMouth=0;
     bool bEyesHeld=false, bEyesHeldBeforeLimp=false, bLimp=false; float LidHold=0;
     bool bXR=false; FQuat XRHead=FQuat::Identity; FVector4f XRCurls=FVector4f(0,0,0,0); FVector XRLook=FVector::ZeroVector;
     struct FWing { int32 Bone=INDEX_NONE; FName Name; float Side=1; bool bLower=false; int32 Depth=0; FQuat From=FQuat::Identity; };

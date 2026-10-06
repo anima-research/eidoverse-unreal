@@ -11,6 +11,8 @@ class UStaticMeshComponent;
 class UEidoverseAvatarAsset;
 class UEidoverseAvatarMesh;
 namespace EidoRagdoll { class FRagdoll; struct FSnapshot; }
+class FEidoVoice;
+class UAudioComponent;
 class SEidoversePanel;
 class SWidget;
 class IHttpRequest;
@@ -278,6 +280,25 @@ public:
     UFUNCTION(BlueprintPure,Category="Eidoverse") int32 GetPinCount() const { return MyPins.Num(); }
     UFUNCTION(BlueprintPure,Category="Eidoverse") int32 GetPinMarkerCount() const;
     UFUNCTION(BlueprintPure,Category="Eidoverse") bool IsDowned() const { return bDowned; }
+    // ---- voice (EidoverseVoiceGlue.cpp over FEidoVoice): SFU leg, speakers on avatars, mouths ----
+    TSharedPtr<FEidoVoice> Voice;
+    struct FVoiceSpeaker { TWeakObjectPtr<UAudioComponent> Audio; float Volume=0, Target=0; double NextTarget=0; };
+    TMap<FString,FVoiceSpeaker> VoiceSpeakers;
+    bool bVoiceHushed=false;
+    void EnsureVoice();
+    void VoiceJoined();
+    void VoiceLost();
+    void TickVoice(float Dt);
+    bool ForwardVoiceSignal(const FString& Type,const TSharedPtr<FJsonObject>& J);
+    UFUNCTION(BlueprintCallable,Category="Eidoverse|Voice") void SetMicOn(bool bOn);
+    UFUNCTION(BlueprintCallable,Category="Eidoverse|Voice") void SetHearVoices(bool bOn);
+    UFUNCTION(BlueprintCallable,Category="Eidoverse|Voice") void ApplyVoicePrefs();
+    UFUNCTION(BlueprintPure,Category="Eidoverse|Voice") bool IsMicOn() const;
+    UFUNCTION(BlueprintPure,Category="Eidoverse|Voice") FString VoiceDiagnostic() const;
+    UFUNCTION(BlueprintPure,Category="Eidoverse|Voice") float GetVoiceLevel(const FString& Id) const;
+    UFUNCTION(BlueprintPure,Category="Eidoverse|Voice") TArray<FString> GetVoiceSpeakers() const;
+    UFUNCTION(BlueprintPure,Category="Eidoverse|Voice") float GetMicRmsDb() const;
+    UFUNCTION(BlueprintCallable,Category="Eidoverse|Voice") void SetVoiceTestTone(float Hz,float Amplitude);
     TOptional<bool> RightsFly;
     TSharedPtr<struct FEidoFlightRuntime> FlightRt;
     UFUNCTION(BlueprintCallable, Category="Eidoverse") void GoLimp();

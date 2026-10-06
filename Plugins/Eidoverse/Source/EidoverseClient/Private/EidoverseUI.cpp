@@ -701,6 +701,14 @@ UWidget* UEidoverseHUD::BuildSettings()
     Row(TEXT("Panel opacity"), "opacity", {{TEXT("−"), "set:opacity-"}, {TEXT("+"), "set:opacity+"}});
     Row(TEXT("Names over people"), "plates", {{TEXT("toggle"), "set:plates"}});
     Row(TEXT("Chat bubbles"), "bubbles", {{TEXT("toggle"), "set:bubbles"}});
+    Section(TEXT("Voice"));
+    Row(TEXT("Microphone (V)"), "mic", {{TEXT("toggle"), "set:mic"}});
+    Row(TEXT("Push-to-talk (hold V)"), "ptt", {{TEXT("toggle"), "set:ptt"}});
+    Row(TEXT("Mic sensitivity"), "micfloor", {{TEXT("−"), "set:floor-"}, {TEXT("+"), "set:floor+"}});
+    Row(TEXT("Hear other people's voices"), "hear", {{TEXT("toggle"), "set:hear"}});
+    Row(TEXT("Voice volume"), "volvoice", {{TEXT("−"), "set:vv-"}, {TEXT("+"), "set:vv+"}});
+    Row(TEXT("World sounds volume"), "volworld", {{TEXT("−"), "set:vw-"}, {TEXT("+"), "set:vw+"}});
+    Row(TEXT("Echo cancellation"), "vpio", {{TEXT("toggle"), "set:vpio"}});
     Section(TEXT("Look"));
     Row(TEXT("Mouse sensitivity"), "sens", {{TEXT("−"), "set:sens-"}, {TEXT("+"), "set:sens+"}});
     Row(TEXT("Invert vertical"), "invert", {{TEXT("toggle"), "set:invert"}});
@@ -731,6 +739,13 @@ void UEidoverseHUD::RefreshSettings()
     Put("sens", FString::Printf(TEXT("%.2g×"), EidoSettings::LookSensitivity()));
     Put("invert", EidoSettings::InvertLook() ? TEXT("on") : TEXT("off"));
     Put("lumen", EidoSettings::Lumen() ? TEXT("on") : TEXT("off"));
+    Put("mic", Bridge && Bridge->IsMicOn() ? FString::Printf(TEXT("on · %.0f dB"), Bridge->GetMicRmsDb()) : FString(TEXT("off")));
+    Put("ptt", EidoSettings::PushToTalk() ? TEXT("on") : TEXT("off"));
+    Put("micfloor", FString::Printf(TEXT("%.0f dB"), -60 + EidoSettings::MicFloor() / .2f * 60));
+    Put("hear", EidoSettings::HearVoices() ? TEXT("on") : TEXT("off"));
+    Put("volvoice", FString::Printf(TEXT("%.0f%%"), EidoSettings::VoiceVolume() * 100));
+    Put("volworld", FString::Printf(TEXT("%.0f%%"), EidoSettings::WorldVolume() * 100));
+    Put("vpio", EidoSettings::VoiceProcessing() ? TEXT("on") : TEXT("off"));
     const int32 Level = GEngine && GEngine->GetGameUserSettings() ? GEngine->GetGameUserSettings()->GetOverallScalabilityLevel() : -1;
     const TCHAR* Names[] = {TEXT("low"), TEXT("medium"), TEXT("high"), TEXT("epic"), TEXT("cinematic")};
     Put("quality", Level >= 0 && Level <= 4 ? Names[Level] : TEXT("custom"));
@@ -765,6 +780,17 @@ void UEidoverseHUD::OnSettingClicked()
     else if (Id == TEXT("set:bubbles")) Toggle(TEXT("Eidoverse.UI.Bubbles"), EidoSettings::Bubbles());
     else if (Id == TEXT("set:invert")) Toggle(TEXT("Eidoverse.Look.InvertY"), EidoSettings::InvertLook());
     else if (Id == TEXT("set:lumen")) Toggle(TEXT("Eidoverse.World.Lumen"), EidoSettings::Lumen());
+    else if (Id == TEXT("set:mic")) { if (Bridge) Bridge->SetMicOn(!Bridge->IsMicOn()); }
+    else if (Id == TEXT("set:hear")) { if (Bridge) Bridge->SetHearVoices(!EidoSettings::HearVoices()); }
+    else if (Id == TEXT("set:ptt") || Id == TEXT("set:vpio") || Id.StartsWith(TEXT("set:floor")))
+    {
+        if (Id == TEXT("set:ptt")) Toggle(TEXT("Eidoverse.Audio.PushToTalk"), EidoSettings::PushToTalk());
+        else if (Id == TEXT("set:vpio")) Toggle(TEXT("Eidoverse.Audio.VoiceProcessing"), EidoSettings::VoiceProcessing());
+        else Step(TEXT("Eidoverse.Audio.MicFloor"), EidoSettings::MicFloor(), Id.EndsWith(TEXT("+")) ? .01f : -.01f, 0.f, .2f);
+        if (Bridge) Bridge->ApplyVoicePrefs();
+    }
+    else if (Id == TEXT("set:vv-") || Id == TEXT("set:vv+")) Step(TEXT("Eidoverse.Audio.Voices"), EidoSettings::VoiceVolume(), Id.EndsWith(TEXT("+")) ? .1f : -.1f, 0.f, 1.f);
+    else if (Id == TEXT("set:vw-") || Id == TEXT("set:vw+")) Step(TEXT("Eidoverse.Audio.World"), EidoSettings::WorldVolume(), Id.EndsWith(TEXT("+")) ? .1f : -.1f, 0.f, 1.f);
     else if (Id.StartsWith(TEXT("set:q")) && GEngine && GEngine->GetGameUserSettings())
     {
         UGameUserSettings* S = GEngine->GetGameUserSettings();
