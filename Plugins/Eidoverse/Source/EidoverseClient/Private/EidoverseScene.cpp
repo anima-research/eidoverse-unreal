@@ -169,6 +169,7 @@ void AEidoverseScene::Apply(const TSharedPtr<FJsonObject>& Message,const FVector
                 const FString Key=PartNames.IsEmpty()?URL:URL+TEXT("#parts=")+FString::Join(PartNames,TEXT(","));
                 if(!Assets.Contains(Key)&&Assets.Num()<64){auto* Asset=NewObject<UEidoverseAvatarAsset>();Asset->bStaticModel=true;Asset->StaticMeshOuter=this;Asset->Url=URL;Asset->SplitParts=PartNames;Assets.Add(Key,Asset);}
                 if(auto* Asset=Assets.Find(Key))Item.Asset=*Asset;
+                Item.AssetKey=Key;Item.AssetUrl=URL;Item.AssetParts=PartNames;
             }
             auto* M=NewObject<UStaticMeshComponent>(A);A->AddInstanceComponent(M);M->SetupAttachment(R);
             M->SetStaticMesh(LoadObject<UStaticMesh>(nullptr,TEXT("/Engine/BasicShapes/Cube.Cube")));M->SetRelativeScale3D(FVector(.25));M->SetMaterial(0,Material(TEXT("trim")));
@@ -202,7 +203,7 @@ void AEidoverseScene::Apply(const TSharedPtr<FJsonObject>& Message,const FVector
 }
 void AEidoverseScene::Tick(float Dt)
 {
-    Super::Tick(Dt);TickWeather(Dt);TickPlacedLights(FPlatformTime::Seconds());TickParts();TickPictures();TickParticles(Dt);TickSounds();int Loading=0;for(auto& A:Assets)Loading+=A.Value->State==UEidoverseAvatarAsset::EState::Loading;
+    Super::Tick(Dt);TickWeather(Dt);TickPlacedLights(FPlatformTime::Seconds());TickResidency(FPlatformTime::Seconds());TickParts();TickPictures();TickParticles(Dt);TickSounds();int Loading=0;for(auto& A:Assets)Loading+=A.Value->State==UEidoverseAvatarAsset::EState::Loading;
     // Stream nearest first: start queued models in order of distance to the viewer.
     if(Loading<4)
     {
@@ -695,4 +696,77 @@ void AEidoverseExplorer::TickPhoto(float Dt,APlayerController* PC)
     PhotoFovWant=FMath::Clamp(PhotoFovWant+(Key(EKeys::RightBracket)-Key(EKeys::LeftBracket))*30*Dt,12.f,95.f);
     PhotoFov=FMath::Lerp(PhotoFov,PhotoFovWant,1-FMath::Exp(-Dt/.16f));
     Eyes->SetWorldLocationAndRotation(PhotoPos,PhotoView);Eyes->SetFieldOfView(PhotoFov*1.4f);   // three's vertical fov -> UE horizontal (16:10)
+}
+
+// ---- residency (models.js:704-822) --------------------------------------------------
+
+int32 AEidoverseScene::GetDemotedCount() const { int32 N=0; for(const auto& P:Items) N+=P.Value.bDemoted; return N; }
+
+bool AEidoverseScene::IsItemModelLoaded(const FString& Id) const
+{
+    const FEidoverseSceneItem* E=Items.Find(Id);
+    return E&&E->Model.IsValid()&&E->Asset.IsValid()&&E->Model->GetStaticMesh()==E->Asset->StaticMesh&&E->Asset->StaticMesh;
+}
+
+void AEidoverseScene::DemoteItem(FEidoverseSceneItem& E)
+{
+    // Back to the bbox placeholder; dropping the asset reference lets the retire pass
+    // below free the mesh once nothing else uses it.
+    E.Asset=nullptr; E.bDemoted=true; E.PictureApplied.Empty();
+    for(auto& L:E.ModelLamps)if(L.IsValid())L->DestroyComponent();E.ModelLamps.Reset();E.ModelLampIntensity.Reset();E.ModelLampSlotted.Reset();
+    for(auto& PC:E.PartComps)if(PC.Value.IsValid())PC.Value->DestroyComponent();E.PartComps.Reset();
+    if(UStaticMeshComponent* M=E.Model.Get())
+    {
+        M->SetStaticMesh(LoadObject<UStaticMesh>(nullptr,TEXT("/Engine/BasicShapes/Cube.Cube")));M->EmptyOverrideMaterials();M->SetMaterial(0,Material(TEXT("trim")));
+        M->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+        if(const auto* G=GeomByLib.Find(E.Lib)){M->SetRelativeLocation(AEidoverseBridge::FromWirePosition(G->Key));M->SetRelativeScale3D(AEidoverseBridge::FromWirePosition(G->Value).GetAbs()/100.0);}
+    }
+    bFloraDirty=true;
+}
+
+void AEidoverseScene::TickResidency(double Now)
+{
+    if(Now<NextResidency)return;
+    NextResidency=Now+.5;
+    static IConsoleVariable* Enabled=IConsoleManager::Get().RegisterConsoleVariable(TEXT("Eidoverse.World.Residency"),1,
+        TEXT("1: far models return to placeholders and reload on approach (models.js residency)."),ECVF_Default);
+    if(!Enabled->GetInt())return;
+    // Distance is the nearer of the camera and my body.
+    FVector Eye=SceneOrigin,Body=SceneOrigin;FRotator EyeRotation;
+    if(auto* PC=GetWorld()->GetFirstPlayerController()){PC->GetPlayerViewPoint(Eye,EyeRotation);if(APawn* P=PC->GetPawn())Body=P->GetActorLocation();}
+    TSet<FString> Carriers;for(const auto& P:Items)if(!P.Value.MountTo.IsEmpty())Carriers.Add(P.Value.MountTo);
+    for(auto& Pair:Items)
+    {
+        FEidoverseSceneItem& E=Pair.Value;
+        if(E.AssetKey.IsEmpty()||!E.Actor.IsValid())continue;
+        const auto* G=GeomByLib.Find(E.Lib);
+        // Never demoted: lights, mounted things and their carriers, things in an edit
+        // hold, things with moving parts or part sockets, and anything without a bbox.
+        const bool bPinned=E.Light.IsValid()||!E.MountTo.IsEmpty()||Carriers.Contains(Pair.Key)||HeldTransforms.Contains(Pair.Key)
+            ||E.PartMotions.IsValid()||!E.MountPart.IsEmpty()||E.AssetParts.Num()>0||!G;
+        const double Diag=G?G->Value.Size()*E.OwnScale:12;
+        static IConsoleVariable* Scale=IConsoleManager::Get().RegisterConsoleVariable(TEXT("Eidoverse.World.ResidencyScale"),1.f,
+            TEXT("Multiplier on the residency radii (testing; 1 = models.js)."),ECVF_Default);
+        const double K=FMath::Clamp(double(Scale->GetFloat()),.01,10.);
+        const double R=(80+4*Diag)*K;
+        const FVector At=E.Actor->GetActorLocation();
+        const double D=FMath::Min(FVector::Dist(Eye,At),FVector::Dist(Body,At))/100;
+        if(!E.bDemoted&&!bPinned&&D>R+20*K)DemoteItem(E);
+        else if(E.bDemoted&&(D<R||bPinned))
+        {
+            if(!Assets.Contains(E.AssetKey)&&Assets.Num()<64)
+            {auto* Asset=NewObject<UEidoverseAvatarAsset>();Asset->bStaticModel=true;Asset->StaticMeshOuter=this;Asset->Url=E.AssetUrl;Asset->SplitParts=E.AssetParts;Assets.Add(E.AssetKey,Asset);}
+            if(auto* Asset=Assets.Find(E.AssetKey)){E.Asset=*Asset;E.bDemoted=false;}
+        }
+    }
+}
+
+FString AEidoverseScene::DescribeResidency(const FString& Id) const
+{
+    const FEidoverseSceneItem* E=Items.Find(Id);if(!E||!E->Actor.IsValid())return TEXT("no item");
+    FVector Eye=SceneOrigin,Body=SceneOrigin;FRotator R;
+    if(auto* PC=GetWorld()->GetFirstPlayerController()){PC->GetPlayerViewPoint(Eye,R);if(APawn* P=PC->GetPawn())Body=P->GetActorLocation();}
+    const auto* G=GeomByLib.Find(E->Lib);
+    return FString::Printf(TEXT("lib=%s key=%d bbox=%d light=%d mount=%d held=%d parts=%d d=%.0fm demoted=%d"),*E->Lib,!E->AssetKey.IsEmpty(),G!=nullptr,E->Light.IsValid(),
+        !E->MountTo.IsEmpty(),HeldTransforms.Contains(Id),E->AssetParts.Num(),FMath::Min(FVector::Dist(Eye,E->Actor->GetActorLocation()),FVector::Dist(Body,E->Actor->GetActorLocation()))/100,E->bDemoted);
 }

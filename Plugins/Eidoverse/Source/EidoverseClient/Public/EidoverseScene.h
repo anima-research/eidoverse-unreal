@@ -66,6 +66,11 @@ struct FEidoverseSceneItem
     TSharedPtr<struct FEidoParticleEmitter> Emitter;
     TSharedPtr<struct FEidoSoundPlayer> SoundPlayer;
     FString EmitterKey;
+    // Residency (models.js): the model's asset key and how to recreate it, and whether
+    // it is demoted to its placeholder for being far away.
+    FString AssetKey, AssetUrl;
+    TArray<FString> AssetParts;
+    bool bDemoted=false;
 };
 
 // Disposable scene projection, never a second persistent fold.
@@ -182,6 +187,16 @@ private:
     FVector LastLightRankEye=FVector::ZeroVector;
     void TickPlacedLights(double Now);
     void TickParts();
+    // Promote within R = 80 + 4 x bbox diagonal (m), demote beyond R + 20, at 2 Hz.
+    void TickResidency(double Now);
+    void DemoteItem(FEidoverseSceneItem& E);
+    double NextResidency=0;
+public:
+    UFUNCTION(BlueprintPure,Category="Eidoverse") int32 GetDemotedCount() const;
+    UFUNCTION(BlueprintPure,Category="Eidoverse") FString DescribeResidency(const FString& Id) const;
+    UFUNCTION(BlueprintPure,Category="Eidoverse") bool IsItemDemoted(const FString& Id) const { const FEidoverseSceneItem* E=Items.Find(Id); return E&&E->bDemoted; }
+    UFUNCTION(BlueprintPure,Category="Eidoverse") bool IsItemModelLoaded(const FString& Id) const;
+private:
     void TickPictures();
     void TickParticles(float Dt);
     void TickSounds();
