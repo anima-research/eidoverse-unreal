@@ -705,6 +705,9 @@ UWidget* UEidoverseHUD::BuildSettings()
     Row(TEXT("Panel opacity"), "opacity", {{TEXT("−"), "set:opacity-"}, {TEXT("+"), "set:opacity+"}});
     Row(TEXT("Names over people"), "plates", {{TEXT("toggle"), "set:plates"}});
     Row(TEXT("Chat bubbles"), "bubbles", {{TEXT("toggle"), "set:bubbles"}});
+    Section(TEXT("Chat"));
+    Row(TEXT("Chat text size"), "chatsize", {{TEXT("−"), "set:cs-"}, {TEXT("+"), "set:cs+"}});
+    Row(TEXT("Markdown (**bold**, *italic*, `code`)"), "chatmd", {{TEXT("toggle"), "set:md"}});
     Section(TEXT("Voice"));
     Row(TEXT("Microphone (V)"), "mic", {{TEXT("toggle"), "set:mic"}});
     Row(TEXT("Push-to-talk (hold V)"), "ptt", {{TEXT("toggle"), "set:ptt"}});
@@ -760,6 +763,8 @@ void UEidoverseHUD::RefreshSettings()
     Put("volvoice", FString::Printf(TEXT("%.0f%%"), EidoSettings::VoiceVolume() * 100));
     Put("volworld", FString::Printf(TEXT("%.0f%%"), EidoSettings::WorldVolume() * 100));
     Put("vpio", EidoSettings::VoiceProcessing() ? TEXT("on") : TEXT("off"));
+    { IConsoleVariable* V = IConsoleManager::Get().FindConsoleVariable(TEXT("Eidoverse.Chat.TextSize")); Put("chatsize", V ? FString::FromInt(V->GetInt()) : FString(TEXT("11"))); }
+    { IConsoleVariable* V = IConsoleManager::Get().FindConsoleVariable(TEXT("Eidoverse.Chat.Markdown")); Put("chatmd", !V || V->GetInt() ? TEXT("on") : TEXT("off")); }
     Put("tts", Bridge && Bridge->IsTtsOn() ? TEXT("on") : TEXT("off"));
     { IConsoleVariable* V = IConsoleManager::Get().FindConsoleVariable(TEXT("Eidoverse.Audio.SttConsent")); Put("stt", V && V->GetInt() == 1 ? (Bridge && Bridge->IsSttRunning() ? TEXT("listening") : TEXT("on")) : TEXT("off")); }
     const int32 Level = GEngine && GEngine->GetGameUserSettings() ? GEngine->GetGameUserSettings()->GetOverallScalabilityLevel() : -1;
@@ -802,6 +807,10 @@ void UEidoverseHUD::OnSettingClicked()
     else if (Id.StartsWith(TEXT("set:ad"))) EidoSettings::Set(TEXT("Eidoverse.Video.AvatarDetail"), Id.Mid(6));
     else if (Id == TEXT("set:mic")) { if (Bridge) Bridge->SetMicOn(!Bridge->IsMicOn()); }
     else if (Id == TEXT("set:stt")) { IConsoleVariable* V = IConsoleManager::Get().FindConsoleVariable(TEXT("Eidoverse.Audio.SttConsent")); if (Bridge) Bridge->SetSttConsent(!(V && V->GetInt() == 1)); }
+    else if (Id == TEXT("set:cs-") || Id == TEXT("set:cs+"))
+    { IConsoleVariable* V = IConsoleManager::Get().FindConsoleVariable(TEXT("Eidoverse.Chat.TextSize")); if (V) { V->Set(FMath::Clamp(V->GetInt() + (Id.EndsWith(TEXT("+")) ? 1 : -1), 9, 20), ECVF_SetByGameSetting); RefreshChat(); } }
+    else if (Id == TEXT("set:md"))
+    { IConsoleVariable* V = IConsoleManager::Get().RegisterConsoleVariable(TEXT("Eidoverse.Chat.Markdown"), 1, TEXT("Render **bold**, *italic*, `code` in chat."), ECVF_Default); V->Set(V->GetInt() ? 0 : 1, ECVF_SetByGameSetting); RefreshChat(); }
     else if (Id == TEXT("set:tts")) { if (Bridge) Bridge->SetTtsEnabled(!Bridge->IsTtsOn()); }
     else if (Id == TEXT("set:hear")) { if (Bridge) Bridge->SetHearVoices(!EidoSettings::HearVoices()); }
     else if (Id == TEXT("set:ptt") || Id == TEXT("set:vpio") || Id.StartsWith(TEXT("set:floor")))
@@ -1180,7 +1189,7 @@ void UEidoverseHUD::RefreshChat()
             ButtonIds.Add(Name, FName(*(TEXT("who:@") + L.Sender)));
             Row->AddChildToHorizontalBox(Name)->SetPadding(FMargin(0, 0, 6, 0));
         }
-        auto* Text = Label(L.Text, Pt, L.bSystem ? FEidoverseTheme::Dim() : L.bMention ? FEidoverseTheme::Attention() : FEidoverseTheme::Text());
+        UWidget* Text = L.bSystem ? Label(L.Text, Pt, FEidoverseTheme::Dim()) : ChatTextWidget(L.Text, Pt, L.bMention ? FEidoverseTheme::Attention() : FEidoverseTheme::Text());
         Row->AddChildToHorizontalBox(Text)->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
         // A link opens in the browser (http(s) only, trailing punctuation trimmed).
         const int32 At = L.Text.Find(TEXT("http"));

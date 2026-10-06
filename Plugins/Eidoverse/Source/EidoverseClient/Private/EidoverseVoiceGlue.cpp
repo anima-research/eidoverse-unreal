@@ -80,7 +80,10 @@ bool AEidoverseBridge::ForwardVoiceSignal(const FString& Type, const TSharedPtr<
                                         TEXT("voice-service"), TEXT("voice-consent"), TEXT("voice-moderated"), TEXT("error")};
     if (!Voice || !Types.Contains(Type)) return false;
     Voice->OnSignal(J);
-    return Type != TEXT("error");   // errors still reach the person through the usual path
+    // Errors still reach the person through the usual path, except the voice relay's
+    // own absence, which voice has already explained in one line.
+    FString Err; if (Type == TEXT("error") && J) J->TryGetStringField(TEXT("error"), Err);
+    return Type != TEXT("error") || Err == TEXT("no voice relay configured");
 }
 
 void AEidoverseBridge::SetMicOn(bool bOn)

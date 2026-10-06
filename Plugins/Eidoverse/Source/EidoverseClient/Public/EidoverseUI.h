@@ -215,6 +215,13 @@ public:
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void ShowDoorKey(bool bShow);
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void DoorEnter() { OnDoorJoin(); }
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void SetDoorFields(const FString& Server, const FString& World, const FString& Name);
+    // Chat markdown (chat.js CH-E): **b**, *i* / _i_, `code` on a rich text block.
+    UFUNCTION(BlueprintPure, Category="Eidoverse|UI") static FString ChatMarkup(const FString& Text);
+private:
+    UPROPERTY() TMap<FString, TObjectPtr<class UDataTable>> ChatStyleSets;
+    class UDataTable* ChatStyleSet(int32 Size, const FLinearColor& Color);
+    UWidget* ChatTextWidget(const FString& Text, int32 Size, const FLinearColor& Color);
+public:
 private:
     struct FDoorAvatar { FString Name, Path; };
     TArray<FDoorAvatar> DoorRoster;

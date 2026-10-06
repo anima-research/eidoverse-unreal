@@ -13,6 +13,11 @@
 #include "Components/EditableTextBox.h"
 #include "Blueprint/WidgetTree.h"
 #include "Components/ScrollBox.h"
+#include "Components/RichTextBlock.h"
+#include "Engine/DataTable.h"
+#include "Framework/Text/RichTextMarkupProcessing.h"
+#include "Internationalization/Regex.h"
+#include "Styling/CoreStyle.h"
 
 namespace
 {
@@ -198,4 +203,64 @@ bool UEidoverseHUD::ChatKey(const FString& KeyName)
     else return false;
     RefreshAutocomplete();
     return true;
+}
+
+// ---------------------------------------------------------------- markdown
+
+namespace
+{
+    FString MdReplace(const FString& In, const FString& Pattern, const FString& Open)
+    {
+        FRegexMatcher M(FRegexPattern(Pattern), In);
+        FString Out; int32 Last = 0;
+        while (M.FindNext())
+        {
+            Out += In.Mid(Last, M.GetMatchBeginning() - Last) + Open + M.GetCaptureGroup(1) + TEXT("</>");
+            Last = M.GetMatchEnding();
+        }
+        return Out + In.Mid(Last);
+    }
+}
+
+FString UEidoverseHUD::ChatMarkup(const FString& Text)
+{
+    // User text never carries markup of its own: escape first, then the four rules.
+    FString S = Text.Replace(TEXT("&"), TEXT("&amp;")).Replace(TEXT("\""), TEXT("&quot;")).Replace(TEXT("<"), TEXT("&lt;")).Replace(TEXT(">"), TEXT("&gt;"));
+    S = MdReplace(S, TEXT("`([^`]+)`"), TEXT("<code>"));
+    S = MdReplace(S, TEXT("\\*\\*(?!\\s)(.+?)(?<!\\s)\\*\\*"), TEXT("<b>"));
+    S = MdReplace(S, TEXT("(?<![\\w*])\\*(?![\\s*])(.+?)(?<![\\s*])\\*(?![\\w*])"), TEXT("<i>"));
+    S = MdReplace(S, TEXT("(?<!\\w)_(?!\\s)(.+?)(?<!\\s)_(?!\\w)"), TEXT("<i>"));
+    return S;
+}
+
+UDataTable* UEidoverseHUD::ChatStyleSet(int32 Size, const FLinearColor& Color)
+{
+    const FString Key = FString::Printf(TEXT("%d|%s"), Size, *Color.ToString());
+    if (UDataTable* T = ChatStyleSets.FindRef(Key)) return T;
+    UDataTable* T = NewObject<UDataTable>(this);
+    T->RowStruct = FRichTextStyleRow::StaticStruct();
+    auto Add = [T, Size, Color](const TCHAR* Name, const FSlateFontInfo& Font, const FLinearColor& C)
+    {
+        FRichTextStyleRow Row;
+        Row.TextStyle.SetFont(Font); Row.TextStyle.SetColorAndOpacity(FSlateColor(C));
+        T->AddRow(FName(Name), Row);
+    };
+    Add(TEXT("Default"), FEidoverseTheme::Font(Size), Color);
+    Add(TEXT("b"), FEidoverseTheme::Font(Size, true), Color);
+    Add(TEXT("i"), FCoreStyle::GetDefaultFontStyle("Italic", Size), Color);
+    Add(TEXT("code"), FCoreStyle::GetDefaultFontStyle("Mono", Size), FEidoverseTheme::Brand());
+    ChatStyleSets.Add(Key, T);
+    return T;
+}
+
+UWidget* UEidoverseHUD::ChatTextWidget(const FString& Text, int32 Size, const FLinearColor& Color)
+{
+    static IConsoleVariable* Md = IConsoleManager::Get().RegisterConsoleVariable(TEXT("Eidoverse.Chat.Markdown"), 1, TEXT("Render **bold**, *italic*, `code` in chat."), ECVF_Default);
+    const bool bMarks = Text.Contains(TEXT("*")) || Text.Contains(TEXT("_")) || Text.Contains(TEXT("`"));
+    if (!Md->GetInt() || !bMarks) return Label(Text, Size, Color);
+    auto* R = WidgetTree->ConstructWidget<URichTextBlock>();
+    R->SetTextStyleSet(ChatStyleSet(Size, Color));
+    R->SetAutoWrapText(true);
+    R->SetText(FText::FromString(ChatMarkup(Text)));
+    return R;
 }
