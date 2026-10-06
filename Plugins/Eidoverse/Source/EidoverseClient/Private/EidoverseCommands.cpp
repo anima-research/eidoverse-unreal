@@ -55,6 +55,8 @@ namespace
             {TEXT("mount"), {TEXT("attach")}, TEXT("/mount <thing> <onto> [slot]"), false, false},
             {TEXT("dismount"), {TEXT("detach")}, TEXT("/dismount <thing>"), false, false},
             {TEXT("debug"), {}, TEXT("/debug [n] — the world's flight recorder"), false, false},
+            {TEXT("scripts"), {}, TEXT("list the behaviours bound in this world"), true, false},
+            {TEXT("script"), {TEXT("unbind")}, TEXT("/script <id> \u2014 a behaviour's console; /unbind <id> removes it"), true, false},
             {TEXT("wave"), {TEXT("cheer"), TEXT("point")}, TEXT("emote shortcuts"), false, false},
         };
         return Table;
@@ -321,6 +323,20 @@ bool AEidoverseBridge::HandleInteractionCommand(const FString& Text)
     {
         if (Args.IsEmpty()) { Usage(); return true; }
         DetachEntity(Args[0]);
+    }
+    else if (Name == TEXT("scripts"))
+    {
+        auto Arg = Obj(); DebugReqId = FString::Printf(TEXT("d%d"), ++DebugRequests);
+        Arg->SetStringField(TEXT("reqId"), DebugReqId); Arg->SetBoolField(TEXT("behaviors"), true);
+        SendRaw(TEXT("debug"), Arg);
+    }
+    else if (Name == TEXT("script"))
+    {
+        if (Args.IsEmpty()) { Usage(); return true; }
+        if (bViaAlias) { auto Arg = Obj(); Arg->SetStringField(TEXT("id"), Args[0]); Arg->SetBoolField(TEXT("remove"), true); Verb(TEXT("behavior"), Arg); return true; }
+        auto Arg = Obj(); DebugReqId = FString::Printf(TEXT("d%d"), ++DebugRequests);
+        Arg->SetStringField(TEXT("reqId"), DebugReqId); Arg->SetStringField(TEXT("behavior"), Args[0]); Arg->SetNumberField(TEXT("limit"), 40);
+        SendRaw(TEXT("debug"), Arg);
     }
     else if (Name == TEXT("debug"))
     {

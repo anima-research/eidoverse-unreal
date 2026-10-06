@@ -200,7 +200,9 @@ bool AEidoverseBridge::ReceiveProtocol(const FString& Type, const TSharedPtr<FJs
     {
         if (PStr(J, TEXT("reqId")) != DebugReqId) return true;
         const auto& Events = PArr(J, TEXT("events"));
-        if (Events.IsEmpty()) { Narrate(TEXT("flight recorder is empty — nothing has bounced recently")); return true; }
+        const FString Behavior = PStr(J, TEXT("behavior"));
+        if (!Behavior.IsEmpty()) Narrate(FString::Printf(TEXT("script %s \u2014 %s"), *Behavior, *PStr(J, TEXT("status"))));
+        if (Events.IsEmpty()) { Narrate(Behavior.IsEmpty() ? TEXT("flight recorder is empty \u2014 nothing has bounced recently") : TEXT("(no console lines)")); return true; }
         for (const auto& V : Events)
         {
             const TSharedPtr<FJsonObject> E = V->AsObject(); if (!E) continue;
