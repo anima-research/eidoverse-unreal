@@ -53,4 +53,4 @@ Specs live in the four audit reports next to this file: `ui-protocol.md`, `avata
 - [x] chat: name colours, timestamps, grouping, links/markdown, ↓ recall
 - [x] chat: DM tabs, autocomplete
 - [x] toasts coalescing, photo mode, remote XR, distance LOD update rate, emote bar posture tiles
-- [ ] video settings
+- [x] video settings (render scale, shadows, particle tier, avatar detail)

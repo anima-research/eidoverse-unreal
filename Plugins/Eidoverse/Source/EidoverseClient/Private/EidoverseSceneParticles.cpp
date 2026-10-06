@@ -2,6 +2,7 @@
 // closed-form sprite law per particle, seeded with mulberry32 so every client draws
 // the same field. Camera-facing quads on one instanced component per emitter.
 #include "EidoverseScene.h"
+#include "EidoverseSettings.h"
 #include "EidoverseBridge.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
@@ -74,6 +75,12 @@ void AEidoverseScene::TickParticles(float Dt)
             Em->P.Size = Num(TEXT("size"), Base->Size); Em->P.Opacity = Num(TEXT("opacity"), Base->Opacity);
             Em->P.Life = FMath::Max(.05f, Num(TEXT("lifetime"), Base->Life)); Em->Speed = Num(TEXT("speed"), 1);
             Em->Count = FMath::Clamp(int32(Num(TEXT("count"), Base->Count)), 1, 600);
+            // resolvedCount: the emitter's own quality and my particle tier, whichever is lower.
+            {
+                FString Q; E.Particles->TryGetStringField(TEXT("quality"), Q);
+                const float Own = Q == TEXT("med") ? .5f : Q == TEXT("low") ? .25f : 1.f;
+                Em->Count = FMath::Max(1, FMath::RoundToInt(Em->Count * FMath::Min(Own, EidoSettings::ParticleScale())));
+            }
             const TArray<TSharedPtr<FJsonValue>>* Arr = nullptr;
             if (E.Particles->TryGetArrayField(TEXT("area"), Arr) && Arr->Num() == 3) Em->Area = FVector((*Arr)[0]->AsNumber(), (*Arr)[1]->AsNumber(), (*Arr)[2]->AsNumber());
             else Em->Area = FVector(Num(TEXT("area"), Base->Area));

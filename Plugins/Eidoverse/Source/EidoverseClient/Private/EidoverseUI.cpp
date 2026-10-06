@@ -729,6 +729,10 @@ UWidget* UEidoverseHUD::BuildSettings()
     }
     Column->AddChildToVerticalBox(Levels)->SetPadding(FMargin(0, 2, 0, 4));
     Row(TEXT("Lumen lighting (next join)"), "lumen", {{TEXT("toggle"), "set:lumen"}});
+    Row(TEXT("Render scale"), "rscale", {{TEXT("auto"), "set:rs0"}, {TEXT("100%"), "set:rs1"}, {TEXT("85%"), "set:rs.85"}, {TEXT("70%"), "set:rs.7"}});
+    Row(TEXT("Shadows"), "shadows", {{TEXT("off"), "set:sh0"}, {TEXT("1024"), "set:sh1024"}, {TEXT("2048"), "set:sh2048"}, {TEXT("4096"), "set:sh4096"}});
+    Row(TEXT("Particles"), "particles", {{TEXT("auto"), "set:pt0"}, {TEXT("med"), "set:pt1"}, {TEXT("low"), "set:pt2"}});
+    Row(TEXT("Avatar detail"), "detail", {{TEXT("auto"), "set:ad0"}, {TEXT("full"), "set:ad1"}, {TEXT("half"), "set:ad2"}, {TEXT("low"), "set:ad3"}});
     RefreshSettings();
     return Scroll;
 }
@@ -743,6 +747,10 @@ void UEidoverseHUD::RefreshSettings()
     Put("sens", FString::Printf(TEXT("%.2g×"), EidoSettings::LookSensitivity()));
     Put("invert", EidoSettings::InvertLook() ? TEXT("on") : TEXT("off"));
     Put("lumen", EidoSettings::Lumen() ? TEXT("on") : TEXT("off"));
+    Put("rscale", EidoSettings::RenderScale() > 0 ? FString::Printf(TEXT("%.0f%%"), EidoSettings::RenderScale() * 100) : FString(TEXT("auto")));
+    Put("shadows", EidoSettings::ShadowRes() ? FString::FromInt(EidoSettings::ShadowRes()) : FString(TEXT("off")));
+    { const TCHAR* P[] = {TEXT("auto"), TEXT("med"), TEXT("low")}; Put("particles", P[EidoSettings::ParticleTier()]); }
+    { const TCHAR* D[] = {TEXT("auto"), TEXT("full"), TEXT("half"), TEXT("low")}; Put("detail", D[EidoSettings::AvatarDetail()]); }
     Put("mic", Bridge && Bridge->IsMicOn() ? FString::Printf(TEXT("on · %.0f dB"), Bridge->GetMicRmsDb()) : FString(TEXT("off")));
     Put("ptt", EidoSettings::PushToTalk() ? TEXT("on") : TEXT("off"));
     Put("micfloor", FString::Printf(TEXT("%.0f dB"), -60 + EidoSettings::MicFloor() / .2f * 60));
@@ -784,6 +792,10 @@ void UEidoverseHUD::OnSettingClicked()
     else if (Id == TEXT("set:bubbles")) Toggle(TEXT("Eidoverse.UI.Bubbles"), EidoSettings::Bubbles());
     else if (Id == TEXT("set:invert")) Toggle(TEXT("Eidoverse.Look.InvertY"), EidoSettings::InvertLook());
     else if (Id == TEXT("set:lumen")) Toggle(TEXT("Eidoverse.World.Lumen"), EidoSettings::Lumen());
+    else if (Id.StartsWith(TEXT("set:rs"))) { EidoSettings::Set(TEXT("Eidoverse.Video.RenderScale"), Id.Mid(6)); EidoSettings::ApplyVideo(); }
+    else if (Id.StartsWith(TEXT("set:sh"))) { EidoSettings::Set(TEXT("Eidoverse.Video.Shadows"), Id.Mid(6)); EidoSettings::ApplyVideo(); }
+    else if (Id.StartsWith(TEXT("set:pt"))) { EidoSettings::Set(TEXT("Eidoverse.Video.Particles"), Id.Mid(6)); Toast(TEXT("particles: applies to effects from now on (yours only)")); }
+    else if (Id.StartsWith(TEXT("set:ad"))) EidoSettings::Set(TEXT("Eidoverse.Video.AvatarDetail"), Id.Mid(6));
     else if (Id == TEXT("set:mic")) { if (Bridge) Bridge->SetMicOn(!Bridge->IsMicOn()); }
     else if (Id == TEXT("set:hear")) { if (Bridge) Bridge->SetHearVoices(!EidoSettings::HearVoices()); }
     else if (Id == TEXT("set:ptt") || Id == TEXT("set:vpio") || Id.StartsWith(TEXT("set:floor")))

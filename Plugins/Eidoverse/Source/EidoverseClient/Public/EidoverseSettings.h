@@ -20,6 +20,16 @@ namespace EidoSettings
     EIDOVERSECLIENT_API float MicFloor();          // Eidoverse.Audio.MicFloor, 0..0.2 (web micFloor, default .12 = -24 dBFS)
     EIDOVERSECLIENT_API bool PushToTalk();         // Eidoverse.Audio.PushToTalk (default off): V held opens the mic
     EIDOVERSECLIENT_API bool VoiceProcessing();    // Eidoverse.Audio.VoiceProcessing: OS echo cancellation (default on)
+    // Video (videopanel.js / governor.js): render scale auto|1|.85|.7, shadows off or
+    // 1024|2048|4096, particle tier auto|med|low (count x1|.5|.25), avatar detail
+    // auto|full|half|low (far-body animation rate x1|1|2|4).
+    EIDOVERSECLIENT_API float RenderScale();       // Eidoverse.Video.RenderScale, 0 = auto
+    EIDOVERSECLIENT_API int32 ShadowRes();         // Eidoverse.Video.Shadows, 0 = off
+    EIDOVERSECLIENT_API float ParticleScale();     // Eidoverse.Video.Particles 0 auto, 1 med, 2 low
+    EIDOVERSECLIENT_API int32 ParticleTier();
+    EIDOVERSECLIENT_API int32 AvatarDetail();      // Eidoverse.Video.AvatarDetail 0 auto, 1 full, 2 half, 3 low
+    EIDOVERSECLIENT_API int32 AvatarLodBias();
+    EIDOVERSECLIENT_API void ApplyVideo();
     EIDOVERSECLIENT_API void Set(const TCHAR* Name, const FString& Value);
     EIDOVERSECLIENT_API void Load();
     EIDOVERSECLIENT_API void Save();

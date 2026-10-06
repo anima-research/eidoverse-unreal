@@ -389,7 +389,7 @@ void AEidoverseBridge::TickAvatars(double Time)
             // remotes.js: animate every frame under 8 m, every 2nd under 20 m, else every 4th
             // (staggered per body); closed-form clips land at the right phase regardless.
             const double DistM=FVector::Dist(Eye,P.Actor->GetActorLocation())/100;
-            const uint32 Every=DistM<8?1:DistM<20?2:4;
+            const uint32 Every=uint32((DistM<8?1:DistM<20?2:4)*EidoSettings::AvatarLodBias());   // x the avatar-detail bias
             const bool bAnimateNow=Every==1||((GFrameCounter+GetTypeHash(Pair.Key))%Every)==0||P.AvatarMesh->IsLimp();
             if(!P.bSubmarine&&bAnimateNow)
             {
