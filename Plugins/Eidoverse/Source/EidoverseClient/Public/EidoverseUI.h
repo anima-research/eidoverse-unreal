@@ -178,7 +178,16 @@ private:
     UPROPERTY() TObjectPtr<UEditableTextBox> ChatInput;
     UPROPERTY() TArray<TObjectPtr<UButton>> ChatTabs;
     int32 ChatTab = 0;  // 0 all, 1 mentions, 2 system
-    struct FLine { FString Sender, Text; bool bPrivate = false, bSystem = false, bMention = false; };
+    struct FLine { FString Sender, Text; bool bPrivate = false, bSystem = false, bMention = false; FDateTime At = FDateTime::Now(); };
+    // chat.js polish: name colours (FNV-1a over a 12-colour palette, collisions step),
+    // grouping within 90 s, HH:MM, links, the unread jump, persisted recall.
+    TMap<FString, int32> NameColours;
+    FLinearColor NameColour(const FString& Name);
+    int32 UnreadLines = 0, UnreadMentions = 0;
+    UPROPERTY() TObjectPtr<UButton> UnreadButton;
+    UFUNCTION() void OnUnreadClicked();
+    void LoadChatHistory();
+    void SaveChatHistory() const;
     bool bKeepChatScroll = false;
     double NextHistoryCheck = 0;
     TArray<FLine> Lines;
@@ -204,7 +213,8 @@ private:
     FString LastStatus, LastWorld, LastHttpBase;
     int32 LastPeopleHash = 0;
     double HintUntil = 0;
-    struct FToast { TWeakObjectPtr<UWidget> Widget; double Until = 0; };
+    struct FToast { TWeakObjectPtr<UWidget> Widget; TWeakObjectPtr<UTextBlock> Label; FString Text; bool bAttention = false; int32 Count = 1; double Until = 0; };
+    double NextPeopleRepaint = 0;
     TArray<FToast> Toasts;
 
     void Build();

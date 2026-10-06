@@ -412,6 +412,7 @@ void AEidoverseExplorer::Tick(float Dt)
         LastBodyLocation=Here;bHasLastBodyLocation=true;
     }
     auto* PC=Cast<APlayerController>(Controller);if(!PC||!PC->IsLocalController())return;
+    if(bPhoto){TickPhoto(Dt,PC);bWantMove=false;return;}
     UpdateCamera(Dt,PC);
     if(!bSeated&&TickSwimming(Dt,PC))
     {
@@ -444,8 +445,9 @@ void AEidoverseExplorer::Tick(float Dt)
         return;
     }
     FRotator R(0,PC->GetControlRotation().Yaw,0);
-    const float Forward=(PC->IsInputKeyDown(EKeys::W)?1:0)-(PC->IsInputKeyDown(EKeys::S)?1:0);
-    const float Right=(PC->IsInputKeyDown(EKeys::D)?1:0)-(PC->IsInputKeyDown(EKeys::A)?1:0);
+    const bool bArrows=!bArrowsForBuild;
+    const float Forward=(PC->IsInputKeyDown(EKeys::W)||(bArrows&&PC->IsInputKeyDown(EKeys::Up))?1:0)-(PC->IsInputKeyDown(EKeys::S)||(bArrows&&PC->IsInputKeyDown(EKeys::Down))?1:0);
+    const float Right=(PC->IsInputKeyDown(EKeys::D)||(bArrows&&PC->IsInputKeyDown(EKeys::Right))?1:0)-(PC->IsInputKeyDown(EKeys::A)||(bArrows&&PC->IsInputKeyDown(EKeys::Left))?1:0);
     bWantMove=Forward!=0||Right!=0;
     const bool bRun=PC->IsInputKeyDown(EKeys::LeftShift)||PC->IsInputKeyDown(EKeys::RightShift);
     const bool bCreep=PC->IsInputKeyDown(EKeys::LeftAlt)||PC->IsInputKeyDown(EKeys::RightAlt);
@@ -670,4 +672,27 @@ bool AEidoverseExplorer::TryMantle()
     GetCharacterMovement()->StopMovementImmediately();GetCharacterMovement()->DisableMovement();SetActorEnableCollision(false);
     AirborneSeconds=0;bJumped=false;
     return true;
+}
+
+void AEidoverseExplorer::SetPhotoMode(bool bOn)
+{
+    if(bPhoto==bOn)return;
+    bPhoto=bOn;
+    if(bOn){PhotoPos=Eyes->GetComponentLocation();PhotoVel=FVector::ZeroVector;PhotoView=Eyes->GetComponentRotation();PhotoFov=PhotoFovWant=55;GetCharacterMovement()->StopMovementImmediately();}
+    else{Eyes->SetFieldOfView(90);Eyes->SetRelativeLocationAndRotation(FVector::ZeroVector,FRotator::ZeroRotator);}
+}
+
+void AEidoverseExplorer::TickPhoto(float Dt,APlayerController* PC)
+{
+    // controller.js photo: 6 m/s (Shift x3.5, Alt 2.5 fine), damped move .22 s, look .09 s, fov .16 s.
+    auto Key=[PC](const FKey& K){return PC->IsInputKeyDown(K)?1.f:0.f;};
+    const bool bFine=PC->IsInputKeyDown(EKeys::LeftAlt)||PC->IsInputKeyDown(EKeys::RightAlt);
+    const float Speed=(bFine?2.5f:6.f)*(PC->IsInputKeyDown(EKeys::LeftShift)||PC->IsInputKeyDown(EKeys::RightShift)?3.5f:1.f)*100;
+    const FRotator View=PC->GetControlRotation();
+    const FVector Want=(FRotationMatrix(View).GetUnitAxis(EAxis::X)*(Key(EKeys::W)-Key(EKeys::S))+FRotationMatrix(View).GetUnitAxis(EAxis::Y)*(Key(EKeys::D)-Key(EKeys::A))+FVector(0,0,Key(EKeys::E)-Key(EKeys::Q)))*Speed;
+    PhotoVel=FMath::Lerp(PhotoVel,Want,1-FMath::Exp(-Dt/.22f));PhotoPos+=PhotoVel*Dt;
+    PhotoView=FMath::RInterpTo(PhotoView,View,Dt,1/(bFine?.5f:.09f));
+    PhotoFovWant=FMath::Clamp(PhotoFovWant+(Key(EKeys::RightBracket)-Key(EKeys::LeftBracket))*30*Dt,12.f,95.f);
+    PhotoFov=FMath::Lerp(PhotoFov,PhotoFovWant,1-FMath::Exp(-Dt/.16f));
+    Eyes->SetWorldLocationAndRotation(PhotoPos,PhotoView);Eyes->SetFieldOfView(PhotoFov*1.4f);   // three's vertical fov -> UE horizontal (16:10)
 }

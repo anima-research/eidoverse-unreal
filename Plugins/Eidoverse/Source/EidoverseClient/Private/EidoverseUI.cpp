@@ -1,4 +1,6 @@
 #include "EidoverseUI.h"
+#include "UnrealClient.h"
+#include "EidoverseScene.h"
 #include "EidoverseBridge.h"
 #include "EidoverseSettings.h"
 #include "GameFramework/GameUserSettings.h"
@@ -582,7 +584,12 @@ UWidget* UEidoverseHUD::BuildChat()
         ChatTabs.Add(B);
         Tabs->AddChildToHorizontalBox(B)->SetPadding(FMargin(0, 0, 6, 0));
     }
+    UnreadButton = TextButton(TEXT(""));
+    UnreadButton->OnClicked.AddDynamic(this, &UEidoverseHUD::OnUnreadClicked);
+    UnreadButton->SetVisibility(ESlateVisibility::Collapsed);
+    Tabs->AddChildToHorizontalBox(UnreadButton)->SetPadding(FMargin(6, 0, 0, 0));
     Column->AddChildToVerticalBox(Tabs)->SetPadding(FMargin(0, 0, 0, 6));
+    LoadChatHistory();
     ChatLog = WidgetTree->ConstructWidget<UScrollBox>();
     Column->AddChildToVerticalBox(ChatLog)->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
     TypingLine = Label(TEXT(""), 10, FEidoverseTheme::Dim());
@@ -1043,15 +1050,27 @@ void UEidoverseHUD::RefreshHelp()
 void UEidoverseHUD::RefreshChat()
 {
     if (!ChatLog) return;
+    // Reading back through the log: keep the place and count what arrives (chat.js unread).
+    const bool bWasAtBottom = ChatLog->GetScrollOffsetOfEnd() - ChatLog->GetScrollOffset() <= 48;
     ChatLog->ClearChildren();
     for (auto It = ButtonIds.CreateIterator(); It; ++It) if (!It->Key.IsValid()) It.RemoveCurrent();
+    static IConsoleVariable* Size = IConsoleManager::Get().RegisterConsoleVariable(TEXT("Eidoverse.Chat.TextSize"), 11, TEXT("Chat text size, 9..20."), ECVF_Default);
+    const int32 Pt = FMath::Clamp(Size->GetInt(), 9, 20);
+    FString PrevSender; FDateTime PrevAt;
     for (const FLine& L : Lines)
     {
         if ((ChatTab == 1 && !L.bMention) || (ChatTab == 2 && !L.bSystem)) continue;
         auto* Row = WidgetTree->ConstructWidget<UHorizontalBox>();
-        if (!L.bSystem)
+        // Same author within 90 s: one block, the name shown once (system lines don't break it).
+        const bool bGrouped = !L.bSystem && L.Sender == PrevSender && (L.At - PrevAt).GetTotalSeconds() < 90;
+        if (!L.bSystem) { PrevSender = L.Sender; PrevAt = L.At; }
+        if (!L.bSystem && bGrouped) Row->AddChildToHorizontalBox(Label(TEXT(""), Pt))->SetPadding(FMargin(38, 0, 0, 0));
+        if (!L.bSystem && !bGrouped)
         {
-            auto* Who = Label((L.bPrivate ? TEXT("→ ") : TEXT("")) + L.Sender, 11, L.bPrivate ? FEidoverseTheme::Private() : FEidoverseTheme::Brand(), true);
+            auto* Time = Label(L.At.ToString(TEXT("%H:%M")), Pt - 2, FEidoverseTheme::Dim());
+            Time->SetAutoWrapText(false); Time->SetToolTipText(FText::FromString(L.At.ToString()));
+            Row->AddChildToHorizontalBox(Time)->SetPadding(FMargin(0, 1, 6, 0));
+            auto* Who = Label((L.bPrivate ? TEXT("→ ") : TEXT("")) + L.Sender, Pt, L.bPrivate ? FEidoverseTheme::Private() : NameColour(L.Sender), true);
             Who->SetAutoWrapText(false);
             // Click a name to start a mention of them (web chat.js).
             auto* Name = WidgetTree->ConstructWidget<UButton>();
@@ -1062,14 +1081,78 @@ void UEidoverseHUD::RefreshChat()
             ButtonIds.Add(Name, FName(*(TEXT("who:@") + L.Sender)));
             Row->AddChildToHorizontalBox(Name)->SetPadding(FMargin(0, 0, 6, 0));
         }
-        auto* Text = Label(L.Text, 11, L.bSystem ? FEidoverseTheme::Dim() : L.bMention ? FEidoverseTheme::Attention() : FEidoverseTheme::Text());
+        auto* Text = Label(L.Text, Pt, L.bSystem ? FEidoverseTheme::Dim() : L.bMention ? FEidoverseTheme::Attention() : FEidoverseTheme::Text());
         Row->AddChildToHorizontalBox(Text)->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+        // A link opens in the browser (http(s) only, trailing punctuation trimmed).
+        const int32 At = L.Text.Find(TEXT("http"));
+        if (At != INDEX_NONE && (L.Text.Mid(At, 8) == TEXT("https://") || L.Text.Mid(At, 7) == TEXT("http://")))
+        {
+            int32 End = At; while (End < L.Text.Len() && !FChar::IsWhitespace(L.Text[End])) ++End;
+            FString Url = L.Text.Mid(At, End - At);
+            while (Url.Len() && FString(TEXT(")]}>.,;:!?'\"\u00BB")).Contains(Url.Right(1))) Url.LeftChopInline(1);
+            UButton* Open = TextButton(TEXT("\u2197"));
+            Open->SetToolTipText(FText::FromString(TEXT("open ") + Url));
+            Open->OnClicked.AddDynamic(this, &UEidoverseHUD::OnNameClicked);
+            ButtonIds.Add(Open, FName(*(TEXT("url:") + Url.Left(400))));
+            Row->AddChildToHorizontalBox(Open)->SetPadding(FMargin(4, 0, 0, 0));
+        }
         ChatLog->AddChild(Row);
+    }
+    if (!bWasAtBottom && !bKeepChatScroll && Lines.Num())
+    {
+        const FLine& Newest = Lines.Last();
+        if (!Newest.bSystem) { ++UnreadLines; if (Newest.bMention) ++UnreadMentions; }
+        bKeepChatScroll = true;   // stay where the reader is
+    }
+    if (UnreadButton)
+    {
+        UnreadButton->SetVisibility(UnreadLines > 0 ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+        if (UTextBlock* T = Cast<UTextBlock>(UnreadButton->GetContent()))
+            T->SetText(FText::FromString(UnreadMentions ? FString::Printf(TEXT("%d new \u00B7 %d \u2731 \u2193"), UnreadLines, UnreadMentions) : FString::Printf(TEXT("%d new \u2193"), UnreadLines)));
     }
     for (int32 I = 0; I < ChatTabs.Num(); ++I)
         ChatTabs[I]->SetStyle(FlatButton(I == ChatTab ? FEidoverseTheme::Brand().CopyWithNewOpacity(.16f) : FLinearColor::Transparent,
             FEidoverseTheme::Hover(), 6, I == ChatTab ? FEidoverseTheme::Brand().CopyWithNewOpacity(.5f) : FLinearColor::Transparent));
-    if (!bKeepChatScroll) ChatLog->ScrollToEnd();
+    if (!bKeepChatScroll) { ChatLog->ScrollToEnd(); UnreadLines = UnreadMentions = 0; }
+    else if (!bWasAtBottom) bKeepChatScroll = false;
+}
+
+void UEidoverseHUD::OnUnreadClicked()
+{
+    UnreadLines = UnreadMentions = 0;
+    if (ChatLog) ChatLog->ScrollToEnd();
+    if (UnreadButton) UnreadButton->SetVisibility(ESlateVisibility::Collapsed);
+}
+
+FLinearColor UEidoverseHUD::NameColour(const FString& Name)
+{
+    // base.js: FNV-1a over the lower-cased name picks the preferred colour; a name
+    // whose colour is already taken steps to the next free one; assignments stick.
+    static const uint32 Palette[] = {0x7cc4ff, 0xff9fc4, 0xb8e06a, 0xffab6b, 0xc4a6ff, 0x6ee0d0, 0xff9a8f, 0x9fb8ff, 0xe9a6ff, 0x7fe0a0, 0xd8c470, 0x62d3f0};
+    int32* Have = NameColours.Find(Name);
+    if (!Have)
+    {
+        uint32 H = 0x811c9dc5; for (const TCHAR C : Name.ToLower()) { H ^= uint32(C); H *= 0x01000193; }
+        int32 Index = int32(H % 12);
+        TSet<int32> Taken; for (const auto& P : NameColours) Taken.Add(P.Value);
+        for (int32 Step = 0; Step < 12 && Taken.Contains(Index); ++Step) Index = (Index + 1) % 12;
+        Have = &NameColours.Add(Name, Index);
+    }
+    const uint32 C = Palette[*Have];
+    return FLinearColor::FromSRGBColor(FColor((C >> 16) & 255, (C >> 8) & 255, C & 255));
+}
+
+void UEidoverseHUD::LoadChatHistory()
+{
+    FString Saved; SentHistory.Reset();
+    if (GConfig->GetString(TEXT("/Script/EidoverseClient.Chat"), TEXT("History"), Saved, GGameUserSettingsIni)) Saved.ParseIntoArray(SentHistory, TEXT("\u241E"));
+}
+
+void UEidoverseHUD::SaveChatHistory() const
+{
+    TArray<FString> Last; for (int32 I = FMath::Max(0, SentHistory.Num() - 20); I < SentHistory.Num(); ++I) Last.Add(SentHistory[I]);
+    GConfig->SetString(TEXT("/Script/EidoverseClient.Chat"), TEXT("History"), *FString::Join(Last, TEXT("\u241E")), GGameUserSettingsIni);
+    GConfig->Flush(false, GGameUserSettingsIni);
 }
 
 void UEidoverseHUD::RefreshPeople(bool bForce)
@@ -1083,10 +1166,14 @@ void UEidoverseHUD::RefreshPeople(bool bForce)
     PeopleList->ClearChildren();
     auto AddRow = [this](const FString& Name, bool bYou) {
         auto* Row = WidgetTree->ConstructWidget<UHorizontalBox>();
-        auto* Dot = Label(TEXT("●"), 8, FEidoverseTheme::Brand());
-        Dot->SetAutoWrapText(false);
+        // chat.js people rows: presence dot (present / away / busy), coloured name, distance.
+        FString Presence = bYou ? Bridge->CurrentPresence() : TEXT("present"); float Metres = -1;
+        if (!bYou) Bridge->GetPeerInfo(Name, Presence, Metres);
+        auto* Dot = Label(TEXT("●"), 8, Presence == TEXT("away") ? FEidoverseTheme::Dim() : Presence == TEXT("busy") ? FEidoverseTheme::Attention() : FEidoverseTheme::Brand());
+        Dot->SetAutoWrapText(false); Dot->SetToolTipText(FText::FromString(Presence));
         Row->AddChildToHorizontalBox(Dot)->SetPadding(FMargin(0, 3, 8, 0));
-        Row->AddChildToHorizontalBox(Label(Name + (bYou ? TEXT("  (you)") : TEXT("")), 11));
+        Row->AddChildToHorizontalBox(Label(Name + (bYou ? TEXT("  (you)") : TEXT("")), 11, NameColour(Name)))->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+        if (Metres >= 0) Row->AddChildToHorizontalBox(Label(FString::Printf(TEXT("%.0fm"), Metres), 9, FEidoverseTheme::Dim()))->SetPadding(FMargin(6, 2, 0, 0));
         if (bYou) { PeopleList->AddChildToVerticalBox(Row)->SetPadding(FMargin(0, 2)); return; }
         // Click someone to start a private message.
         auto* Person = WidgetTree->ConstructWidget<UButton>();
@@ -1109,6 +1196,8 @@ void UEidoverseHUD::NativeTick(const FGeometry& Geometry, float Delta)
     Super::NativeTick(Geometry, Delta);
     if (!Bridge) return;
     const double Now = FPlatformTime::Seconds();
+    // People rows repaint every 2 s (distances and presence move without the roster changing).
+    if (Now >= NextPeopleRepaint) { NextPeopleRepaint = Now + 2; if (IsFrameOpen(TEXT("people"))) RefreshPeople(true); }
     // Scrolled near the top of the chat: page in earlier messages (chat.js history).
     if (ChatLog && Now >= NextHistoryCheck && Bridge->bJoined)
     {
@@ -1169,16 +1258,36 @@ void UEidoverseHUD::NativeTick(const FGeometry& Geometry, float Delta)
         SetPointerMode(false);
     if (PC->WasInputKeyJustPressed(EKeys::B)) ToggleFrame("build");
     if (PC->WasInputKeyJustPressed(EKeys::Enter)) FocusChat();
-    else if (PC->WasInputKeyJustPressed(EKeys::Tab)) ToggleFrame("people");
+    else if (PC->WasInputKeyJustPressed(EKeys::Tab)) ShowFrame("people", true);   // Tab only opens it (main.js)
+    else if (PC->WasInputKeyJustPressed(EKeys::H)) ToggleHelp();
+    else if (PC->WasInputKeyJustPressed(EKeys::P)) { if (auto* X = Cast<AEidoverseExplorer>(PC->GetPawn())) { X->SetPhotoMode(!X->bPhoto); Hint(X->bPhoto ? TEXT("photo mode \u2014 WASD fly, E/Q up/down, Shift fast, Alt fine, [ ] zoom, F2 save, P or Esc to leave") : TEXT("photo mode off"), 4); } }
+    else if (PC->WasInputKeyJustPressed(EKeys::F2) || PC->WasInputKeyJustPressed(EKeys::F12))
+    {
+        // handlers.js saveScreenshot: eidoverse-<world>-<iso>.png, without the interface.
+        FString Stamp = FDateTime::UtcNow().ToIso8601(); Stamp.ReplaceInline(TEXT(":"), TEXT("-")); Stamp.ReplaceInline(TEXT("."), TEXT("-"));
+        FScreenshotRequest::RequestScreenshot(FString::Printf(TEXT("eidoverse-%s-%s.png"), Bridge ? *Bridge->WorldName : TEXT("world"), *Stamp), false, false);
+        Hint(TEXT("screenshot saved"), 2);
+    }
     else if (PC->WasInputKeyJustPressed(EKeys::M)) SetPointerMode(!bPointerMode);
     else if (PC->WasInputKeyJustPressed(EKeys::F1)) SetVisibility(GetVisibility() == ESlateVisibility::Hidden ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Hidden);
     else if (PC->WasInputKeyJustPressed(EKeys::Slash) && (PC->IsInputKeyDown(EKeys::LeftShift) || PC->IsInputKeyDown(EKeys::RightShift))) ToggleHelp();
     else if (PC->WasInputKeyJustPressed(EKeys::Escape))
     {
-        if (HelpOverlay && HelpOverlay->GetVisibility() != ESlateVisibility::Collapsed) ToggleHelp();
+        if (auto* X = Cast<AEidoverseExplorer>(PC->GetPawn()); X && X->bPhoto) X->SetPhotoMode(false);
+        else if (HelpOverlay && HelpOverlay->GetVisibility() != ESlateVisibility::Collapsed) ToggleHelp();
         else if (CancelGhost()) Hint(TEXT("placement cancelled"), 1.5f);
         else SetPointerMode(true);
     }
+    // Drag to look in pointer mode (controller.js): right button, 0.005 rad/px yaw, 0.004 pitch.
+    if (bPointerMode && PC->IsInputKeyDown(EKeys::RightMouseButton))
+    {
+        float DX = 0, DY = 0; PC->GetInputMouseDelta(DX, DY);
+        FRotator R = PC->GetControlRotation();
+        R.Yaw += FMath::RadiansToDegrees(DX * 3 * .005f); R.Pitch = FMath::Clamp(FRotator::NormalizeAxis(R.Pitch) + FMath::RadiansToDegrees(DY * 3 * .004f), -69.f, 52.f);
+        PC->SetControlRotation(R);
+    }
+    // Arrow keys walk unless build mode is steering a selection or a ghost with them.
+    if (auto* X = Cast<AEidoverseExplorer>(PC->GetPawn())) X->bArrowsForBuild = IsFrameOpen("build") && (!GetSelectedEntity().IsEmpty() || HasGhost());
     const FKey Digits[] = {EKeys::One, EKeys::Two, EKeys::Three, EKeys::Four, EKeys::Five, EKeys::Six, EKeys::Seven, EKeys::Eight, EKeys::Nine};
     for (int32 I = 0; I < 9; ++I) if (PC->WasInputKeyJustPressed(Digits[I])) Emote(I);
 }
@@ -1194,10 +1303,18 @@ FReply UEidoverseHUD::NativeOnPreviewKeyDown(const FGeometry& Geometry, const FK
             bChatFromMouselook = false;
             return FReply::Handled();
         }
-        if (Event.GetKey() == EKeys::Up && !SentHistory.IsEmpty())
+        // Recall only from an empty draft or while already recalling (chat.js); Down goes forward.
+        if (Event.GetKey() == EKeys::Up && !SentHistory.IsEmpty() && (RecallIndex >= 0 || ChatInput->GetText().IsEmpty()))
         {
             RecallIndex = RecallIndex < 0 ? SentHistory.Num() - 1 : FMath::Max(0, RecallIndex - 1);
             ChatInput->SetText(FText::FromString(SentHistory[RecallIndex]));
+            return FReply::Handled();
+        }
+        if (Event.GetKey() == EKeys::Down && RecallIndex >= 0)
+        {
+            ++RecallIndex;
+            if (RecallIndex >= SentHistory.Num()) { RecallIndex = -1; ChatInput->SetText(FText::GetEmpty()); }
+            else ChatInput->SetText(FText::FromString(SentHistory[RecallIndex]));
             return FReply::Handled();
         }
     }
@@ -1260,7 +1377,8 @@ void UEidoverseHUD::SendChat()
     if (!Text.IsEmpty())
     {
         bool bOk = false;
-        SentHistory.Add(Text);
+        SentHistory.Add(Text); if (SentHistory.Num() > 50) SentHistory.RemoveAt(0, SentHistory.Num() - 50);
+        RecallIndex = -1; SaveChatHistory();
         ChatInput->SetText(FText::GetEmpty());
         // Every slash command goes through the command table; nothing unknown is posted.
         if (Text.StartsWith(TEXT("/"))) bOk = Bridge->HandleInteractionCommand(Text);
@@ -1351,6 +1469,12 @@ void UEidoverseHUD::InsertIntoChat(const FString& Text, bool bReplace)
 void UEidoverseHUD::OnNameClicked()
 {
     const FString Id = ResolveClicked().ToString();
+    if (Id.StartsWith(TEXT("url:")))
+    {
+        const FString Url = Id.Mid(4);
+        if (Url.StartsWith(TEXT("https://")) || Url.StartsWith(TEXT("http://"))) FPlatformProcess::LaunchURL(*Url, nullptr, nullptr);
+        return;
+    }
     if (!Id.StartsWith(TEXT("who:"))) return;
     const FString Text = Id.Mid(4);
     InsertIntoChat(Text + TEXT(" "), Text.StartsWith(TEXT("/w ")));
@@ -1365,18 +1489,28 @@ void UEidoverseHUD::AddSystemLine(const FString& Text)
 void UEidoverseHUD::Toast(const FString& Text, bool bAttention)
 {
     if (!ToastBox) return;
+    // ui.js: an identical toast still showing counts up (xN) and restarts; at most five.
+    for (FToast& T : Toasts)
+        if (T.Text == Text && T.bAttention == bAttention && T.Widget.IsValid())
+        {
+            ++T.Count; T.Until = FPlatformTime::Seconds() + (bAttention ? 9 : 5);
+            if (T.Label.IsValid()) T.Label->SetText(FText::FromString(FString::Printf(TEXT("%s  \u00D7%d"), *Text, T.Count)));
+            return;
+        }
+    while (Toasts.Num() >= 5) { if (Toasts[0].Widget.IsValid()) Toasts[0].Widget->RemoveFromParent(); Toasts.RemoveAt(0); }
     auto* Chip = WidgetTree->ConstructWidget<UBorder>();
     Chip->SetBrush(FEidoverseTheme::Rounded(FEidoverseTheme::Panel().CopyWithNewOpacity(.9f), 8,
         bAttention ? FEidoverseTheme::Attention() : FEidoverseTheme::Edge(), bAttention ? 1.5f : 1));
     Chip->SetPadding(FMargin(12, 8));
     auto* Size = WidgetTree->ConstructWidget<USizeBox>();
     Size->SetMaxDesiredWidth(380);
-    Size->SetContent(Label(Text, 11, bAttention ? FEidoverseTheme::Attention() : FEidoverseTheme::Text()));
+    UTextBlock* ToastLabel = Label(Text, 11, bAttention ? FEidoverseTheme::Attention() : FEidoverseTheme::Text());
+    Size->SetContent(ToastLabel);
     Chip->SetContent(Size);
     ToastBox->AddChildToVerticalBox(Chip)->SetPadding(FMargin(0, 4, 0, 0));
     FToast T;
-    T.Widget = Chip;
-    T.Until = FPlatformTime::Seconds() + 6;
+    T.Widget = Chip; T.Label = ToastLabel; T.Text = Text; T.bAttention = bAttention;
+    T.Until = FPlatformTime::Seconds() + (bAttention ? 9 : 5);
     Toasts.Add(T);
 }
 

@@ -141,6 +141,8 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Eidoverse|UI") TSubclassOf<UEidoverseHUD> HUDClass;
     UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse|UI") TObjectPtr<UEidoverseHUD> HUD;
     UFUNCTION(BlueprintPure, Category="Eidoverse") TArray<FString> GetParticipants() const;
+    // People pane: presence and distance (metres) of someone here.
+    bool GetPeerInfo(const FString& Id,FString& OutPresence,float& OutMetres) const;
     UFUNCTION(BlueprintPure, Category="Eidoverse") AActor* GetPeerActor(const FString& Id) const { const auto* P=Peers.Find(Id); return P?P->Actor.Get():nullptr; }
     UFUNCTION(BlueprintPure, Category="Eidoverse") UEidoverseAvatarMesh* GetPeerBody(const FString& Id) const { const auto* P=Peers.Find(Id); return P?P->AvatarMesh.Get():nullptr; }
     // Queue a gesture by name (server-validated vocabulary: /defs emotes).

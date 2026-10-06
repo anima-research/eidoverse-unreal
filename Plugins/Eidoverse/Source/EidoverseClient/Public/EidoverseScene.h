@@ -276,6 +276,12 @@ public:
     bool bEyeOverride=false; FVector EyeOverride=FVector::ZeroVector;
     // Mantle (controller.js): Space at a 0.3-1.7 m ledge lifts you onto it over 0.55 s.
     UPROPERTY(Transient,BlueprintReadOnly,Category="Eidoverse") bool bMantling=false;
+    bool bArrowsForBuild=false;
+    // Photo mode (controller.js): a free, damped camera; the body stays where it is.
+    UPROPERTY(Transient,BlueprintReadOnly,Category="Eidoverse") bool bPhoto=false;
+    FVector PhotoPos=FVector::ZeroVector, PhotoVel=FVector::ZeroVector; FRotator PhotoView=FRotator::ZeroRotator; float PhotoFov=55, PhotoFovWant=55;
+    UFUNCTION(BlueprintCallable,Category="Eidoverse") void SetPhotoMode(bool bOn);
+    void TickPhoto(float Dt,class APlayerController* PC);
     FVector MantleFrom=FVector::ZeroVector, MantleTo=FVector::ZeroVector; float MantleT=0;
     UFUNCTION(BlueprintCallable,Category="Eidoverse") bool TryMantle();
     UPROPERTY(Transient,BlueprintReadOnly,Category="Eidoverse") bool bSeated=false;

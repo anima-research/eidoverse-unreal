@@ -358,3 +358,12 @@ void AEidoverseBridge::UploadFile(const FString& LocalPath, const FString& As, T
     });
     Request->ProcessRequest();
 }
+
+bool AEidoverseBridge::GetPeerInfo(const FString& Id, FString& OutPresence, float& OutMetres) const
+{
+    const FEidoversePeer* P = Peers.Find(Id); if (!P) return false;
+    OutPresence = P->Presence;
+    const APawn* Me = UGameplayStatics::GetPlayerPawn(this, 0);
+    OutMetres = Me && P->Actor.IsValid() ? float(FVector::Dist(Me->GetActorLocation(), P->Actor->GetActorLocation()) / 100) : -1.f;
+    return true;
+}
