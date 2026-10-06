@@ -1,4 +1,24 @@
-# Unreal / Three.js parity — first world-rendering slice
+# Unreal / Three.js parity
+
+## Status 2026-10-06 (local only — not deployed, not pushed)
+
+The full parity backlog lives in `parity/BACKLOG.md` (specs in `parity/*.md`). Landed since
+the first slice: protocol and chat (whisper tabs, autocomplete, markdown, history), seats and
+held poses, remote and local ragdoll, bodydrag (both halves, nails), flight, climb/helm/mantle,
+reach, wings, sky/fog/weather surfaces, parts/pictures/particles/sounds, residency, flora
+pushers and keep(d), build tools (lights, drag, lock/guard, seat gizmos, structure editor with
+preview, inspector fields, scene Find), voice (WebRTC SFU), TTS endpoints, STT (built; needs
+an authorized run), front door roster and key, video settings, frames resize/snap, F3 overlay.
+
+Open: flora local placement past the server's 12k cap and real species meshes; the rail's
+pin/edge-drag and style tokens; STT verified by ear.
+
+Tests: `Automation RunTests Eidoverse` (all pass; VoiceLoopback needs an SFU preview on 8994),
+and `run_live_tests.sh` for the live ones with bots/fixtures against the local preview.
+
+---
+
+# First world-rendering slice
 
 Implemented locally 2026-09-17. **Not deployed to production.**
 
