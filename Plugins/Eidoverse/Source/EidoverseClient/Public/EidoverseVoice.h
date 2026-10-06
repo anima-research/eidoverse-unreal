@@ -51,6 +51,15 @@ public:
     void SetVoiceProcessing(bool bOn);              // Apple VPIO echo cancellation; default on, applies on next mic start
     // Publish a synthetic sine (Hz>0) instead of the mic, bypassing the gate — tests/TTS stand-in. 0 = off.
     void SetTestTone(float Hz, float Amplitude = .5f);
+    // Synthesized speech (tts.js): 48 kHz mono PCM played in order, published in place
+    // of the mic while the mic is off. Enabled = keep the publish lane open for it.
+    void SetSynthEnabled(bool bOn);
+    void QueueSynth(const TArray<float>& Pcm48k);
+    void ClearSynth();
+    bool IsSynthPlaying() const;
+    float GetSynthLevel() const;
+    // Raw mic frames as captured (pump thread), for speech-to-text; null to stop.
+    void SetMicTap(TFunction<void(const float* Data, int32 Num, double Rate)> Tap);
 
     // ── state (game thread) ──
     bool IsConnected() const;                       // ICE connected/completed

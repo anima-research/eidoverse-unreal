@@ -53,6 +53,7 @@ void AEidoverseBridge::ApplyVoicePrefs()
     Voice->SetMicSensitivity(EidoSettings::MicFloor());
     Voice->SetVoiceProcessing(EidoSettings::VoiceProcessing());
     Voice->SetReceiveConsent(EidoSettings::HearVoices());
+    Voice->SetSynthEnabled(IsTtsOn());
 }
 
 void AEidoverseBridge::VoiceJoined()
@@ -106,6 +107,7 @@ void AEidoverseBridge::TickVoice(float Dt)
 {
     if (!Voice) return;
     Voice->Tick(Dt);
+    TickTts(FPlatformTime::Seconds());
     const APawn* Me = UGameplayStatics::GetPlayerPawn(this, 0);
     if (Me) Voice->SetListenerPosition(ToWirePosition(Me->GetActorLocation() - OriginCentimeters));
     // V: toggle the mic, or talk while held in push-to-talk (never while typing).
@@ -152,7 +154,9 @@ void AEidoverseBridge::TickVoice(float Dt)
     if (UEidoverseAvatarMesh* M = SelfBody.AvatarMesh.Get())
     {
         const bool bLive = Voice->IsMicLive() && !Voice->IsMuted();
-        const float L = bLive ? Voice->GetMicLevel() : -1.f;
+        const bool bSynth = !bLive && Voice->IsSynthPlaying();   // my TTS voice moves my mouth too
+        const float L = bLive ? Voice->GetMicLevel() : bSynth ? Voice->GetSynthLevel() : -1.f;
+        if (bSynth && L > .045f) { SelfSpeakingUntil = FMath::Max(SelfSpeakingUntil, Now + .4); M->NoteSpeaking(Now + .4); }
         M->SetVoiceLevel(L);
         if (bLive && Voice->IsSpeaking() && L > .045f) { SelfSpeakingUntil = FMath::Max(SelfSpeakingUntil, Now + .4); M->NoteSpeaking(Now + .4); }
     }

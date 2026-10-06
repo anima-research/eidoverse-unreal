@@ -286,7 +286,7 @@ bool AEidoverseBridge::Say(const FString& Text)
     auto J=MakeShared<FJsonObject>(),A=MakeShared<FJsonObject>();A->SetStringField(TEXT("text"),Text);
     J->SetStringField(TEXT("type"),TEXT("verb"));J->SetStringField(TEXT("verb"),TEXT("say"));J->SetObjectField(TEXT("args"),A);
     if(!bJoined||!Socket||!Socket->IsConnected())return QueueWhileReconnecting(J,TEXT("say"));
-    Send(J);LastChat=Now;return true;
+    Send(J);LastChat=Now;SpeakOwnSay(Text);return true;
 }
 bool AEidoverseBridge::Whisper(const FString& To,const FString& Text)
 {

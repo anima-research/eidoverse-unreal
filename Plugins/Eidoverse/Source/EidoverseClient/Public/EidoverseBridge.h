@@ -301,6 +301,23 @@ public:
     UFUNCTION(BlueprintPure,Category="Eidoverse|Voice") TArray<FString> GetVoiceSpeakers() const;
     UFUNCTION(BlueprintPure,Category="Eidoverse|Voice") float GetMicRmsDb() const;
     UFUNCTION(BlueprintCallable,Category="Eidoverse|Voice") void SetVoiceTestTone(float Hz,float Amplitude);
+    // ---- TTS (EidoverseTTS.cpp): my says as speech on the voice leg while the mic is off ----
+    TSharedPtr<class IWebSocket> TtsSocket;
+    bool bTtsReady=false;
+    double TtsConnectAt=0;
+    int32 TtsSerial=0,TtsPlayNext=0,TtsSpokenChunks=0;
+    TArray<TPair<int32,FString>> TtsWaiting;
+    TMap<int32,TArray<float>> TtsDone;
+    TMap<int32,double> TtsSentAt;
+    UPROPERTY(Transient) TObjectPtr<class USoundWaveProcedural> TtsSidetone;
+    UPROPERTY(Transient) TObjectPtr<UAudioComponent> TtsSidetoneAudio;
+    void SpeakOwnSay(const FString& Text);
+    void EnsureTtsSocket(const FString& Url);
+    void FlushTts();
+    void TickTts(double Now);
+    UFUNCTION(BlueprintCallable,Category="Eidoverse|Voice") void SetTtsEnabled(bool bOn);
+    UFUNCTION(BlueprintPure,Category="Eidoverse|Voice") bool IsTtsOn() const;
+    UFUNCTION(BlueprintPure,Category="Eidoverse|Voice") int32 GetTtsSpokenChunks() const { return TtsSpokenChunks; }
     TOptional<bool> RightsFly;
     TSharedPtr<struct FEidoFlightRuntime> FlightRt;
     UFUNCTION(BlueprintCallable, Category="Eidoverse") void GoLimp();

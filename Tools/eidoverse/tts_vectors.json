@@ -1,0 +1,77 @@
+[
+ {
+  "text": "hello there",
+  "spoken": "hello there",
+  "chunks": [
+   "hello there"
+  ]
+ },
+ {
+  "text": "Hi! I'm here. Dr. Smith said hello to Mr. Jones at 6:04 today.",
+  "spoken": "Hi! I'm here. Dr. Smith said hello to Mr. Jones at 6:04 today.",
+  "chunks": [
+   "Hi! I'm here. Dr. Smith said hello to Mr. Jones at 6:04 today."
+  ]
+ },
+ {
+  "text": "Look at **this** `code` and _that_ — see https://example.com/path?x=1 for more 🌙✨",
+  "spoken": "Look at this code and that — see link for more",
+  "chunks": [
+   "Look at this code and that — see link for more"
+  ]
+ },
+ {
+  "text": "Check [the docs](https://docs.example.com) and the world:staging setup -> it works => fine :: done | ok ~ yes",
+  "spoken": "Check the docs and the world, staging setup , it works , fine , done, ok, yes",
+  "chunks": [
+   "Check the docs and the world, staging setup , it works , fine , done, ok, yes"
+  ]
+ },
+ {
+  "text": "```js\nconst x = 1;\n```\nThat was code, which should never be read aloud, and this sentence keeps going on and on so that it is long enough to be split at a soft boundary somewhere, because it is longer than ninety characters.",
+  "spoken": "That was code, which should never be read aloud, and this sentence keeps going on and on so that it is long enough to be split at a soft boundary somewhere, because it is longer than ninety characters.",
+  "chunks": [
+   "That was code, which should never be read aloud,",
+   "and this sentence keeps going on and on so that it is long enough to be split at a soft boundary somewhere,",
+   "because it is longer than ninety characters."
+  ]
+ },
+ {
+  "text": "A very long opening sentence that keeps going without any punctuation at all for quite a while until it finally stops somewhere far away.",
+  "spoken": "A very long opening sentence that keeps going without any punctuation at all for quite a while until it finally stops somewhere far away.",
+  "chunks": [
+   "A very long opening sentence that keeps going without any,",
+   "punctuation at all for quite a,",
+   "while until it finally stops somewhere far away."
+  ]
+ },
+ {
+  "text": "J. R. R. Tolkien wrote books. They are long. Very long indeed, and people read them anyway, because they love them, which is fine.",
+  "spoken": "J. R. R. Tolkien wrote books. They are long. Very long indeed, and people read them anyway, because they love them, which is fine.",
+  "chunks": [
+   "J. R. R. Tolkien wrote books.",
+   "They are long. Very long indeed, and people read them anyway,",
+   "because they love them, which is fine."
+  ]
+ },
+ {
+  "text": "Short. Bits. Here. And then a longer sentence follows that has some words.",
+  "spoken": "Short. Bits. Here. And then a longer sentence follows that has some words.",
+  "chunks": [
+   "Short. Bits. Here. And then a longer sentence follows that has some words."
+  ]
+ },
+ {
+  "text": "🌙",
+  "spoken": "",
+  "chunks": []
+ },
+ {
+  "text": "Wait… really? Yes!  Okay then; let's go: now, and quickly, but carefully, so nobody trips over anything at all on the way there.",
+  "spoken": "Wait… really? Yes! Okay then; let's go: now, and quickly, but carefully, so nobody trips over anything at all on the way there.",
+  "chunks": [
+   "Wait… really? Yes! Okay then; let's go: now, and quickly, but carefully,",
+   "so nobody trips over anything at all on the way there."
+  ]
+ }
+]

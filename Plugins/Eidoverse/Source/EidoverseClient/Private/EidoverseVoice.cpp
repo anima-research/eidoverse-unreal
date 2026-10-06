@@ -99,6 +99,14 @@ struct FMicRing
         return N;
     }
     void Clear() { Read.store(Write.load(std::memory_order_acquire), std::memory_order_release); }
+    int32 Available() const { return int32(Write.load(std::memory_order_acquire) - Read.load(std::memory_order_relaxed)); }
+    int32 Free() const { return Capacity - int32(Write.load(std::memory_order_relaxed) - Read.load(std::memory_order_acquire)); }
+    void Pop(float* Out, int32 N)
+    {
+        const uint64 R = Read.load(std::memory_order_relaxed);
+        for (int32 I = 0; I < N; ++I) Out[I] = Data[(R + I) % Capacity];
+        Read.store(R + N, std::memory_order_release);
+    }
 };
 
 // ─── custom AudioDeviceModule: no device, playout pulled by our pump ─────────────────────────
@@ -313,6 +321,12 @@ struct FEidoVoice::FImpl : public TSharedFromThis<FEidoVoice::FImpl, ESPMode::Th
     std::atomic<bool> bMicLive{false}, bMuted{false}, aPtt{false}, aKeyDown{false}, bWantPublish{false}, bSpeaking{false};
     std::atomic<int32> MicGen{0}, Onsets{0};
     std::atomic<float> Threshold{0.063f}, MicPeak{0}, MicRmsDb{-100}, ToneHz{0}, ToneAmp{.5f};
+    // synth lane (game thread feeds the ring from the backlog; the pump drains it)
+    TSharedPtr<FMicRing, ESPMode::ThreadSafe> SynthRing = MakeShared<FMicRing, ESPMode::ThreadSafe>();
+    TArray<float> SynthBacklog;
+    std::atomic<bool> bSynthOn{false};
+    std::atomic<float> SynthPeak{0};
+    FCriticalSection TapCs; TFunction<void(const float*, int32, double)> MicTap;
     // pump-owned
     int32 PumpMicGen = -1; FResampler MicRes; TArray<float> MicRaw, Mic48; double TonePhase = 0;
     float Last512[512] = {}; int32 LastPos = 0;
@@ -540,7 +554,7 @@ struct FEidoVoice::FImpl : public TSharedFromThis<FEidoVoice::FImpl, ESPMode::Th
     }
     void SyncPublishIntent()
     {
-        const bool bWant = bWantMic || ToneHz.load() > 0;
+        const bool bWant = bWantMic || ToneHz.load() > 0 || bSynthOn.load();
         bWantPublish = bWant;
         if (bWant && Cred) PostSig([E = Epoch](FImpl& I) { I.EnsurePublishedSig(E); });
     }
@@ -548,6 +562,11 @@ struct FEidoVoice::FImpl : public TSharedFromThis<FEidoVoice::FImpl, ESPMode::Th
     void Tick()
     {
         TFunction<void()> Fn; while (GameQueue.Dequeue(Fn)) Fn();
+        if (SynthBacklog.Num())
+        {
+            const int32 N = FMath::Min(SynthBacklog.Num(), SynthRing->Free() - 1);
+            if (N > 0) { SynthRing->Push(SynthBacklog.GetData(), N); SynthBacklog.RemoveAt(0, N, EAllowShrinking::No); }
+        }
         const double Now = FPlatformTime::Seconds();
         if (StallAt > 0 && Now > StallAt && (Ice == TEXT("checking") || Ice == TEXT("new")))
         {
@@ -745,6 +764,16 @@ struct FEidoVoice::FImpl : public TSharedFromThis<FEidoVoice::FImpl, ESPMode::Th
             Source->Deliver(Pcm);
             return;
         }
+        if (!bMicLive.load() && bSynthOn.load() && SynthRing->Available() >= Frame)
+        {   // synthesized speech stands in for the mic while it is off (tts.js)
+            float F[Frame]; SynthRing->Pop(F, Frame);
+            float Peak = 0;
+            for (int32 I = 0; I < Frame; ++I) { Peak = FMath::Max(Peak, FMath::Abs(F[I])); Pcm[I] = int16(FMath::Clamp(F[I], -1.f, 1.f) * 32767.f); }
+            SynthPeak = Peak;
+            Source->Deliver(Pcm);
+            return;
+        }
+        SynthPeak = 0;
         if (!bMicLive.load())
         {   // keep the published track's clock running: silence, exactly what a disabled browser track sends
             FMemory::Memzero(Pcm, sizeof(Pcm)); MicPeak = 0; MicRmsDb = -100; bSpeaking = false;
@@ -754,6 +783,7 @@ struct FEidoVoice::FImpl : public TSharedFromThis<FEidoVoice::FImpl, ESPMode::Th
         const int32 Gen = MicGen.load();
         if (Gen != PumpMicGen) { PumpMicGen = Gen; ResetGate(); }
         MicRaw.Reset(); MicRing->Drain(MicRaw);
+        { FScopeLock L(&TapCs); if (MicTap && MicRaw.Num()) MicTap(MicRaw.GetData(), MicRaw.Num(), MicRing->DeviceRate.load()); }
         MicRes.Run(MicRaw.GetData(), MicRaw.Num(), MicRing->DeviceRate.load() / Rate, Mic48);
         int32 Done = 0;
         while (Mic48.Num() - Done >= Frame) { GateFrame(Mic48.GetData() + Done, Pcm); Source->Deliver(Pcm); Done += Frame; }
@@ -866,6 +896,12 @@ void FEidoVoice::SetMicSensitivity(float MicFloor0to1)
 void FEidoVoice::SetListenerPosition(const FVector& WireMetres) { Impl->Pos = WireMetres; Impl->bHavePos = !WireMetres.ContainsNaN(); }
 void FEidoVoice::SetVoiceProcessing(bool bOn) { Impl->bVoiceProcessing = bOn; }
 void FEidoVoice::SetTestTone(float Hz, float Amplitude) { Impl->ToneAmp = Amplitude; Impl->ToneHz = FMath::Max(0.f, Hz); Impl->SyncPublishIntent(); }
+void FEidoVoice::SetSynthEnabled(bool bOn) { Impl->bSynthOn = bOn; if (!bOn) ClearSynth(); Impl->SyncPublishIntent(); }
+void FEidoVoice::QueueSynth(const TArray<float>& Pcm48k) { if (Impl->bSynthOn.load()) Impl->SynthBacklog.Append(Pcm48k); }
+void FEidoVoice::ClearSynth() { Impl->SynthBacklog.Reset(); Impl->SynthRing->Clear(); }
+bool FEidoVoice::IsSynthPlaying() const { return Impl->SynthBacklog.Num() > 0 || Impl->SynthRing->Available() > 0; }
+float FEidoVoice::GetSynthLevel() const { return Impl->SynthPeak.load(); }
+void FEidoVoice::SetMicTap(TFunction<void(const float*, int32, double)> Tap) { FScopeLock L(&Impl->TapCs); Impl->MicTap = MoveTemp(Tap); }
 
 bool FEidoVoice::IsConnected() const { return Impl->Ice == TEXT("connected") || Impl->Ice == TEXT("completed"); }
 bool FEidoVoice::IsMicEnabled() const { return Impl->bWantMic; }
@@ -901,7 +937,7 @@ FString FEidoVoice::DescribeState() const
     const FImpl& I = *Impl;
     return FString::Printf(TEXT("voice %s ice=%s gen=%lld speakers=%d mic=%s%s%s recv=%d"), I.bStarted ? TEXT("started") : TEXT("stopped"), *I.Ice, I.MediaGen,
         I.Waves.Num(), I.bMicLive.load() ? TEXT("live") : I.bWantMic ? TEXT("wanted") : TEXT("off"), I.bMuted.load() ? TEXT(" muted") : TEXT(""),
-        I.ToneHz.load() > 0 ? TEXT(" tone") : TEXT(""), I.bRecv);
+        I.ToneHz.load() > 0 ? TEXT(" tone") : I.bSynthOn.load() ? TEXT(" synth") : TEXT(""), I.bRecv);
 }
 void FEidoVoice::AddReferencedObjects(FReferenceCollector& Collector)
 {
@@ -926,6 +962,12 @@ void FEidoVoice::SetMicSensitivity(float) {}
 void FEidoVoice::SetListenerPosition(const FVector&) {}
 void FEidoVoice::SetVoiceProcessing(bool) {}
 void FEidoVoice::SetTestTone(float, float) {}
+void FEidoVoice::SetSynthEnabled(bool) {}
+void FEidoVoice::QueueSynth(const TArray<float>&) {}
+void FEidoVoice::ClearSynth() {}
+bool FEidoVoice::IsSynthPlaying() const { return false; }
+float FEidoVoice::GetSynthLevel() const { return 0; }
+void FEidoVoice::SetMicTap(TFunction<void(const float*, int32, double)>) {}
 bool FEidoVoice::IsConnected() const { return false; }
 bool FEidoVoice::IsMicEnabled() const { return false; }
 bool FEidoVoice::IsMicLive() const { return false; }

@@ -30,6 +30,7 @@ namespace
             {TEXT("eyes"), {}, TEXT("/eyes close|open — hold your eyes shut, if your rig has eyelids"), true, false},
             {TEXT("pushable"), {}, TEXT("/pushable on|off — whether shoves and blasts can knock you over (on by default)"), true, false},
             {TEXT("mic"), {}, TEXT("/mic on|off — your microphone (V toggles; push-to-talk in settings)"), true, false},
+            {TEXT("tts"), {}, TEXT("/tts on|off|<ws:// or http:// endpoint> — speak your messages with your own voice while the mic is off"), true, false},
             {TEXT("hear"), {TEXT("voices")}, TEXT("/hear on|off|hush — whether other people's voices reach you (off by default)"), true, false},
             {TEXT("posable"), {}, TEXT("/posable on|off — whether others may pose or animate your body (off by default)"), true, false},
             {TEXT("boom"), {TEXT("blast")}, TEXT("/boom [power] [radius] — a blast where you stand, you included (builder)"), true, false},
@@ -215,6 +216,12 @@ bool AEidoverseBridge::HandleInteractionCommand(const FString& Text)
     {
         if (Args.Num() && (Args[0] == TEXT("on") || Args[0] == TEXT("off"))) SetMicOn(Args[0] == TEXT("on"));
         else Narrate(FString::Printf(TEXT("mic %s · %s"), IsMicOn() ? TEXT("on") : TEXT("off"), *VoiceDiagnostic()));
+    }
+    else if (Name == TEXT("tts"))
+    {
+        if (Args.Num() && (Args[0] == TEXT("on") || Args[0] == TEXT("off"))) SetTtsEnabled(Args[0] == TEXT("on"));
+        else if (Args.Num() && Args[0].Contains(TEXT("://"))) { EidoSettings::Set(TEXT("Eidoverse.Audio.TtsEndpoint"), Args[0].Left(300)); Narrate(TEXT("TTS endpoint: ") + Args[0].Left(300)); }
+        else Narrate(IsTtsOn() ? TEXT("TTS is on (/tts off to stop)") : TEXT("TTS is off (/tts on, /tts <endpoint>)"));
     }
     else if (Name == TEXT("hear"))
     {

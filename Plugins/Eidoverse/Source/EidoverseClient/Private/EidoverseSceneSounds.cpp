@@ -215,3 +215,15 @@ void AEidoverseScene::TickSounds()
         else C->SetVolumeMultiplier(float(Volume) * WorldVolume);
     }
 }
+
+// Shared with the TTS client (an HTTP voice endpoint answers with audio bytes).
+bool EidoDecodeAudioBytes(const TArray<uint8>& Bytes, const FString& Ext, TArray<int16>& OutMono, int32& OutRate)
+{
+    TSharedPtr<FEidoPcm> Pcm = Ext == TEXT("ogg") ? DecodeOgg(Bytes) : DecodeWithAudioToolbox(Bytes, Ext);
+    if (!Pcm || !Pcm->Samples.Num() || Pcm->Channels < 1) return false;
+    const int32 C = Pcm->Channels, N = Pcm->Samples.Num() / C;
+    OutMono.SetNumUninitialized(N);
+    for (int32 I = 0; I < N; ++I) { int32 Sum = 0; for (int32 K = 0; K < C; ++K) Sum += Pcm->Samples[I * C + K]; OutMono[I] = int16(Sum / C); }
+    OutRate = Pcm->Rate;
+    return true;
+}
