@@ -1,4 +1,5 @@
 #include "EidoverseScene.h"
+#include "Kismet/GameplayStatics.h"
 #include "EidoverseLoadTrace.h"
 #include "EidoverseMotion.h"
 #include "EidoverseWater.h"
@@ -127,11 +128,28 @@ void AEidoverseScene::Apply(const TSharedPtr<FJsonObject>& Message,const FVector
         if(Old&&Old->Actor.IsValid())Old->Actor->Destroy();Items.Remove(Id);if(Items.Num()>=512)continue;
         AActor* A=GetWorld()->SpawnActor<AActor>();A->SetFlags(RF_Transient);A->Tags.Add(FName(*Id));auto* R=NewObject<USceneComponent>(A);A->AddInstanceComponent(R);A->SetRootComponent(R);R->RegisterComponent();
         FEidoverseSceneItem Item;Item.Actor=A;Item.Revision=Revision;Item.Lib=Str(E,TEXT("lib"));Item.Kind=Str(E,TEXT("kind"));Item.Interact=Obj(E,TEXT("interact"));Item.bCollide=Str(E,TEXT("collide"))!=TEXT("none");
+        // comp collision {enabled:false}: non-solid by authorship (colliders.js).
+        {bool bEnabled=true;if(auto Coll=Obj(Obj(E,TEXT("data")),TEXT("collision")))if(Coll->TryGetBoolField(TEXT("enabled"),bEnabled)&&!bEnabled)Item.bCollide=false;}
         if(auto Plan=Obj(E,TEXT("structure")))BuildStructure(A,Plan);
         else if(Str(E,TEXT("kind"))==TEXT("light"))
         {
-            auto* L=NewObject<UPointLightComponent>(A);A->AddInstanceComponent(L);L->SetupAttachment(R);L->SetIntensityUnits(ELightUnits::Candelas);L->SetIntensity(FMath::Clamp(Num(E,TEXT("intensity")),0.,100000.));L->SetAttenuationRadius(FMath::Clamp(Num(E,TEXT("range")),0.,200.)*100);
-            uint32 C=uint32(Num(E,TEXT("color")));L->SetLightColor(FLinearColor::FromSRGBColor(FColor((C>>16)&255,(C>>8)&255,C&255)));L->SetCastShadows(true);L->RegisterComponent();
+            auto* L=NewObject<UPointLightComponent>(A);A->AddInstanceComponent(L);L->SetupAttachment(R);L->SetIntensityUnits(ELightUnits::Candelas);
+            Item.LightIntensity=FMath::Clamp(Num(E,TEXT("intensity"),16),0.,100000.);Item.LightRange=FMath::Clamp(Num(E,TEXT("range"),10),0.,200.);
+            L->SetIntensity(Item.LightIntensity);L->SetAttenuationRadius(Item.LightRange*100);
+            uint32 C=uint32(Num(E,TEXT("color"),16767392));const FLinearColor Color=FLinearColor::FromSRGBColor(FColor((C>>16)&255,(C>>8)&255,C&255));
+            // Placed lights never shadow (lightrig.js: only an avatar lamp in slot 0 may).
+            L->SetLightColor(Color);L->SetCastShadows(false);L->SetVisibility(false);L->RegisterComponent();
+            bool bKeep=false,bDay=true;E->TryGetBoolField(TEXT("keep"),bKeep);E->TryGetBoolField(TEXT("day"),bDay);
+            Item.Light=L;Item.bLightKeep=bKeep;Item.bLightDayAware=bDay;
+            // The bulb: a 0.13 m unlit sphere in the light's colour, always shown.
+            if(UMaterialInterface* Unlit=LoadObject<UMaterialInterface>(nullptr,TEXT("/Eidoverse/UI/M_EidoverseUnlit.M_EidoverseUnlit")))
+            {
+                auto* Bulb=NewObject<UStaticMeshComponent>(A);A->AddInstanceComponent(Bulb);Bulb->SetupAttachment(R);
+                Bulb->SetStaticMesh(LoadObject<UStaticMesh>(nullptr,TEXT("/Engine/BasicShapes/Sphere.Sphere")));Bulb->SetRelativeScale3D(FVector(.26));
+                auto* MI=UMaterialInstanceDynamic::Create(Unlit,Bulb);MI->SetVectorParameterValue(TEXT("Color"),Color);Bulb->SetMaterial(0,MI);
+                Bulb->SetCollisionEnabled(ECollisionEnabled::QueryOnly);Bulb->SetCollisionResponseToAllChannels(ECR_Ignore);Bulb->SetCollisionResponseToChannel(ECC_Visibility,ECR_Block);
+                Bulb->SetCastShadow(false);Bulb->RegisterComponent();
+            }
         }
         else
         {
@@ -146,7 +164,8 @@ void AEidoverseScene::Apply(const TSharedPtr<FJsonObject>& Message,const FVector
                 if(auto* Asset=Assets.Find(URL))Item.Asset=*Asset;
             }
             auto* M=NewObject<UStaticMeshComponent>(A);A->AddInstanceComponent(M);M->SetupAttachment(R);
-            M->SetStaticMesh(LoadObject<UStaticMesh>(nullptr,TEXT("/Engine/BasicShapes/Cube.Cube")));M->SetRelativeScale3D(FVector(.25));M->SetMaterial(0,Material(TEXT("trim")));M->SetCollisionEnabled(ECollisionEnabled::NoCollision);M->RegisterComponent();Item.Model=M;
+            M->SetStaticMesh(LoadObject<UStaticMesh>(nullptr,TEXT("/Engine/BasicShapes/Cube.Cube")));M->SetRelativeScale3D(FVector(.25));M->SetMaterial(0,Material(TEXT("trim")));
+            if(const auto* G=GeomByLib.Find(Item.Lib)){M->SetRelativeLocation(AEidoverseBridge::FromWirePosition(G->Key));M->SetRelativeScale3D(AEidoverseBridge::FromWirePosition(G->Value).GetAbs()/100.0);}M->SetCollisionEnabled(ECollisionEnabled::NoCollision);M->RegisterComponent();Item.Model=M;
         }
         ReadComponentData(A,Item,Obj(E,TEXT("data")));
         Items.Add(Id,MoveTemp(Item));
@@ -175,7 +194,7 @@ void AEidoverseScene::Apply(const TSharedPtr<FJsonObject>& Message,const FVector
 }
 void AEidoverseScene::Tick(float Dt)
 {
-    Super::Tick(Dt);TickWeather(Dt);int Loading=0;for(auto& A:Assets)Loading+=A.Value->State==UEidoverseAvatarAsset::EState::Loading;
+    Super::Tick(Dt);TickWeather(Dt);TickPlacedLights(FPlatformTime::Seconds());int Loading=0;for(auto& A:Assets)Loading+=A.Value->State==UEidoverseAvatarAsset::EState::Loading;
     // Stream nearest first: start queued models in order of distance to the viewer.
     if(Loading<4)
     {
@@ -201,7 +220,15 @@ void AEidoverseScene::Tick(float Dt)
         else if(E.bPlaced&&!HeldTransforms.Contains(Pair.Key)&&!E.Actor->GetActorTransform().Equals(E.Target,.001)){FTransform T;T.Blend(E.Actor->GetActorTransform(),E.Target,1-FMath::Exp(-Dt*14));E.Actor->SetActorTransform(T);}
         if(auto* A=E.Asset.Get())
         {
-            if(A->State==UEidoverseAvatarAsset::EState::Ready&&E.Model.IsValid()){if(E.Model->GetStaticMesh()!=A->StaticMesh&&Appeared++<2){EidoLoadTrace::FScope Apply(TEXT("model-apply"),A->Url);E.Model->SetStaticMesh(A->StaticMesh);E.Model->SetRelativeScale3D(A->bMirrored?FVector(1,-1,1):FVector::OneVector);E.Model->EmptyOverrideMaterials();E.Model->SetCollisionProfileName(E.bCollide?TEXT("BlockAll"):TEXT("NoCollision"));bFloraDirty=true;}++LoadedModels;}
+            if(A->State==UEidoverseAvatarAsset::EState::Ready&&E.Model.IsValid()){if(E.Model->GetStaticMesh()!=A->StaticMesh&&Appeared++<2){EidoLoadTrace::FScope Apply(TEXT("model-apply"),A->Url);E.Model->SetStaticMesh(A->StaticMesh);E.Model->SetRelativeLocation(FVector::ZeroVector);E.Model->SetRelativeScale3D(A->bMirrored?FVector(1,-1,1):FVector::OneVector);E.Model->EmptyOverrideMaterials();E.Model->SetCollisionProfileName(E.bCollide?TEXT("BlockAll"):TEXT("NoCollision"));bFloraDirty=true;
+                for(auto& L:E.ModelLamps)if(L.IsValid())L->DestroyComponent();E.ModelLamps.Reset();E.ModelLampIntensity.Reset();E.ModelLampSlotted.Reset();
+                for(const FEidoverseAvatarLamp& Lamp:A->Lamps)
+                {
+                    auto* L=NewObject<UPointLightComponent>(E.Actor.Get());E.Actor->AddInstanceComponent(L);L->SetupAttachment(E.Model.Get());
+                    L->SetRelativeLocation(Lamp.Offset);L->SetIntensityUnits(ELightUnits::Candelas);L->SetAttenuationRadius(1200);L->SetLightColor(Lamp.Color);
+                    L->SetCastShadows(false);L->SetVisibility(false);L->RegisterComponent();
+                    E.ModelLamps.Add(L);E.ModelLampIntensity.Add(Lamp.Intensity);E.ModelLampSlotted.Add(false);
+                }}++LoadedModels;}
             if(A->State==UEidoverseAvatarAsset::EState::Failed)++FailedModels;
         }
         else if(E.Model.IsValid())++FailedModels;
@@ -464,4 +491,59 @@ bool AEidoverseExplorer::TickSwimming(float Dt,APlayerController* PC)
     Move->Velocity=AEidoverseBridge::FromWirePosition(SwimVelocityWire);
     LocomotionMode=bSurface?TEXT("surface"):TEXT("swim");
     return true;
+}
+
+void AEidoverseScene::TickPlacedLights(double Now)
+{
+    // lightrig.js: 8 slots, keep first, then nearest (incumbents at 0.85 distance for
+    // hysteresis), re-ranked every 0.6 s or after 1.5 m of camera travel; the rest glow only.
+    FVector Eye=FVector::ZeroVector;FRotator View;
+    if(auto* PC=UGameplayStatics::GetPlayerController(this,0))PC->GetPlayerViewPoint(Eye,View);
+    const bool bRank=Now>=NextLightRank||FVector::Dist(Eye,LastLightRankEye)>150;
+    const float Dayness=bServerClockKnown||LastAtmosphere?FMath::Max(0.f,FMath::Sin((WeatherHour-6)*PI/12)):1.f;
+    struct FCand{FEidoverseSceneItem* Item;double Score;int32 Lamp=-1;};TArray<FCand> Cands;
+    for(auto& Pair:Items)
+    {
+        FEidoverseSceneItem& E=Pair.Value;
+        for(int32 I=0;I<E.ModelLamps.Num();++I)if(UPointLightComponent* ML=E.ModelLamps[I].Get())
+        {
+            ML->SetIntensity(E.ModelLampIntensity[I]*FMath::Pow(6.f,.3f)*FMath::Square(1-Dayness));
+            if(bRank){double D=FVector::Dist(Eye,ML->GetComponentLocation());if(E.ModelLampSlotted[I])D*=.85;Cands.Add({&E,2e9+D,I});}
+        }
+        UPointLightComponent* L=E.Light.Get();if(!L)continue;
+        // Inverse-square vs the browser's d^-1.7: compensate by (range/2)^0.3; dim by day.
+        const float Day=E.bLightDayAware?FMath::Square(1-Dayness):1.f;
+        L->SetIntensity(E.LightIntensity*FMath::Pow(FMath::Max(1.f,E.LightRange*.5f),.3f)*Day);
+        if(bRank){double D=FVector::Dist(Eye,L->GetComponentLocation());if(E.bLightSlotted)D*=.85;Cands.Add({&E,(E.bLightKeep?0.:1e9)+D});}
+    }
+    if(!bRank)return;
+    NextLightRank=Now+.6;LastLightRankEye=Eye;
+    Cands.Sort([](const FCand& A,const FCand& B){return A.Score<B.Score;});
+    for(int32 I=0;I<Cands.Num();++I)
+    {
+        FEidoverseSceneItem& E=*Cands[I].Item;
+        if(Cands[I].Lamp>=0){const bool bOn=I<8;E.ModelLampSlotted[Cands[I].Lamp]=bOn;if(UPointLightComponent* ML=E.ModelLamps[Cands[I].Lamp].Get())ML->SetVisibility(bOn);continue;}
+        E.bLightSlotted=I<8||E.bLightKeep;
+        if(UPointLightComponent* L=E.Light.Get())L->SetVisibility(E.bLightSlotted);
+    }
+}
+
+void AEidoverseScene::SetGeom(const TSharedPtr<FJsonObject>& Geom)
+{
+    if(!Geom)return;
+    for(const auto& Pair:Geom->Values)
+    {
+        const TSharedPtr<FJsonObject> O=Pair.Value?Pair.Value->AsObject():nullptr;
+        const TSharedPtr<FJsonObject> B=Obj(O,TEXT("bbox"));if(!B)continue;
+        FVector C,S;
+        auto Read=[&B](const TCHAR* K,FVector& V){const TArray<TSharedPtr<FJsonValue>>* A=nullptr;if(!B->TryGetArrayField(K,A)||A->Num()!=3)return false;for(int32 I=0;I<3;++I)V[I]=(*A)[I]->AsNumber();return !V.ContainsNaN()&&V.GetAbsMax()<1e4;};
+        if(!Read(TEXT("center"),C)||!Read(TEXT("size"),S))continue;
+        GeomByLib.Add(FString(Pair.Key),{C,S});
+    }
+    // Placeholders still waiting for their model take the true size at once.
+    for(auto& Pair:Items)
+        if(UStaticMeshComponent* M=Pair.Value.Model.Get())
+            if(const auto* G=GeomByLib.Find(Pair.Value.Lib))
+                if(M->GetStaticMesh()&&M->GetStaticMesh()->GetPathName().StartsWith(TEXT("/Engine/BasicShapes/Cube")))
+                {M->SetRelativeLocation(AEidoverseBridge::FromWirePosition(G->Key));M->SetRelativeScale3D(AEidoverseBridge::FromWirePosition(G->Value).GetAbs()/100.0);}
 }

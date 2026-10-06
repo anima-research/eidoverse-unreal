@@ -43,6 +43,14 @@ struct FEidoverseSceneItem
     FString Lib, Kind;
     TSharedPtr<FJsonObject> EnvironmentData;
     TArray<TWeakObjectPtr<UBoxComponent>> AirBoxes;
+    // Placed lights (lights.js): day-aware, budgeted to 8 live slots, never shadowed.
+    TWeakObjectPtr<class UPointLightComponent> Light;
+    float LightIntensity=16, LightRange=10;
+    bool bLightKeep=false, bLightDayAware=true, bLightSlotted=false;
+    // Lamps inferred from a model's strong emitters: the lowest light tier.
+    TArray<TWeakObjectPtr<class UPointLightComponent>> ModelLamps;
+    TArray<float> ModelLampIntensity;
+    TArray<bool> ModelLampSlotted;
 };
 
 // Disposable scene projection, never a second persistent fold.
@@ -130,6 +138,26 @@ private:
     TSet<FString> HeldTransforms;
     TMap<FString,double> RemoteLeases;
     float RainAmount=0,CloudAmount=0;
+public:
+    // The folded sky bag (render-scene environment.sky): fog, sun, ambient, fill,
+    // exposure, azimuth, clouds tune the light exactly where the browser applies them.
+    // geom side-channel ({lib:{bbox:{center,size}}}): placeholders take the model's size.
+    void SetGeom(const TSharedPtr<FJsonObject>& Geom);
+    UFUNCTION(BlueprintCallable,Category="Eidoverse") FString DescribeLighting() const;
+    TMap<FString,TPair<FVector,FVector>> GeomByLib;   // wire centre, size
+    void SetSkyArgs(const TSharedPtr<FJsonObject>& Sky) { SkyArgs=Sky; if(LastAtmosphere) ApplyWeather(LastAtmosphere); }
+    TWeakObjectPtr<APostProcessVolume> ScenePost;
+    // Weather on surfaces (materials.js): wetness eases toward wet in 10 s, dry in 40 s;
+    // cloud cover eases over 15 s. Read by the surface materials' parameter collection.
+    float Wetness=0, CoverTarget=0, WetTarget=0;
+    bool bWeatherEased=false;
+private:
+    TSharedPtr<FJsonObject> SkyArgs;
+    UPROPERTY() TObjectPtr<UDirectionalLightComponent> Moon;
+    void ApplyLightingNow();
+    double NextLightRank=0;
+    FVector LastLightRankEye=FVector::ZeroVector;
+    void TickPlacedLights(double Now);
     double LastRainUpdate=0;
     TSharedPtr<FJsonObject> FloraData;
     TSharedPtr<FJsonObject> LastAtmosphere;

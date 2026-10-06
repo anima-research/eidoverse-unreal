@@ -74,6 +74,7 @@ public:
     UPROPERTY() TObjectPtr<USkeletalMesh> Mesh;
     UPROPERTY() TArray<FEidoverseAvatarAttachment> Attachments;
     TArray<FEidoverseAvatarLamp> Lamps;
+    void BuildStaticLamps();
     // Hair, tails, petals, skirts (VRM spring bones), parsed at load.
     FEidoSpringData Springs;
     // VRM look-at (eyes): bone or expression type, with the four range maps (degrees in,

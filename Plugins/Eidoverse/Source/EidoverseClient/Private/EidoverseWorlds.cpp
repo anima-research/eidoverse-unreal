@@ -70,6 +70,7 @@ void AEidoverseBridge::BeginDynamicScene()
     DynamicScene->Sun=Sun;DynamicScene->SkyFill=Fill;
     auto* PP=GetWorld()->SpawnActor<APostProcessVolume>();DynamicEnvironment.Add(PP);PP->bUnbound=true;PP->Priority=100;
     PP->Settings.bOverride_AutoExposureMinBrightness=true;PP->Settings.bOverride_AutoExposureMaxBrightness=true;PP->Settings.AutoExposureMinBrightness=1;PP->Settings.AutoExposureMaxBrightness=1;
+    DynamicScene->ScenePost=PP;
     // Runtime GLBs now get six-axis surface-cache cards. Procedural terrain,
     // structures and skinned avatars still need hit lighting; software Lumen
     // cannot trace these reliably without baked distance fields.
@@ -122,6 +123,7 @@ void AEidoverseBridge::ReceiveDynamicScene(const TSharedPtr<FJsonObject>& Messag
             const TSharedPtr<FJsonObject>* O=nullptr;
             WorldSky=(*Env)->TryGetObjectField(TEXT("sky"),O)?*O:nullptr;
             WorldGrass=(*Env)->TryGetObjectField(TEXT("grass"),O)?*O:nullptr;
+            DynamicScene->SetSkyArgs(WorldSky);
         }
     }DynamicScene->Apply(Message,OriginCentimeters,AvatarLibraryBase);
     if(Message->HasField(TEXT("error"))){bSceneMoving=false;return;}

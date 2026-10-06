@@ -133,38 +133,74 @@ void AEidoverseScene::ApplyWeather(const TSharedPtr<FJsonObject>& Atmosphere)
     auto Clock=Obj(Atmosphere,TEXT("clock")),W=Obj(Atmosphere,TEXT("weather"));WeatherHour=PreviewHour>=0?PreviewHour:Num(Clock,TEXT("hour"),12);
     WeatherState=Str(W,TEXT("weather"));if(WeatherState.IsEmpty())WeatherState=TEXT("clear");
     const float K=FMath::Clamp(Num(W,TEXT("k"),1),0.,1.);
-    const bool Storm=WeatherState.Contains(TEXT("storm"))||WeatherState==TEXT("cyclone");
-    RainAmount=(Storm?1:WeatherState==TEXT("rain")?.65:WeatherState==TEXT("sunshower")?.25:0)*K;
-    CloudAmount=(Storm?.95:WeatherState==TEXT("overcast")||WeatherState==TEXT("rain")?.8:WeatherState==TEXT("fair")?.25:0)*K;
+    // materials.js: WX_COVER / WET by weather, CLOUD_COVER by the authored cloud kind.
+    auto RainOf=[](const FString& S){return S.Contains(TEXT("storm"))||S==TEXT("cyclone")?1.f:S==TEXT("rain")?.65f:S==TEXT("sunshower")?.25f:0.f;};
+    auto CoverOf=[](const FString& S){static const TMap<FString,float> M={{TEXT("fair"),.18f},{TEXT("sunshower"),.35f},{TEXT("overcast"),.85f},{TEXT("rain"),.9f},{TEXT("storm"),.92f},{TEXT("cyclone"),.96f},{TEXT("darkstorm"),1.f}};const float* V=M.Find(S);return V?*V:0.f;};
+    auto WetOf=[](const FString& S){static const TMap<FString,float> M={{TEXT("sunshower"),.55f},{TEXT("overcast"),.15f},{TEXT("rain"),.85f},{TEXT("storm"),1.f},{TEXT("cyclone"),1.f},{TEXT("darkstorm"),1.f}};const float* V=M.Find(S);return V?*V:0.f;};
+    RainAmount=RainOf(WeatherState)*K;float CoverW=CoverOf(WeatherState)*K;WetTarget=WetOf(WeatherState)*K;
     if(Str(W,TEXT("source"))==TEXT("forecast"))if(auto Seg=Obj(W,TEXT("seg")))
     {
         const float Mix=FMath::Clamp((Num(Atmosphere,TEXT("time"))-Num(Seg,TEXT("startMs")))/FMath::Max(1.,Num(W,TEXT("seconds"))*1000),0.,1.);
-        const FString Prev=Str(Seg,TEXT("prevState"));const bool S=Prev.Contains(TEXT("storm"))||Prev==TEXT("cyclone");
-        RainAmount=FMath::Lerp((S?1.f:Prev==TEXT("rain")?.65f:Prev==TEXT("sunshower")?.25f:0.f)*K,RainAmount,Mix);
-        CloudAmount=FMath::Lerp((S?.95f:Prev==TEXT("rain")||Prev==TEXT("overcast")?.8f:Prev==TEXT("fair")?.25f:0.f)*K,CloudAmount,Mix);
+        const FString Prev=Str(Seg,TEXT("prevState"));
+        RainAmount=FMath::Lerp(RainOf(Prev)*K,RainAmount,Mix);CoverW=FMath::Lerp(CoverOf(Prev)*K,CoverW,Mix);WetTarget=FMath::Lerp(WetOf(Prev)*K,WetTarget,Mix);
     }
-    const float Elevation=FMath::Sin((WeatherHour-6)*PI/12),Day=FMath::Clamp(Elevation*3.f,0.f,1.f);
-    SunFactor=Day*(1-CloudAmount*.83);
-    CloudCover=CloudAmount;SunLight=SunFactor;
-    if(Sun){Sun->SetWorldRotation(FRotator(-Elevation*75,(WeatherHour-12)*15-35,0));Sun->SetIntensity(3.2f*Day*(1-CloudAmount*.83));Sun->SetLightColor(FMath::Lerp(FLinearColor(1,.44,.24),FLinearColor(1,.98,.94),Day));}
-    if(SkyFill)SkyFill->SetIntensity(FMath::Lerp(.06f,.8f,Day)*(1-CloudAmount*.45));
+    static const TMap<FString,float> CloudKind={{TEXT("cumulus"),.38f},{TEXT("stratus"),.6f},{TEXT("cirrus"),.15f}};
+    const float* KindCover=CloudKind.Find(Str(SkyArgs,TEXT("clouds")));
+    CoverTarget=FMath::Max(KindCover?*KindCover:0.f,CoverW);
+    if(!bWeatherEased){CloudAmount=CoverTarget;Wetness=WetTarget;bWeatherEased=true;}
+    ApplyLightingNow();
     if(!Clouds)
     {
         if(auto* Base=LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Underwater/Avatars/Materials/M_EidoverseClouds")))
         {CloudMaterial=UMaterialInstanceDynamic::Create(Base,this);Clouds=NewObject<UStaticMeshComponent>(this);AddInstanceComponent(Clouds);Clouds->SetupAttachment(RootComponent);Clouds->SetStaticMesh(LoadObject<UStaticMesh>(nullptr,TEXT("/Engine/BasicShapes/Sphere.Sphere")));Clouds->SetRelativeScale3D(FVector(1000));Clouds->SetCollisionEnabled(ECollisionEnabled::NoCollision);Clouds->SetCastShadow(false);Clouds->SetTranslucentSortPriority(-100);Clouds->SetMaterial(0,CloudMaterial);Clouds->RegisterComponent();}
     }
-    if(Clouds){Clouds->SetVisibility(CloudAmount>.01);CloudMaterial->SetScalarParameterValue(TEXT("Coverage"),CloudAmount);CloudMaterial->SetVectorParameterValue(TEXT("CloudColor"),FMath::Lerp(FLinearColor(.018,.025,.04),FLinearColor(.55,.59,.63),Day)*(1-RainAmount*.5));}
-    if(!WeatherFog){WeatherFog=NewObject<UExponentialHeightFogComponent>(this);AddInstanceComponent(WeatherFog);WeatherFog->SetupAttachment(RootComponent);WeatherFog->RegisterComponent();WeatherFog->SetFogHeightFalloff(.05);WeatherFog->SetStartDistance(1000);}
-    WeatherFog->SetFogDensity(.0008+CloudAmount*.006+RainAmount*.009);WeatherFog->SetFogInscatteringColor(FMath::Lerp(FLinearColor(.015,.025,.06),FLinearColor(.38,.46,.55),Day));
-    for(auto& M:Materials)if(M.Value&&M.Key!=TEXT("glass"))M.Value->SetScalarParameterValue(TEXT("roughnessFactor"),.86-RainAmount*.5);
+    ApplyLightingNow();
     // Aquatic worlds: keep the spectral rig and atmosphere-only sun in step with the weather.
     if(!WaterRig.IsEmpty())UpdateWaterLighting(true);
+}
+void AEidoverseScene::ApplyLightingNow()
+{
+    // sky.js fallback law: day = max(0, sin((h-6)/12 pi)), warmth = (1-day)^1.5; sun and sky
+    // fill scaled by sky.sun / sky.ambient; exposure (1-.22 warmth) x sky.exposure; nights are
+    // not black (a cool moon floor stands in for the browser's never-off sun).
+    const float SunK=FMath::Clamp(Num(SkyArgs,TEXT("sun"),1),0.,2.5),AmbK=FMath::Clamp(Num(SkyArgs,TEXT("ambient"),1),0.,2.5);
+    const float FillK=FMath::Clamp(Num(SkyArgs,TEXT("fill"),1),0.,2.5),ExpK=FMath::Clamp(Num(SkyArgs,TEXT("exposure"),1),.3,1.8),FogK=FMath::Clamp(Num(SkyArgs,TEXT("fog"),1),0.,3.);
+    const float Azimuth=Num(SkyArgs,TEXT("azimuth"),180);
+    const float Elevation=FMath::Sin((WeatherHour-6)*PI/12),Day=FMath::Clamp(Elevation*3.f,0.f,1.f),Warmth=FMath::Pow(1-FMath::Max(0.f,Elevation),1.5f);
+    SunFactor=Day*(1-CloudAmount*.83);CloudCover=CloudAmount;SunLight=SunFactor;
+    if(Sun){Sun->SetWorldRotation(FRotator(-Elevation*75,(WeatherHour-12)*15-35+(Azimuth-180),0));Sun->SetIntensity(3.2f*Day*(1-CloudAmount*.83)*SunK);Sun->SetLightColor(FMath::Lerp(FLinearColor(1,.67,.37),FLinearColor(1,.95,.88),Day));}
+    if(SkyFill)SkyFill->SetIntensity(FMath::Lerp(.2f,.8f,Day)*(1-CloudAmount*.45)*AmbK);
+    if(!Moon&&Sun)
+    {
+        Moon=NewObject<UDirectionalLightComponent>(this);AddInstanceComponent(Moon);Moon->SetupAttachment(RootComponent);
+        Moon->SetCastShadows(false);Moon->SetAtmosphereSunLight(false);Moon->SetLightColor(FLinearColor(.55,.65,1));Moon->RegisterComponent();
+    }
+    // Counter-fill from the other side of the sky in the warm hours (sky.js fill = .95 warmth).
+    if(Moon){Moon->SetWorldRotation(FRotator(-50,(WeatherHour-12)*15+145,0));Moon->SetIntensity((.45f*(1-Day)+.25f*Warmth*FillK*Day)*AmbK);}
+    if(APostProcessVolume* PP=ScenePost.Get()){PP->Settings.bOverride_AutoExposureBias=true;PP->Settings.AutoExposureBias=FMath::Log2((1-.22f*Warmth*(1-Day))*ExpK);}
+    if(Clouds){Clouds->SetVisibility(CloudAmount>.01);CloudMaterial->SetScalarParameterValue(TEXT("Coverage"),CloudAmount);CloudMaterial->SetVectorParameterValue(TEXT("CloudColor"),FMath::Lerp(FLinearColor(.018,.025,.04),FLinearColor(.55,.59,.63),Day)*(1-RainAmount*.5));}
+    // core.js FogExp2(0.018 x sky.fog): 50 % at 46 m. UE fog density is per 1000 cm.
+    if(!WeatherFog){WeatherFog=NewObject<UExponentialHeightFogComponent>(this);AddInstanceComponent(WeatherFog);WeatherFog->SetupAttachment(RootComponent);WeatherFog->RegisterComponent();}
+    WeatherFog->SetFogHeightFalloff(.001f);WeatherFog->SetStartDistance(0);
+    // The browser's sky dome is exempt from fog: stop fogging past the world (5 km).
+    if(WeatherFog->FogCutoffDistance!=500000.f){WeatherFog->FogCutoffDistance=500000.f;WeatherFog->MarkRenderStateDirty();}
+    WeatherFog->SetFogDensity(FogK*.15f+CloudAmount*.03f+RainAmount*.06f);
+    WeatherFog->SetFogInscatteringColor(FMath::Lerp(FLinearColor(.12,.15,.2),FLinearColor(.62,.68,.76),Day).CopyWithNewOpacity(1)*(1-CloudAmount*.25f));
+    for(auto& M:Materials)if(M.Value&&M.Key!=TEXT("glass"))M.Value->SetScalarParameterValue(TEXT("roughnessFactor"),FMath::Lerp(.86f,.2f,Wetness*.8f));
 }
 void AEidoverseScene::TickWeather(float Dt)
 {
     auto* PC=UGameplayStatics::GetPlayerController(this,0);if(!PC)return;FVector Eye;FRotator View;PC->GetPlayerViewPoint(Eye,View);
     if(Clouds)Clouds->SetWorldLocation(Eye);
-    const double Now=GetWorld()->GetTimeSeconds();if(Now-LastRainUpdate<.05)return;LastRainUpdate=Now;
+    const double Now=GetWorld()->GetTimeSeconds();if(Now-LastRainUpdate<.05)return;
+    {
+        // Ease cover (15 s) and wetness (wet 10 s / dry 40 s) between atmosphere updates.
+        const float Step=float(FMath::Min(.5,Now-LastRainUpdate));
+        CloudAmount+=(CoverTarget-CloudAmount)*FMath::Min(1.f,Step/15);
+        Wetness+=(WetTarget-Wetness)*FMath::Min(1.f,Step/(WetTarget>Wetness?10.f:40.f));
+        if(bWeatherEased&&FMath::Abs(CoverTarget-CloudAmount)+FMath::Abs(WetTarget-Wetness)>.001f)ApplyLightingNow();
+    }
+    LastRainUpdate=Now;
     if(!Rain&&RainAmount>0)
     {
         Rain=NewObject<UInstancedStaticMeshComponent>(this);AddInstanceComponent(Rain);Rain->SetupAttachment(RootComponent);Rain->SetStaticMesh(LoadObject<UStaticMesh>(nullptr,TEXT("/Engine/BasicShapes/Cube.Cube")));Rain->SetMaterial(0,Material(TEXT("glass")));Rain->SetCollisionEnabled(ECollisionEnabled::NoCollision);Rain->SetCastShadow(false);Rain->RegisterComponent();
@@ -184,4 +220,11 @@ void AEidoverseScene::TickWeather(float Dt)
         Rain->UpdateInstanceTransform(I,FTransform(FRotator(0,0,8),P,(I<Count&&!Covered)?FVector(.007,.007,.22):FVector::ZeroVector),true,false,true);
     }
     Rain->MarkRenderStateDirty();
+}
+
+FString AEidoverseScene::DescribeLighting() const
+{
+    return FString::Printf(TEXT("hour=%.1f sun=%.2f sunPitch=%.0f fill=%.2f moon=%.2f fog=%.4f cloud=%.2f wet=%.2f bias=%.2f"),
+        WeatherHour,Sun?Sun->Intensity:-1.f,Sun?Sun->GetComponentRotation().Pitch:0.f,SkyFill?SkyFill->Intensity:-1.f,Moon?Moon->Intensity:-1.f,
+        WeatherFog?WeatherFog->FogDensity:-1.f,CloudAmount,Wetness,ScenePost.IsValid()?ScenePost->Settings.AutoExposureBias:-99.f);
 }

@@ -231,6 +231,7 @@ bool AEidoverseBridge::ReceiveProtocol(const FString& Type, const TSharedPtr<FJs
         return true;
     }
     if (Type == TEXT("puppet")) { ReceivePuppet(J); return true; }
+    if (Type == TEXT("geom")) { if (DynamicScene) { const TSharedPtr<FJsonObject>* G = nullptr; if (J->TryGetObjectField(TEXT("geom"), G)) DynamicScene->SetGeom(*G); } return true; }
     if (Type == TEXT("bodydrag")) { ReceiveBodyDrag(J); return true; }
     return false;
 }

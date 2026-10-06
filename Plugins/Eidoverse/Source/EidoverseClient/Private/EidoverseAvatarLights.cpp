@@ -17,6 +17,37 @@ float FEidoverseAvatarLamp::Breath(double Time)
     // Same authored lampglass rhythm as client/lib/avatar.js, not an identity rule.
     return FMath::IsFinite(Time)?.03f+.42f*FMath::Pow(FMath::Abs(FMath::Sin(Time*PI/3.4)),1.6):.03f;
 }
+void UEidoverseAvatarAsset::BuildStaticLamps()
+{
+    // lightrig.js inferLamps for placed models: up to 2 strong emitters, each a 12 m
+    // day-aware point light at the emitter's bounds centre, never shadowed.
+    Lamps.Empty();
+    if(!StaticMesh||!StaticMesh->GetRenderData()||StaticMesh->GetRenderData()->LODResources.IsEmpty())return;
+    const FStaticMeshLODResources& LOD=StaticMesh->GetRenderData()->LODResources[0];
+    const auto& Positions=LOD.VertexBuffers.PositionVertexBuffer;
+    const auto& Materials=StaticMesh->GetStaticMaterials();
+    for(const FStaticMeshSection& Section:LOD.Sections)
+    {
+        if(Lamps.Num()>=2)break;
+        if(!Materials.IsValidIndex(Section.MaterialIndex))continue;
+        UMaterialInterface* Material=Materials[Section.MaterialIndex].MaterialInterface;if(!Material)continue;
+        FLinearColor Emission=FLinearColor::Black;float Strength=1;
+        Material->GetVectorParameterValue(FMaterialParameterInfo(TEXT("emissiveFactor")),Emission);
+        Material->GetScalarParameterValue(FMaterialParameterInfo(TEXT("emissiveStrength")),Strength);
+        const float Intensity=FEidoverseAvatarLamp::InferredIntensity(Emission,Strength);if(Intensity<=0)continue;
+        FBox Bounds(ForceInit);
+        const uint32 End=FMath::Min(Section.MaxVertexIndex+1,Positions.GetNumVertices());
+        for(uint32 V=Section.MinVertexIndex;V<End;++V)Bounds+=FVector(Positions.VertexPosition(V));
+        if(!Bounds.IsValid)continue;
+        FEidoverseAvatarLamp Lamp;Lamp.MaterialIndex=Section.MaterialIndex;Lamp.Intensity=Intensity;
+        // Saturated emission keeps its colour; near-white glows the warm default 0xffd9a0.
+        const float Mx=FMath::Max3(Emission.R,Emission.G,Emission.B),Mn=FMath::Min3(Emission.R,Emission.G,Emission.B);
+        Lamp.Color=Mx-Mn>.25f*FMath::Max(Mx,.001f)?Emission/FMath::Max(.001f,Mx):FLinearColor::FromSRGBColor(FColor(255,217,160));Lamp.Color.A=1;
+        Lamp.Offset=Bounds.GetCenter();
+        Lamps.Add(Lamp);
+    }
+}
+
 void UEidoverseAvatarAsset::BuildEmissiveLamps()
 {
     Lamps.Empty();if(!Mesh||!Mesh->GetResourceForRendering()||Mesh->GetResourceForRendering()->LODRenderData.IsEmpty())return;

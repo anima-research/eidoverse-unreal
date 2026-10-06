@@ -407,6 +407,7 @@ void UEidoverseAvatarAsset::StaticMeshReady(UStaticMesh* Result)
     Result->Rename(nullptr,Owner,REN_DontCreateRedirectors|REN_DoNotDirty|REN_NonTransactional);
     EidoLoadTrace::Note(TEXT("model-build(wall)"),Url,(FPlatformTime::Seconds()-DecodedAt)*1000);
     auto* Body=Result->GetBodySetup();
+    StaticMesh=Result;BuildStaticLamps();StaticMesh=nullptr;
     if(!Body){StaticMesh=Result;State=EState::Ready;return;}
     // Cook the exact collision on a worker: synchronous cooking of a large model held
     // the game thread for up to half a second. The model counts as loaded (and is
