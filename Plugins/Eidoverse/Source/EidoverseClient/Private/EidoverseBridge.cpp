@@ -385,7 +385,12 @@ void AEidoverseBridge::TickAvatars(double Time)
         {
             ++LoadedAvatarCount;
             P.AvatarMesh->SetVisibility(!P.bSubmarine,true);P.AvatarMesh->SetRelativeLocation(FVector(0,0,P.bPawnAnchor?-85:0));
-            if(!P.bSubmarine)
+            // remotes.js: animate every frame under 8 m, every 2nd under 20 m, else every 4th
+            // (staggered per body); closed-form clips land at the right phase regardless.
+            const double DistM=FVector::Dist(Eye,P.Actor->GetActorLocation())/100;
+            const uint32 Every=DistM<8?1:DistM<20?2:4;
+            const bool bAnimateNow=Every==1||((GFrameCounter+GetTypeHash(Pair.Key))%Every)==0||P.AvatarMesh->IsLimp();
+            if(!P.bSubmarine&&bAnimateNow)
             {
                 const bool Fresh=!P.Samples.IsEmpty()&&Time-P.Samples.Last().Time<.75;
                 const FVector LocalVelocity=Fresh?P.Actor->GetActorQuat().UnrotateVector(P.VelocityMeters):FVector::ZeroVector;

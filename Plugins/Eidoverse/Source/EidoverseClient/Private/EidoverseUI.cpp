@@ -943,6 +943,19 @@ void UEidoverseHUD::RefreshEmotes()
 {
     if (!EmoteBar) return;
     EmoteBar->ClearChildren();
+    // emotebar.js: the posture tiles lead (sit seats you if a seat is near), then emotes.
+    for (const TPair<const TCHAR*, const TCHAR*>& P : {TPair<const TCHAR*, const TCHAR*>{TEXT("Seat"), TEXT("posture:sit")}, {TEXT("Stand"), TEXT("posture:stand")}, {TEXT("Lie"), TEXT("posture:lie")}})
+    {
+        auto* B = WidgetTree->ConstructWidget<UButton>();
+        B->SetStyle(FlatButton(FLinearColor::Transparent, FEidoverseTheme::Hover(), 7));
+        auto* Img = WidgetTree->ConstructWidget<UImage>(); Img->SetDesiredSizeOverride(FVector2D(18));
+        if (UTexture2D* T = FEidoverseTheme::IconTexture(P.Key)) Img->SetBrushFromTexture(T);
+        Img->SetColorAndOpacity(FEidoverseTheme::Icon());
+        B->SetContent(Img); B->SetToolTipText(FText::FromString(FString(P.Value).Mid(8)));
+        B->OnClicked.AddDynamic(this, &UEidoverseHUD::OnEmoteClicked);
+        ButtonIds.Add(B, FName(P.Value));
+        EmoteBar->AddChildToHorizontalBox(B)->SetPadding(FMargin(1, 0));
+    }
     int32 Key = 1;
     for (const auto& E : Emotes)
     {
@@ -1633,6 +1646,13 @@ void UEidoverseHUD::OnEmoteClicked()
 {
     const FString Id = ResolveClicked().ToString();
     if (Id.StartsWith(TEXT("emote:"))) Emote(FCString::Atoi(*Id.Mid(6)));
+    else if (Id == TEXT("posture:sit") && Bridge) Bridge->HandleInteractionCommand(TEXT("/sit"));
+    else if (Id == TEXT("posture:stand") || Id == TEXT("posture:lie"))
+        if (auto* X = Cast<AEidoverseExplorer>(GetOwningPlayerPawn()))
+        {
+            if (X->bSeated) X->bSitPressed = true;   // gets up from a seat (dismount)
+            X->Posture = Id == TEXT("posture:lie") ? TEXT("lie") : FString();
+        }
 }
 void UEidoverseHUD::OnChatCommitted(const FText&, ETextCommit::Type Kind)
 {
