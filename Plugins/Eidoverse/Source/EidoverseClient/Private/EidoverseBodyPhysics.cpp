@@ -161,6 +161,7 @@ FString AEidoverseBridge::FlightDiagnostic()
 void AEidoverseBridge::TickBodyPhysics(AEidoverseExplorer* Explorer, float Dt)
 {
     APlayerController* PC = Cast<APlayerController>(Explorer->GetController());
+    if (PC) TickHeldBody(PC, Dt);
     UEidoverseAvatarMesh* M = SelfBody.AvatarMesh.Get();
     const double Half = Explorer->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
     // R: limp / get up (not while typing or building; HUD gates the keyboard for text).
@@ -256,6 +257,7 @@ void AEidoverseBridge::ReceiveBodyDrag(const TSharedPtr<FJsonObject>& J)
 {
     FString By; J->TryGetStringField(TEXT("by"), By); By = By.Left(64);
     if (By.IsEmpty()) return;
+    if (ReceiveDraggerMessage(By, J)) return;   // the body I hold talking back
     auto Reply = [this, &By](const TSharedRef<FJsonObject>& O) { O->SetStringField(TEXT("target"), By); SendRaw(TEXT("bodydrag"), O); };
     auto EndTo = [&Reply]() { auto O = MakeShared<FJsonObject>(); O->SetBoolField(TEXT("end"), true); Reply(O); };
     const TSharedPtr<FJsonValue> Grab = J->TryGetField(TEXT("grab"));

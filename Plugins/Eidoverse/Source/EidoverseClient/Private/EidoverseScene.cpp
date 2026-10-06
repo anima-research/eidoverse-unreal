@@ -342,6 +342,7 @@ void AEidoverseExplorer::Zoom(float Notches)
     const TSharedPtr<SWidget> Focused=FSlateApplication::Get().GetKeyboardFocusedWidget();
     if(Focused.IsValid()&&(Focused->GetType()==TEXT("SEditableText")||Focused->GetType()==TEXT("SMultiLineEditableText")))return;
     // One wheel notch is ~100 deltaY in the browser, times 0.004 there.
+    if(bWheelToDrag){WheelDragAccum+=Notches;return;}
     if(Notches!=0)SetCameraDistance(CameraDistance-Notches*.4f);
 }
 void AEidoverseExplorer::UpdateCamera(float Dt,APlayerController* PC)

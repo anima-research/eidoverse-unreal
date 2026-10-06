@@ -867,6 +867,7 @@ void AEidoverseBridge::Tick(float DeltaSeconds)
     for(auto& Pair:Peers)
     {
         auto& P=Pair.Value;if(!P.Actor.IsValid()||P.Samples.IsEmpty())continue;
+        if(P.bDraggedLocal){while(P.Samples.Num()>2)P.Samples.RemoveAt(0);continue;}   // my hand places it
         while(P.Samples.Num()>2&&P.Samples[1].Time<RenderTime)P.Samples.RemoveAt(0);
         const auto& A=P.Samples[0];const auto& B=P.Samples.Num()>1?P.Samples[1]:A;
         const double Alpha=B.Time>A.Time?FMath::Clamp((RenderTime-A.Time)/(B.Time-A.Time),0.,1.):1.;

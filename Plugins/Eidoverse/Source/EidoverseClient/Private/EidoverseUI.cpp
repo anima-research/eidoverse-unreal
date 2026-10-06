@@ -1368,7 +1368,7 @@ void UEidoverseHUD::NativeTick(const FGeometry& Geometry, float Delta)
     if (PC->WasInputKeyJustPressed(EKeys::Enter)) FocusChat();
     else if (PC->WasInputKeyJustPressed(EKeys::Tab)) ShowFrame("people", true);   // Tab only opens it (main.js)
     else if (PC->WasInputKeyJustPressed(EKeys::H)) ToggleHelp();
-    else if (PC->WasInputKeyJustPressed(EKeys::P)) { if (auto* X = Cast<AEidoverseExplorer>(PC->GetPawn())) { X->SetPhotoMode(!X->bPhoto); Hint(X->bPhoto ? TEXT("photo mode \u2014 WASD fly, E/Q up/down, Shift fast, Alt fine, [ ] zoom, F2 save, P or Esc to leave") : TEXT("photo mode off"), 4); } }
+    else if (PC->WasInputKeyJustPressed(EKeys::P) && !(Bridge && !Bridge->GetHeldBody().IsEmpty())) { if (auto* X = Cast<AEidoverseExplorer>(PC->GetPawn())) { X->SetPhotoMode(!X->bPhoto); Hint(X->bPhoto ? TEXT("photo mode \u2014 WASD fly, E/Q up/down, Shift fast, Alt fine, [ ] zoom, F2 save, P or Esc to leave") : TEXT("photo mode off"), 4); } }
     else if (PC->WasInputKeyJustPressed(EKeys::F2) || PC->WasInputKeyJustPressed(EKeys::F12))
     {
         // handlers.js saveScreenshot: eidoverse-<world>-<iso>.png, without the interface.

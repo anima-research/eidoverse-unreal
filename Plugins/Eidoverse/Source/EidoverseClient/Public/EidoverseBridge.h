@@ -93,6 +93,7 @@ struct FEidoversePeer
     FString Presence=TEXT("present");
     bool bWingsFolded=false;
     TArray<TPair<FName,FVector>> Pins;   // bodydrag nails from presence (wire positions)
+    bool bDraggedLocal=false;            // my hand holds this body: my sim places it, not the stream
     TSharedPtr<FJsonObject> XR;   // pose.xr: VR head, grips, curls (rendered, never sent by this client)
     // Reach easing (12/s in and out), last targets for easing out, and narration state.
     TMap<FName,float> ReachWeight;
@@ -277,6 +278,17 @@ public:
     void ApplyMyPins();
     void TickPinMarkers();
     void TickFloraPushers();
+    // ---- bodydrag, dragger half (EidoverseBodyDrag.cpp): take a limp body in hand ----
+    struct FHeldBody { FString Id; TSharedPtr<EidoRagdoll::FRagdoll> Rd; FName Joint; double Depth=2; FVector Off=FVector::ZeroVector; double NextSend=0; bool bByApi=false; };
+    TSharedPtr<FHeldBody> HeldBody;
+    bool TryGrabBody(APlayerController* PC);
+    void TickHeldBody(APlayerController* PC,float Dt);
+    void ReleaseHeldBody(bool bNail);
+    void DropHeldBody(const FString& Why);
+    bool ReceiveDraggerMessage(const FString& By,const TSharedPtr<FJsonObject>& J);
+    UFUNCTION(BlueprintPure,Category="Eidoverse") FString GetHeldBody() const { return HeldBody.IsValid()?HeldBody->Id:FString(); }
+    UFUNCTION(BlueprintCallable,Category="Eidoverse") bool GrabBodyAt(FVector RayOrigin,FVector RayDirection);   // held until LetGoOfBody (scripts, tests)
+    UFUNCTION(BlueprintCallable,Category="Eidoverse") void LetGoOfBody(bool bNail) { ReleaseHeldBody(bNail); }
     UPROPERTY(Transient) TObjectPtr<class UMaterialParameterCollection> FloraCollection;
     UFUNCTION(BlueprintPure,Category="Eidoverse") FString GetDraggedBy() const { return DraggedBy; }
     UFUNCTION(BlueprintPure,Category="Eidoverse") int32 GetPinCount() const { return MyPins.Num(); }

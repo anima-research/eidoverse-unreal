@@ -304,6 +304,8 @@ public:
     void SetSeated(bool bOn);
     UFUNCTION(BlueprintCallable,Category="Eidoverse") void SetCameraDistance(float Meters);
     UFUNCTION(BlueprintCallable,Category="Eidoverse") void Zoom(float Notches);
+    // While a hand holds a body the wheel sets how far away it is (bodydrag.js), not the camera.
+    bool bWheelToDrag=false; float WheelDragAccum=0;
 private:
     FVector LastBodyLocation=FVector::ZeroVector;
     bool bHasLastBodyLocation=false;

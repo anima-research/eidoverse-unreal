@@ -44,7 +44,7 @@ Specs live in the four audit reports next to this file: `ui-protocol.md`, `avata
 ## M5 Locomotion
 - [x] traversal climb (E), mantle, vehicles/helm, flight (F), local ragdoll (R, shoves, force)
 - [x] bodydrag owner half: grab/stream/release handover, nails (pinAt/unpin), pins in presence, markers
-- [ ] bodydrag dragger half (LMB on a limp body, wheel depth, P nails)
+- [x] bodydrag dragger half (LMB on a limp body, wheel depth, P nails, pins from the owner)
 
 ## M6 Audio
 - [x] sound components, WebRTC SFU receive, consent/volumes, mic publish (V / push-to-talk), mouths
