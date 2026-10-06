@@ -25,6 +25,7 @@ TSharedPtr<FJsonObject> AEidoverseScene::Interaction(const FString& Id) const{co
 FString AEidoverseScene::EntityId(AActor* A) const{for(auto& E:Items)if(E.Value.Actor.Get()==A)return E.Key;return {};}
 void AEidoverseScene::HoldTransform(const FString& Id,bool Hold){if(Hold)HeldTransforms.Add(Id);else {HeldTransforms.Remove(Id);RemoteLeases.Remove(Id);}}
 void AEidoverseScene::SetLocalTransform(const FString& Id,const FTransform& T){if(auto* E=Items.Find(Id)){E->Target=T;if(E->Actor.IsValid())E->Actor->SetActorTransform(T);}}
+void AEidoverseScene::HoldRemote(const FString& Id,const FTransform& T,double Seconds){if(auto* E=Items.Find(Id)){E->Target=T;RemoteLeases.Add(Id,FPlatformTime::Seconds()+Seconds);}}
 void AEidoverseScene::LeaseTransform(const FString& Id,const TSharedPtr<FJsonObject>& State,const FVector& Origin)
 {
     auto* E=Items.Find(Id);FVector P;if(!E||HeldTransforms.Contains(Id)||!Vec(State,TEXT("p"),P))return;
@@ -149,16 +150,4 @@ void AEidoverseBridge::TickInteractions(float Dt,double Now)
         if(GetWorld()->LineTraceSingleByChannel(Hit,Eye,Eye+R.Vector()*(300+FVector::Dist(Eye,Head)),ECC_Visibility,Q)&&FVector::Dist(Hit.ImpactPoint,Head)<=300)
         {FString Id=DynamicScene->EntityId(Hit.GetActor());if(!Id.IsEmpty()){if(PC->WasInputKeyJustPressed(EKeys::F))PuntEntity(Id);else {FString Action=TEXT("use");const TArray<TSharedPtr<FJsonValue>>* Actions=nullptr;auto Info=DynamicScene->Interaction(Id);if(Info&&Info->TryGetArrayField(TEXT("actions"),Actions)&&Actions->Num())Action=(*Actions)[0]->AsString();UseEntity(Id,Action);}}}
     }
-}
-bool AEidoverseBridge::HandleInteractionCommand(const FString& Text)
-{
-    TArray<FString> A;Text.ParseIntoArrayWS(A);if(A.IsEmpty())return false;
-    if(A[0]==TEXT("/use")){if(A.Num()>=3)UseEntity(A[1],A[2]);else InteractionStatus=TEXT("/use entity action");}
-    else if(A[0]==TEXT("/punt")||A[0]==TEXT("/kick")){if(A.Num()>=2)PuntEntity(A[1],A.Num()>2?FCString::Atof(*A[2]):5);else InteractionStatus=TEXT("/punt entity [power]");}
-    else if(A[0]==TEXT("/reach")){if(A.Num()>=3)ReachTo(A[1],A[2],A.Num()>3&&A[3]==TEXT("left"));else InteractionStatus=TEXT("/reach participant shoulder_l [left]");}
-    else if(A[0]==TEXT("/clear_reach"))ClearReach();
-    else if(A[0]==TEXT("/wave")||A[0]==TEXT("/cheer")||A[0]==TEXT("/point")){if(bJoined&&!bSpectator){PendingEmote=A[0].Mid(1);InteractionStatus=TEXT("Gesture queued: ")+PendingEmote;}else InteractionStatus=TEXT("Join as a participant first.");}
-    else if(A[0]==TEXT("/help"))InteractionStatus=TEXT("E: use aimed object · F: punt · /use id action · /punt id [power] · /reach person point [left] · /clear_reach · /wave · /cheer · /point. Puppet/body-drag requests are not auto-accepted.");
-    else return false;
-    AddChatLine(TEXT("interaction"),InteractionStatus,true);return true;
 }

@@ -24,6 +24,7 @@ const ICONS: Record<string, [string, string]> = {
   Eye: ['fill', 'eye'], EyeOff: ['fill', 'eye-slash'], Speaker: ['fill', 'speaker-high'],
   Mic: ['line', 'mic'], Ear: ['line', 'ear'], Hand: ['line', 'hand'], Seat: ['line', 'armchair'],
   Stand: ['line', 'personStanding'], Lie: ['line', 'bed'],
+  Think: ['line', 'think'], Wrench: ['line', 'wrench'],
 };
 
 const browser = await chromium.launch({ headless: true, channel: 'chrome' });

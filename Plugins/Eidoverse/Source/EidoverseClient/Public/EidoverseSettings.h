@@ -12,6 +12,10 @@ namespace EidoSettings
     EIDOVERSECLIENT_API float PanelOpacity();      // Eidoverse.UI.PanelOpacity, 0.3..1 (web --panel-a)
     EIDOVERSECLIENT_API float InterfaceScale();    // Eidoverse.UI.Scale, 0.75..1.5
     EIDOVERSECLIENT_API bool Lumen();              // Eidoverse.World.Lumen, applies on the next join
+    EIDOVERSECLIENT_API bool Posable();            // Eidoverse.Consent.Posable (default off)
+    EIDOVERSECLIENT_API bool Pushable();           // Eidoverse.Consent.Pushable (default on)
+    EIDOVERSECLIENT_API float WorldVolume();       // Eidoverse.Audio.World
+    EIDOVERSECLIENT_API float VoiceVolume();       // Eidoverse.Audio.Voices
     EIDOVERSECLIENT_API void Set(const TCHAR* Name, const FString& Value);
     EIDOVERSECLIENT_API void Load();
     EIDOVERSECLIENT_API void Save();

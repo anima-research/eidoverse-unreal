@@ -3,6 +3,8 @@
 // (head pitch) and avatar.js (who a body looks at, mouth while speaking, `anim`).
 #include "EidoverseBridge.h"
 #include "EidoverseUI.h"
+#include "EidoverseSettings.h"
+#include "Components/WidgetComponent.h"
 #include "EidoverseScene.h"
 #include "EidoverseAvatar.h"
 #include "Dom/JsonObject.h"
@@ -65,11 +67,20 @@ bool AEidoverseBridge::MountedSeatTransform(FTransform& Out, FString& Pose) cons
 
 bool AEidoverseBridge::TryMountNearest(AEidoverseExplorer* Explorer)
 {
-    if (!DynamicScene || AssignedIdentity.IsEmpty()) return false;
+    return SitOnNamed(Explorer, FString());
+}
+
+bool AEidoverseBridge::SitOnNamed(AEidoverseExplorer* Explorer, const FString& Prefix)
+{
+    // Nearest declared seat by the SOCKET's world point (localbody.js nearestSeat); a
+    // named prefix reaches any distance. Nothing near but a seat further out: say so.
+    if (!DynamicScene || AssignedIdentity.IsEmpty() || !Explorer) return false;
     const FVector Feet = Explorer->GetActorLocation();
-    FString BestId, BestSlot; double Best = 350;
+    FString BestId, BestSlot; double Best = Prefix.IsEmpty() ? 350 : 1e12;
+    FString FarId, FarSlot; double Far = 3000;
     for (const auto& Pair : DynamicScene->GetItems())
     {
+        if (!Prefix.IsEmpty() && !Pair.Key.StartsWith(Prefix, ESearchCase::IgnoreCase)) continue;
         const TSharedPtr<FJsonObject> Sockets = SeatObj(Pair.Value.Interact, TEXT("sockets"));
         if (!Sockets || !Pair.Value.Actor.IsValid()) continue;
         for (const auto& Slot : Sockets->Values)
@@ -78,9 +89,16 @@ bool AEidoverseBridge::TryMountNearest(AEidoverseExplorer* Explorer)
             if (!SocketWorld(Pair.Value.Actor.Get(), Sock, nullptr, W)) continue;
             const double D = FVector::Dist2D(W.GetLocation(), Feet);
             if (D < Best) { Best = D; BestId = Pair.Key; BestSlot = Slot.Key; }
+            if (D < Far) { Far = D; FarId = Pair.Key; FarSlot = Slot.Key; }
         }
     }
-    if (BestId.IsEmpty()) return false;
+    if (BestId.IsEmpty())
+    {
+        if (Prefix.IsEmpty() && !FarId.IsEmpty())
+            Narrate(FString::Printf(TEXT("nearest seat is %s (%s), %.0fm away — walk closer, or /sit %s"), *FarId, *FarSlot, Far / 100, *FarId.Left(8)));
+        else if (!Prefix.IsEmpty()) Narrate(FString::Printf(TEXT("no seat here called “%s”"), *Prefix));
+        return false;
+    }
     auto A = MakeShared<FJsonObject>();
     A->SetStringField(TEXT("id"), AssignedIdentity); A->SetStringField(TEXT("to"), BestId); A->SetStringField(TEXT("slot"), BestSlot);
     if (!SendInteractionVerb(TEXT("mount"), A)) return false;
@@ -196,7 +214,63 @@ void AEidoverseBridge::TickSeating(AEidoverseExplorer* Explorer, double Now)
     Explorer->SetActorLocationAndRotation(Seat.GetLocation() + FVector(0, 0, Half), Seat.GetRotation(), false, nullptr, ETeleportType::TeleportPhysics);
 }
 
+// ---- attaching things to things (scenegraph.js sceneAttach / sceneDetach) ---------
+
+bool AEidoverseBridge::AttachEntity(const FString& Child, const FString& Parent, const FString& Slot)
+{
+    if (!DynamicScene) return false;
+    // Refuse cycles: the parent must not already ride the child.
+    for (FString Up = Parent; !Up.IsEmpty();)
+    {
+        if (Up == Child) { Narrate(TEXT("that would mount a thing onto its own cargo")); return false; }
+        const FEidoverseSceneItem* Item = DynamicScene->GetItems().Find(Up);
+        Up = Item ? Item->MountTo : FString();
+    }
+    const AActor* C = DynamicScene->EntityActor(Child); const AActor* P = DynamicScene->EntityActor(Parent);
+    if (!C || !P) return false;
+    auto A = MakeShared<FJsonObject>();
+    A->SetStringField(TEXT("id"), Child); A->SetStringField(TEXT("to"), Parent);
+    if (!Slot.IsEmpty()) A->SetStringField(TEXT("slot"), Slot);
+    else
+    {
+        // Glue where it stands: offset in the parent's model frame, yaw relative.
+        const FVector Local = ToWirePosition(P->GetActorTransform().InverseTransformPosition(C->GetActorLocation()));
+        auto R3 = [](double V) { return FMath::RoundToDouble(V * 1000) / 1000; };
+        A->SetArrayField(TEXT("offset"), {MakeShared<FJsonValueNumber>(R3(Local.X)), MakeShared<FJsonValueNumber>(R3(Local.Y)), MakeShared<FJsonValueNumber>(R3(Local.Z))});
+        const double Yaw = -FMath::DegreesToRadians(FRotator::NormalizeAxis(C->GetActorRotation().Yaw - P->GetActorRotation().Yaw));
+        A->SetNumberField(TEXT("yaw"), R3(Yaw));
+    }
+    if (!SendVerb(TEXT("mount"), A)) return false;
+    Narrate(FString::Printf(TEXT("%s now rides %s — it moves when %s moves"), *Child, *Parent, *Parent));
+    return true;
+}
+
+bool AEidoverseBridge::DetachEntity(const FString& Id)
+{
+    if (!DynamicScene) return false;
+    const FEidoverseSceneItem* Item = DynamicScene->GetItems().Find(Id);
+    const AActor* A = DynamicScene->EntityActor(Id);
+    if (!Item || !A || Item->MountTo.IsEmpty()) { Narrate(FString::Printf(TEXT("%s isn't mounted on anything"), *Id)); return false; }
+    auto R3 = [](double V) { return FMath::RoundToDouble(V * 1000) / 1000; };
+    const FVector W = ToWirePosition(A->GetActorLocation() - OriginCentimeters);
+    auto Args = MakeShared<FJsonObject>();
+    Args->SetStringField(TEXT("id"), Id);
+    Args->SetArrayField(TEXT("pos"), {MakeShared<FJsonValueNumber>(R3(W.X)), MakeShared<FJsonValueNumber>(R3(W.Y)), MakeShared<FJsonValueNumber>(R3(W.Z))});
+    Args->SetNumberField(TEXT("yaw"), R3(-FMath::DegreesToRadians(A->GetActorRotation().Yaw)));
+    return SendVerb(TEXT("dismount"), Args);
+}
+
 // ---- gaze, speaking, agent animations ---------------------------------------------
+
+void AEidoverseBridge::PerformSpeech(const FString& Actor, const FString& Text)
+{
+    if (Actor.IsEmpty() || Text.IsEmpty()) return;
+    if (EidoSettings::Bubbles())
+        if (auto* Peer = Peers.Find(Actor)) if (auto* Plate = Peer->Plate.Get())
+            if (auto* W = Cast<UEidoverseNameplate>(Plate->GetUserWidgetObject()))
+                W->ShowBubble(Text, FMath::Clamp(2.5f + Text.Len() * .045f, 5.f, 22.f));
+    NoteSpeaker(Actor, Text);
+}
 
 void AEidoverseBridge::NoteSpeaker(const FString& Sender, const FString& Text)
 {
@@ -211,7 +285,8 @@ void AEidoverseBridge::NoteSpeaker(const FString& Sender, const FString& Text)
     }
     else if (auto* P = Peers.Find(Sender))
     {
-        P->SpeakingUntil = Until;
+        // Gaze: a speaker holds attention a while longer (voicemouths.js noteSpeaking).
+        P->SpeakingUntil = FPlatformTime::Seconds() + FMath::Min(12000., 3000 + Len * 30) / 1000;
         if (auto* M = P->AvatarMesh.Get()) M->NoteSpeaking(Until);
     }
 }

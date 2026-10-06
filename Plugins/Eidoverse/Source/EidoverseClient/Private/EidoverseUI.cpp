@@ -1069,7 +1069,7 @@ void UEidoverseHUD::RefreshChat()
     for (int32 I = 0; I < ChatTabs.Num(); ++I)
         ChatTabs[I]->SetStyle(FlatButton(I == ChatTab ? FEidoverseTheme::Brand().CopyWithNewOpacity(.16f) : FLinearColor::Transparent,
             FEidoverseTheme::Hover(), 6, I == ChatTab ? FEidoverseTheme::Brand().CopyWithNewOpacity(.5f) : FLinearColor::Transparent));
-    ChatLog->ScrollToEnd();
+    if (!bKeepChatScroll) ChatLog->ScrollToEnd();
 }
 
 void UEidoverseHUD::RefreshPeople(bool bForce)
@@ -1109,6 +1109,12 @@ void UEidoverseHUD::NativeTick(const FGeometry& Geometry, float Delta)
     Super::NativeTick(Geometry, Delta);
     if (!Bridge) return;
     const double Now = FPlatformTime::Seconds();
+    // Scrolled near the top of the chat: page in earlier messages (chat.js history).
+    if (ChatLog && Now >= NextHistoryCheck && Bridge->bJoined)
+    {
+        NextHistoryCheck = Now + .25;
+        if (ChatLog->GetScrollOffsetOfEnd() > 0 && ChatLog->GetScrollOffset() <= 60) Bridge->RequestEarlierChat();
+    }
     // Connection transitions are system lines and toasts, as in the web client.
     const FString Status = Bridge->ConnectionStatus;
     if (Status != LastStatus)
@@ -1254,24 +1260,14 @@ void UEidoverseHUD::SendChat()
     if (!Text.IsEmpty())
     {
         bool bOk = false;
-        if (Text.StartsWith(TEXT("/w ")) || Text.StartsWith(TEXT("/whisper ")))
-        {
-            FString Cmd, To, Body;
-            Text.Split(TEXT(" "), &Cmd, &Body);
-            Body.Split(TEXT(" "), &To, &Body);
-            bOk = Bridge->Whisper(To, Body);
-            if (bOk) Lines.Add({To, Body, true, false, false});
-        }
-        else if (Text.StartsWith(TEXT("/")))
-        {
-            bOk = Bridge->HandleInteractionCommand(Text);
-            if (!Bridge->InteractionStatus.IsEmpty()) AddSystemLine(Bridge->InteractionStatus);
-        }
-        else bOk = Bridge->Say(Text);
-        if (!bOk && !Text.StartsWith(TEXT("/"))) Toast(TEXT("Not sent: join a world first, and wait a moment between messages."), true);
         SentHistory.Add(Text);
         ChatInput->SetText(FText::GetEmpty());
-        RefreshChat();
+        // Every slash command goes through the command table; nothing unknown is posted.
+        if (Text.StartsWith(TEXT("/"))) bOk = Bridge->HandleInteractionCommand(Text);
+        else bOk = Bridge->Say(Text);
+        if (!bOk && !Text.StartsWith(TEXT("/"))) Toast(TEXT("Not sent: join a world first, and wait a moment between messages."), true);
+        // A command that refilled the composer (/w name, /r) keeps chat open.
+        if (!ChatInput->GetText().IsEmpty()) return;
     }
     LeaveChat(bChatFromMouselook);
     bChatFromMouselook = false;
@@ -1282,9 +1278,45 @@ void UEidoverseHUD::NotifyChatLine(const FString& Sender, const FString& Text, b
     FLine L{Sender, Text, bPrivate, false, false};
     L.bMention = Bridge && Sender != Bridge->AssignedIdentity && Mentions(Text, Bridge->AssignedIdentity);
     Lines.Add(L);
-    if (Lines.Num() > 300) Lines.RemoveAt(0, Lines.Num() - 300);
+    if (Lines.Num() > 400) Lines.RemoveAt(0, Lines.Num() - 400);
     if (L.bMention) Toast(Sender + TEXT(" mentioned you"), true);
     RefreshChat();
+}
+
+void UEidoverseHUD::PrependChatLines(const TArray<TPair<FString, FString>>& Older, const FString& Note)
+{
+    TArray<FLine> Head;
+    if (!Note.IsEmpty()) Head.Add({TEXT(""), Note, false, true, false});
+    for (const auto& P : Older) Head.Add({P.Key, P.Value, false, false, false});
+    if (Head.IsEmpty()) return;
+    const float Before = ChatLog ? ChatLog->GetScrollOffset() : 0;
+    const float EndBefore = ChatLog ? ChatLog->GetScrollOffsetOfEnd() : 0;
+    Lines.Insert(Head, 0);
+    if (Lines.Num() > 400) Lines.SetNum(400);
+    bKeepChatScroll = true;
+    RefreshChat();
+    bKeepChatScroll = false;
+    // Keep the reader's place: after layout, offset by what was added above.
+    if (ChatLog) { ChatLog->ForceLayoutPrepass(); ChatLog->SetScrollOffset(Before + FMath::Max(0.f, ChatLog->GetScrollOffsetOfEnd() - EndBefore)); }
+}
+
+void UEidoverseHUD::ClearChat()
+{
+    Lines.Reset();
+    RefreshChat();
+}
+
+void UEidoverseHUD::AppendToLastChatLine(const FString& Sender, const FString& Text)
+{
+    for (int32 I = Lines.Num() - 1; I >= 0; --I)
+        if (!Lines[I].bSystem)
+        {
+            if (Lines[I].Sender != Sender) break;
+            Lines[I].Text += TEXT(" ") + Text;
+            RefreshChat();
+            return;
+        }
+    NotifyChatLine(Sender, Text, false);
 }
 
 bool UEidoverseHUD::IsChatFocused() const { return ChatInput && ChatInput->HasKeyboardFocus(); }
@@ -1609,6 +1641,11 @@ TSharedRef<SWidget> UEidoverseNameplate::RebuildWidget()
         TypingDots->SetText(FText::FromString(TEXT("  •••")));
         TypingDots->SetVisibility(ESlateVisibility::Collapsed);
         PillRow->AddChildToHorizontalBox(TypingDots);
+        StateIcon = WidgetTree->ConstructWidget<UImage>();
+        StateIcon->SetDesiredSizeOverride(FVector2D(15, 15));
+        StateIcon->SetColorAndOpacity(FLinearColor(FColor(180, 240, 216)));
+        StateIcon->SetVisibility(ESlateVisibility::Collapsed);
+        if (auto* IconSlot = PillRow->AddChildToHorizontalBox(StateIcon)) { IconSlot->SetPadding(FMargin(6, 0, 0, 0)); IconSlot->SetVerticalAlignment(VAlign_Center); }
         Pill->SetContent(PillRow);
         Column->AddChildToVerticalBox(Pill)->SetHorizontalAlignment(HAlign_Center);
     }
@@ -1630,6 +1667,22 @@ void UEidoverseNameplate::ShowBubble(const FString& Text, float Seconds)
     BubbleText->SetText(FText::FromString(Line));
     Bubble->SetVisibility(ESlateVisibility::HitTestInvisible);
     BubbleUntil = FPlatformTime::Seconds() + Seconds;
+    // Speaking ends composing, not a live mic (avatar.js say).
+    if (TypingState != TEXT("mic") && TypingDots) { TypingDots->SetVisibility(ESlateVisibility::Collapsed); if (StateIcon) StateIcon->SetVisibility(ESlateVisibility::Collapsed); TypingUntil = 0; }
+}
+
+void UEidoverseNameplate::ShowTypingState(const FString& State, bool bStop)
+{
+    TakeWidget();
+    if (bStop) { TypingUntil = 0; TypingState.Empty(); TypingDots->SetVisibility(ESlateVisibility::Collapsed); StateIcon->SetVisibility(ESlateVisibility::Collapsed); return; }
+    static const TMap<FString, FString> Icons = {{TEXT("ear"), TEXT("Ear")}, {TEXT("think"), TEXT("Think")}, {TEXT("tool"), TEXT("Wrench")}, {TEXT("mic"), TEXT("Mic")}};
+    TypingState = Icons.Contains(State) ? State : FString();
+    TypingUntil = FPlatformTime::Seconds() + 4;
+    UTexture2D* Tex = TypingState.IsEmpty() ? nullptr : FEidoverseTheme::IconTexture(Icons[TypingState]);
+    if (Tex) StateIcon->SetBrushFromTexture(Tex);
+    StateIcon->SetDesiredSizeOverride(FVector2D(15, 15));
+    StateIcon->SetVisibility(Tex ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+    TypingDots->SetVisibility(Tex ? ESlateVisibility::Collapsed : ESlateVisibility::HitTestInvisible);
 }
 
 void UEidoverseNameplate::ShowTyping(float Seconds)
@@ -1650,7 +1703,16 @@ void UEidoverseNameplate::NativeTick(const FGeometry& Geometry, float Delta)
     if (TypingDots && TypingUntil > 0 && FPlatformTime::Seconds() > TypingUntil)
     {
         TypingDots->SetVisibility(ESlateVisibility::Collapsed);
-        TypingUntil = 0;
+        if (StateIcon) StateIcon->SetVisibility(ESlateVisibility::Collapsed);
+        TypingUntil = 0; TypingState.Empty();
+    }
+    // The glyph breathes (0.75 + 0.25 sin 3t); the mic pulses faster, as its arcs do.
+    if (StateIcon && TypingUntil > 0 && !TypingState.IsEmpty())
+    {
+        const double T = FPlatformTime::Seconds();
+        const float B = .75f + .25f * FMath::Sin(T * 3);
+        const float A = TypingState == TEXT("mic") ? B * (.55f + .45f * FMath::Max(0.f, float(FMath::Sin(T * 5)))) : B;
+        StateIcon->SetRenderOpacity(A);
     }
     if (Bubble && BubbleUntil > 0 && FPlatformTime::Seconds() > BubbleUntil)
     {

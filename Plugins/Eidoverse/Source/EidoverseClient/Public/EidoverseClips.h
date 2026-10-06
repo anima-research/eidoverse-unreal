@@ -62,6 +62,7 @@ public:
     TSharedPtr<const FEidoClip> Find(const FString& File);
     // Clip file for an emote name (defs/animations/_emotes.json), or empty.
     FString EmoteClip(const FString& Emote) const;
+    TArray<FString> EmoteNames() const { TArray<FString> K; Emotes.GetKeys(K); K.Sort(); return K; }
     int32 ReadyCount() const { return Ready.Num(); }
 private:
     FString Base;

@@ -103,9 +103,16 @@ public:
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void SetPointerMode(bool bPointer);
     UFUNCTION(BlueprintPure, Category="Eidoverse|UI") bool IsPointerMode() const { return bPointerMode; }
     void NotifyChatLine(const FString& Sender, const FString& Text, bool bPrivate);
+    // A spoken utterance's continuation (same author, same utt): one paragraph (chat.js).
+    void AppendToLastChatLine(const FString& Sender, const FString& Text);
     void NoteTyping(const FString& Id);
     // Open chat with text appended to the draft (e.g. "@name ", "/w name ").
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void InsertIntoChat(const FString& Text, bool bReplace = false);
+    void SystemLine(const FString& Text) { AddSystemLine(Text); }
+    // Older lines from history paging, oldest first; keeps the reader's place.
+    void PrependChatLines(const TArray<TPair<FString, FString>>& Older, const FString& Note);
+    void ClearChat();
+    void RefreshPanelOpacity() { ApplyPanelOpacity(); }
     // World frame: select a section (0 here, 1 avatar, 2 sky, 3 ground, 4 scene) and run
     // the same actions its buttons do (e.g. "sky:preset:dusk", "sky:apply", "ground:apply").
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void SelectWorldTab(int32 Tab);
@@ -172,6 +179,8 @@ private:
     UPROPERTY() TArray<TObjectPtr<UButton>> ChatTabs;
     int32 ChatTab = 0;  // 0 all, 1 mentions, 2 system
     struct FLine { FString Sender, Text; bool bPrivate = false, bSystem = false, bMention = false; };
+    bool bKeepChatScroll = false;
+    double NextHistoryCheck = 0;
     TArray<FLine> Lines;
     TArray<FString> SentHistory;
     TMap<FString, double> Typers;
@@ -334,13 +343,18 @@ public:
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void SetDistanceFade(float Alpha);
     // Composing indicator after the name (web: typing dots on the pill).
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void ShowTyping(float Seconds = 4);
+    // Presence glyph instead of dots (typing state: ear | think | tool | mic); empty =
+    // composing dots; bStop clears (avatar.js setTyping(null)).
+    void ShowTypingState(const FString& State, bool bStop = false);
 protected:
     virtual TSharedRef<SWidget> RebuildWidget() override;
     virtual void NativeTick(const FGeometry& Geometry, float Delta) override;
 private:
     UPROPERTY() TObjectPtr<UTextBlock> NameText;
     UPROPERTY() TObjectPtr<UTextBlock> TypingDots;
+    UPROPERTY() TObjectPtr<class UImage> StateIcon;
     double TypingUntil = 0;
+    FString TypingState;
     UPROPERTY() TObjectPtr<UBorder> Bubble;
     UPROPERTY() TObjectPtr<UTextBlock> BubbleText;
     FString PendingName;

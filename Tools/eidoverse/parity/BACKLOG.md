@@ -1,0 +1,51 @@
+# Parity backlog (2026-10-06)
+
+Specs live in the four audit reports next to this file: `ui-protocol.md`, `avatars.md`,
+`world.md`, `audio.md`. Ticks are updated as work lands.
+
+## M1 Protocol and chat
+- [x] caption, typing state glyphs (ear/think/tool/mic), spoken say merge (utt)
+- [x] server `error` text → toast + system line every time
+- [x] recentChat on join, chatTotal note; history paging (scroll to top)
+- [x] whisper echo (no triple lines), `/r`, LastWhisperFrom
+- [x] command table: /me /who /clear /name /help /panels /role /grant /kick /ban /unban /bans /gban /gunban /gbans
+      /punt /push /touch /letgo /pushable /boom /epoch /fork /reset /goto /sit /emote /use(+aliases) /mount /dismount /debug
+- [x] world-reset, world-forked, mod, defs-updated, avatar-updated line, arrive/leave lines, rights notice, empty-world toast
+- [x] log narration: grant/ban/unban/kick/asset
+- [x] restore pose on first snapshot, adopt renamed `you`
+- [x] verb queue while reconnecting; close codes 4002/4003/4005/4006
+- [x] presence (present/away/busy) send/receive
+- [x] diver anchor bug (-85 cm for feet-anchored humanoid swimmers/climbers/pilots)
+
+## M2 Bodies
+- [ ] remote ragdoll: per-sample pose blending, SetLimp (park non-driven bones, eyes shut, limp springs)
+- [ ] puppet consent (posable off / pushable on), self held pose sent in `pose`, anim rebroadcast
+- [ ] remote mounts from snapshot.state.mounts + log (riders pinned to seat), mount.yaw
+- [ ] wings: flap idle/power, fold (G), wingsFolded wire
+- [ ] jump walk-off ease, FP eye from head when posed, self gaze speaker-only, body load retry, movement bounds
+- [ ] seat hints, /sit, far-seat message
+- [ ] reach: weight easing, self solve, reached, narration
+
+## M3 World rendering
+- [ ] fog/sky args (fog, sun, ambient, exposure, azimuth, clouds), night floor
+- [ ] placed lights: day dimming, gizmo, 8-slot budget, no shadows (server: keep/day)
+- [ ] inferred lamps on emissive models
+- [ ] geom placeholders, comp collision.enabled=false
+- [ ] weather surfaces: wetness, puddles, cloud shadows, cloud kind
+- [ ] server render-scene: particles/picture/sound passthrough, part motions, part sockets, sim v
+- [ ] node-hierarchy import + part motion; pictures; particles (Niagara)
+- [ ] residency demotion, flora density/pushers
+
+## M4 Build tools
+- [ ] drag move (send/receive), lights editor, lock/guard, scene tree + attach, seat anchor editor,
+      sky sliders, ground auto-apply, structure editor, uploads, sound/picture editors, scripts panel
+
+## M5 Locomotion
+- [ ] traversal climb (E), mantle, vehicles/helm, flight (F), local ragdoll (R, shoves, force), bodydrag
+
+## M6 Audio
+- [ ] sound components, WebRTC SFU receive, consent/volumes, mic publish, TTS endpoints, STT
+
+## M7 Polish
+- [ ] chat: name colours, timestamps, grouping, links/markdown, DM tabs, autocomplete, ↓ recall
+- [ ] toasts coalescing, photo mode, remote XR, distance LOD update rate, video settings, emote bar posture tiles

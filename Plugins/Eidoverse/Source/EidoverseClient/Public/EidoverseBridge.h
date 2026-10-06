@@ -36,6 +36,7 @@ struct FEidoverseChatLine
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FEidoverseChat, const FString&, Sender, const FString&, Text);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FEidoverseRefused, const FString&, Error);
 
 USTRUCT(BlueprintType)
 struct FEidoverseAvatarChoice
@@ -83,6 +84,7 @@ struct FEidoversePeer
     TSharedPtr<FJsonObject> HeldPose;
     bool bHeldPoseDirty=false;
     double SpeakingUntil=0;
+    FString Presence=TEXT("present");
 };
 
 struct FEidoverseObjectSim
@@ -173,7 +175,52 @@ public:
     UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse|Capture") bool bShareSceneScreenshots=false;
     UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse|Capture") FString CaptureStatus=TEXT("Scene sharing off");
     UFUNCTION(BlueprintCallable, Category="Eidoverse|Capture") void SetShareSceneScreenshots(bool bEnabled);
-    void AddChatLine(const FString& Sender,const FString& Text,bool bPrivate=false);
+    void AddChatLine(const FString& Sender,const FString& Text,bool bPrivate=false,const FString& Utt=FString(),bool bSpoken=false);
+    // Live speech (caption): bubble + mouth paced to the voice; the later spoken say only logs.
+    void PerformSpeech(const FString& Actor,const FString& Text);
+    FString LastSpokenUtt,LastSpokenSender;
+    // ---- protocol parity (EidoverseProtocol.cpp, EidoverseCommands.cpp, EidoverseConsent.cpp) ----
+    // A server refusal, verbatim (previews roll back on it).
+    UPROPERTY(BlueprintAssignable, Category="Eidoverse") FEidoverseRefused OnVerbRefused;
+    void Narrate(const FString& Text);
+    void ToastText(const FString& Text,bool bWarn=false);
+    bool ReceiveProtocol(const FString& Type,const TSharedPtr<FJsonObject>& J,double Now);
+    void ReceiveSnapshotExtras(const TSharedPtr<FJsonObject>& J,double Now);
+    void NarrateLogEntry(const TSharedPtr<FJsonObject>& Entry);
+    bool ApplyRestore();
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") bool RequestEarlierChat();
+    bool SendRaw(const FString& Type,const TSharedRef<FJsonObject>& Fields);
+    bool QueueWhileReconnecting(const TSharedRef<FJsonObject>& Message,const FString& Verb);
+    FString CloseReason(int32 Code,bool& bRetry) const;
+    TArray<FString> CommandCompletions(const FString& Prefix) const;
+    FVector MyWirePosition() const;
+    bool PuntNearest(const FString& Named,float Power);
+    bool ShovePerson(const FString& Name,float Power,const FString& Verb);
+    bool SitOnNamed(class AEidoverseExplorer* Explorer,const FString& Prefix);
+    bool AttachEntity(const FString& Child,const FString& Parent,const FString& Slot);
+    bool DetachEntity(const FString& Id);
+    void ReceivePuppet(const TSharedPtr<FJsonObject>& J);
+    void ReceiveBodyDrag(const TSharedPtr<FJsonObject>& J);
+    void ReceiveForce(const TSharedPtr<FJsonObject>& Args);
+    void KnockDown(const FVector& LeanWire,const FString& By);
+    void SetSelfHeldPose(const TSharedPtr<FJsonObject>& Pose,bool bAnnounce);
+    UFUNCTION(BlueprintPure, Category="Eidoverse") FString CurrentPresence() const;
+    UFUNCTION(BlueprintCallable, Category="Eidoverse") void SetPresence(const FString& Value);
+    void NoteLocalInput() { LastLocalInputAt=FPlatformTime::Seconds(); }
+    FString MySub,LastWhisperFrom,SimId,ManualPresence;
+    TSet<int64> RenderedChatSeqs;
+    int64 OldestChatSeq=-1;
+    bool bHistoryPending=false,bHistoryDone=false;
+    double HistoryRequestedAt=0;
+    int32 HistoryRequests=0,DebugRequests=0;
+    FString HistoryReqId,DebugReqId;
+    TMap<FString,TSharedPtr<FJsonObject>> RemoteMounts;     // folded mounts: rider -> {to, slot?, offset?, yaw?}
+    TSharedPtr<FJsonObject> PendingRestore;
+    bool bBodyMovedThisSession=false,bEmptyWorldNoticePending=false,bWingsFolded=false,bSendHeldNull=false;
+    TArray<TSharedRef<FJsonObject>> QueuedMessages;
+    FString LastErrorText; double LastErrorAt=0,ResetReconnectAt=0,LastLocalInputAt=0;
+    TSharedPtr<FJsonObject> SelfHeldPose;
+    bool bRetrying=false;
 #if WITH_DEV_AUTOMATION_TESTS
     void ProbeLocalChatUI(bool bPrivate);
 #endif
@@ -222,7 +269,7 @@ public:
     UPROPERTY(EditAnywhere,BlueprintReadWrite,Category="Eidoverse|Interaction") bool bSimulateObjectPhysics=true;
     UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Eidoverse|Interaction") FString InteractionStatus;
     UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Eidoverse|Interaction") int32 ActivePhysicsObjects=0;
-    bool HandleInteractionCommand(const FString& Text);
+    UFUNCTION(BlueprintCallable, Category="Eidoverse") bool HandleInteractionCommand(const FString& Text);
 
     // Three.js is right-handed, UE is left-handed. Facing wire +Z, wire +X
     // must appear on the LEFT (UE -Y). An axis permutation alone mirrors views.

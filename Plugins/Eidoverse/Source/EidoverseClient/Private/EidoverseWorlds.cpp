@@ -125,6 +125,16 @@ void AEidoverseBridge::ReceiveDynamicScene(const TSharedPtr<FJsonObject>& Messag
         }
     }DynamicScene->Apply(Message,OriginCentimeters,AvatarLibraryBase);
     if(Message->HasField(TEXT("error"))){bSceneMoving=false;return;}
+    if(bEmptyWorldNoticePending)
+    {
+        bEmptyWorldNoticePending=false;
+        if(DynamicScene->GetItems().Num()==0)
+        {
+            Narrate(FString::Printf(TEXT("\u201c%s\u201d is empty \u2014 nothing has ever been built here."),*WorldName));
+            Narrate(TEXT("press B to start building, or ? for the controls."));
+            ToastText(FString::Printf(TEXT("\u201c%s\u201d is an empty world \u2014 press B to build in it"),*WorldName));
+        }
+    }
     double Interval=300;if(Message->TryGetNumberField(TEXT("updateIntervalMs"),Interval)&&FMath::IsFinite(Interval))SceneRequestInterval=FMath::Clamp(Interval/1000.,.066,.3);
     const TSharedPtr<FJsonObject>* Sim=nullptr;
     if(Message->TryGetObjectField(TEXT("simulation"),Sim))(*Sim)->TryGetBoolField(TEXT("enabled"),bDeterministicScenePhysics);
@@ -135,7 +145,10 @@ void AEidoverseBridge::ReceiveDynamicScene(const TSharedPtr<FJsonObject>& Messag
         if(Message->TryGetObjectField(TEXT("environment"),Env)&&(*Env)->TryGetObjectField(TEXT("terrain"),T)&&(*T)->TryGetArrayField(TEXT("heights"),H)&&!H->IsEmpty())Ground=(*H)[H->Num()/2]->AsNumber()*100;
         // An authored environment spawn (wire metres, feet) wins over the terrain centre.
         FVector Spawn;
-        if(DynamicScene->EnvironmentSpawn(Spawn))Explorer->SetActorLocation(OriginCentimeters+FromWirePosition(Spawn)+FVector(0,0,90));
+        Explorer->GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+        // Wake where you fell asleep (snapshot restore), else the world's spawn.
+        if(ApplyRestore()){}
+        else if(DynamicScene->EnvironmentSpawn(Spawn))Explorer->SetActorLocation(OriginCentimeters+FromWirePosition(Spawn)+FVector(0,0,90));
         else Explorer->SetActorLocation(OriginCentimeters+FVector(0,0,Ground+100));
         Explorer->GetCharacterMovement()->SetMovementMode(MOVE_Walking);
     }

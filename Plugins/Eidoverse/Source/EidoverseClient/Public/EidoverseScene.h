@@ -66,6 +66,8 @@ public:
     void LeaseTransform(const FString& Id,const TSharedPtr<FJsonObject>& State,const FVector& Origin);
     void HoldTransform(const FString& Id,bool bHold);
     void SetLocalTransform(const FString& Id,const FTransform& Transform);
+    // Someone else's live drag: shown at once and held briefly over projection updates.
+    void HoldRemote(const FString& Id,const FTransform& Transform,double Seconds);
     UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Eidoverse") int32 FloraCount=0;
     UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Eidoverse") FString WeatherState;
     UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Eidoverse") float WeatherHour=12;

@@ -89,6 +89,16 @@ void UEidoverseAvatarMesh::PlayAgentAnimation(const TSharedPtr<FJsonObject>& Tra
     AnimLayers.Add(MoveTemp(Layer));
 }
 
+bool UEidoverseAvatarMesh::SetEyesHeldShut(bool bShut)
+{
+    bool bHasLids = HasExpression(TEXT("blink"));
+    if (!bHasLids && Avatar && Avatar->Mesh)
+        for (const TCHAR* N : {TEXT("L_Eyelid_Upper"), TEXT("R_Eyelid_Upper")}) bHasLids |= Avatar->Mesh->GetRefSkeleton().FindBoneIndex(FName(N)) != INDEX_NONE;
+    if (!bHasLids) return false;
+    bEyesHeld = bShut;
+    return true;
+}
+
 void UEidoverseAvatarMesh::SetGazeTarget(const FVector& World, bool bHasTarget)
 {
     GazeGoal = World; bGazeTarget = bHasTarget;
@@ -236,6 +246,8 @@ void UEidoverseAvatarMesh::ApplyRawLayers(float Dt, double Time)
         if (K >= 1) { BlinkStart = -1; NextBlink = Time + (FMath::FRand() < .22f ? .22 : 2.2 + FMath::FRand() * 4.2); }
         else Blink = FMath::Sin(PI * K);
     }
+    LidHold += ((bEyesHeld ? 1.f : 0.f) - LidHold) * FMath::Min(1.f, 12 * Dt);
+    Blink = FMath::Max(Blink, LidHold);
     SetExpression(TEXT("blink"), Blink);
     // Eyelid bones on custom rigs: closed about X, 1.2 rad upper, -0.35 rad lower.
     for (const TCHAR* Name : {TEXT("L_Eyelid_Upper"), TEXT("R_Eyelid_Upper"), TEXT("L_Eyelid_Lower"), TEXT("R_Eyelid_Lower")})

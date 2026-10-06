@@ -188,6 +188,9 @@ public:
     void SetGazeTarget(const FVector& World,bool bHasTarget);
     // Seconds the mouth should move as if talking (chat/captions).
     void NoteSpeaking(double Until) { SpeakingUntil=FMath::Max(SpeakingUntil,Until); }
+    // Eyes held shut (/eyes, limp): lids ease at 12/s. False when the rig has no lids.
+    bool SetEyesHeldShut(bool bShut);
+    bool EyesHeldShut() const { return bEyesHeld; }
     // Expression weights for this frame (0..1), applied with the pose (blend shapes).
     void SetExpression(FName Expression,float Weight);
     void ApplyExpressions();
@@ -203,6 +206,7 @@ private:
     float HeadPitch=0;
     FVector GazeGoal=FVector::ZeroVector, GazePoint=FVector::ZeroVector; bool bGazeTarget=false, bGazeInit=false;
     double SpeakingUntil=0, NextBlink=0, BlinkStart=-1;
+    bool bEyesHeld=false; float LidHold=0;
     // Applied inside AnimateClips: modifies the normalized humanoid rotations / hips offset.
     void ApplyNormalizedLayers(TMap<FName,FQuat>& Normalized,FVector& HipsOffsetModel,float Dt,double Time);
     // Applied after spring bones: raw-bone held pose, custom eyes and eyelids, blink, mouth.

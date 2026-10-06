@@ -12,9 +12,14 @@ namespace
     TAutoConsoleVariable<float> CVarOpacity(TEXT("Eidoverse.UI.PanelOpacity"), .78f, TEXT("Panel background opacity, 0.3..1."));
     TAutoConsoleVariable<int32> CVarLumen(TEXT("Eidoverse.World.Lumen"), 1, TEXT("Use hardware Lumen for server worlds when available (next join)."));
     TAutoConsoleVariable<float> CVarScale(TEXT("Eidoverse.UI.Scale"), 1.f, TEXT("Interface size multiplier for the game viewport, 0.75..1.5."));
+    TAutoConsoleVariable<int32> CVarPosable(TEXT("Eidoverse.Consent.Posable"), 0, TEXT("1: others may pose you or play animations on your body (web: posable, default off)."));
+    TAutoConsoleVariable<int32> CVarPushable(TEXT("Eidoverse.Consent.Pushable"), 1, TEXT("1: shoves and blasts may knock you over (web: pushable, default on)."));
+    TAutoConsoleVariable<float> CVarWorldVolume(TEXT("Eidoverse.Audio.World"), 1.f, TEXT("World sound volume, 0..1."));
+    TAutoConsoleVariable<float> CVarVoiceVolume(TEXT("Eidoverse.Audio.Voices"), 1.f, TEXT("Voice volume, 0..1."));
     const TCHAR* Section = TEXT("/Script/EidoverseClient.Settings");
     const TCHAR* Names[] = {TEXT("Eidoverse.Look.Sensitivity"), TEXT("Eidoverse.Look.InvertY"), TEXT("Eidoverse.UI.Nameplates"),
-                            TEXT("Eidoverse.UI.Bubbles"), TEXT("Eidoverse.UI.PanelOpacity"), TEXT("Eidoverse.UI.Scale"), TEXT("Eidoverse.World.Lumen")};
+                            TEXT("Eidoverse.UI.Bubbles"), TEXT("Eidoverse.UI.PanelOpacity"), TEXT("Eidoverse.UI.Scale"), TEXT("Eidoverse.World.Lumen"),
+                            TEXT("Eidoverse.Consent.Posable"), TEXT("Eidoverse.Consent.Pushable"), TEXT("Eidoverse.Audio.World"), TEXT("Eidoverse.Audio.Voices")};
 }
 
 namespace EidoSettings
@@ -25,6 +30,10 @@ bool Nameplates() { return CVarPlates.GetValueOnGameThread() != 0; }
 bool Bubbles() { return CVarBubbles.GetValueOnGameThread() != 0; }
 float PanelOpacity() { return FMath::Clamp(CVarOpacity.GetValueOnGameThread(), .3f, 1.f); }
 bool Lumen() { return CVarLumen.GetValueOnGameThread() != 0; }
+bool Posable() { return CVarPosable.GetValueOnGameThread() != 0; }
+bool Pushable() { return CVarPushable.GetValueOnGameThread() != 0; }
+float WorldVolume() { return FMath::Clamp(CVarWorldVolume.GetValueOnGameThread(), 0.f, 1.f); }
+float VoiceVolume() { return FMath::Clamp(CVarVoiceVolume.GetValueOnGameThread(), 0.f, 1.f); }
 float InterfaceScale() { return FMath::Clamp(CVarScale.GetValueOnGameThread(), .75f, 1.5f); }
 
 void Set(const TCHAR* Name, const FString& Value)

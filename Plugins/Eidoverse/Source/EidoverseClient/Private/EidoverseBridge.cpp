@@ -153,14 +153,24 @@ FString AEidoverseBridge::HttpBase() const
 #if WITH_DEV_AUTOMATION_TESTS
 void AEidoverseBridge::ProbeLocalChatUI(bool bPrivate){if(ChatPanel)ChatPanel->ProbeLocalUI(bPrivate);}
 #endif
-void AEidoverseBridge::AddChatLine(const FString& Sender,const FString& Text,bool bPrivate)
+void AEidoverseBridge::AddChatLine(const FString& Sender,const FString& Text,bool bPrivate,const FString& Utt,bool bSpoken)
 {
+    // The continuation of one spoken utterance (spoken:true, same author + utt) is one line.
+    if(!Utt.IsEmpty()&&Utt==LastSpokenUtt&&Sender==LastSpokenSender&&!ChatHistory.IsEmpty()&&ChatHistory.Last().Sender==Sender.Left(64))
+    {
+        ChatHistory.Last().Text=(ChatHistory.Last().Text+TEXT(" ")+Text).Left(8000);
+        if(ChatPanel)ChatPanel->RefreshHistory();
+        if(HUD)HUD->AppendToLastChatLine(Sender.Left(64),Text.Left(4000));
+        OnChat.Broadcast(Sender,Text);
+        return;
+    }
+    LastSpokenUtt=Utt;LastSpokenSender=Utt.IsEmpty()?FString():Sender;
     FEidoverseChatLine Line;Line.Sender=Sender.Left(64);Line.Text=Text.Left(4000);Line.bPrivate=bPrivate;
     ChatHistory.Add(MoveTemp(Line));if(ChatHistory.Num()>150)ChatHistory.RemoveAt(0,ChatHistory.Num()-150);
     if(ChatPanel){ChatPanel->NotifyChatLine(Sender,Text,bPrivate);ChatPanel->RefreshHistory();}
     if(HUD)HUD->NotifyChatLine(Line.Sender.IsEmpty()?Sender:Sender.Left(64),Text.Left(4000),bPrivate);
-    if(!bPrivate&&EidoSettings::Bubbles())if(auto* Peer=Peers.Find(Sender))if(auto* Plate=Peer->Plate.Get())
-        if(auto* W=Cast<UEidoverseNameplate>(Plate->GetUserWidgetObject()))W->ShowBubble(Text);
+    if(!bPrivate&&!bSpoken&&EidoSettings::Bubbles())if(auto* Peer=Peers.Find(Sender))if(auto* Plate=Peer->Plate.Get())
+        if(auto* W=Cast<UEidoverseNameplate>(Plate->GetUserWidgetObject()))W->ShowBubble(Text,FMath::Clamp(2.5f+Text.Len()*.045f,5.f,22.f));
     OnChat.Broadcast(Sender,Text);
 }
 void AEidoverseBridge::Status(const FString& Value)
@@ -178,6 +188,7 @@ void AEidoverseBridge::ClearPeers()
 }
 void AEidoverseBridge::Disconnect()
 {
+    if(!bRetrying)QueuedMessages.Reset();
     ClearInteractions();
     bWanted=false;bJoined=false;++Generation;RetryAt=0;bCaptureAdvertised=false;
     if(Socket){Socket->OnConnected().Clear();Socket->OnMessage().Clear();Socket->OnClosed().Clear();Socket->OnConnectionError().Clear();Socket->Close();Socket.Reset();}
@@ -186,7 +197,14 @@ void AEidoverseBridge::Disconnect()
 void AEidoverseBridge::Connect()
 {
     Disconnect();
-    ChatHistory.Empty();if(ChatPanel)ChatPanel->RefreshHistory();
+    // A retry after a dropped connection keeps the chat, queued actions and body state.
+    if(!bRetrying)
+    {
+        ChatHistory.Empty();if(ChatPanel)ChatPanel->RefreshHistory();
+        RenderedChatSeqs.Reset();OldestChatSeq=-1;bHistoryDone=false;bHistoryPending=false;LastWhisperFrom.Empty();
+        bBodyMovedThisSession=false;PendingRestore.Reset();SelfHeldPose.Reset();RetryDelay=1.2;
+    }
+    RemoteMounts.Reset();
     // Development cleartext is loopback-only. Do not leak credentials in URL,
     // diagnostics, levels or a non-TLS connection to another host.
     const bool Local=Endpoint.StartsWith(TEXT("ws://127.0.0.1:"))||Endpoint.StartsWith(TEXT("ws://localhost:"));
@@ -238,8 +256,9 @@ void AEidoverseBridge::ReadRights(const TSharedPtr<FJsonObject>& Rights)
 }
 bool AEidoverseBridge::SendVerb(const FString& Verb,const TSharedRef<FJsonObject>& Args)
 {
-    if(!bJoined||bSpectator||!Socket||!Socket->IsConnected()||Verb.IsEmpty())return false;
+    if(bSpectator||Verb.IsEmpty())return false;
     auto J=MakeShared<FJsonObject>();J->SetStringField(TEXT("type"),TEXT("verb"));J->SetStringField(TEXT("verb"),Verb);J->SetObjectField(TEXT("args"),Args);
+    if(!bJoined||!Socket||!Socket->IsConnected())return QueueWhileReconnecting(J,Verb);
     Send(J);return true;
 }
 bool AEidoverseBridge::SendVerbJson(const FString& Verb,const FString& ArgsJson)
@@ -252,8 +271,9 @@ void AEidoverseBridge::Lost(int32 Code)
 {
     ClearInteractions();
     bJoined=false;ClearPeers();EndDynamicScene();
-    if(Code>=4000&&Code<4100){bWanted=false;RetryAt=0;Status(FString::Printf(TEXT("connection refused/taken over (%d); reconnect manually"),Code));}
-    else if(bWanted&&bReconnect){RetryAt=FPlatformTime::Seconds()+RetryDelay;RetryDelay=FMath::Min(30.0,RetryDelay*2);Status(TEXT("disconnected; retry pending"));}
+    bool bRetry=true;const FString Why=CloseReason(Code,bRetry);
+    if(!bRetry){bWanted=false;RetryAt=0;QueuedMessages.Reset();Status(Why);ToastText(Why,true);if(Code==4003&&HasProductionSession())LogoutProduction();}
+    else if(bWanted&&bReconnect){RetryAt=FPlatformTime::Seconds()+RetryDelay;RetryDelay=FMath::Min(15.0,FMath::Max(1.2,RetryDelay*1.6));Status(Why);}
     else Status(TEXT("offline"));
 }
 void AEidoverseBridge::Send(const TSharedRef<FJsonObject>& Message)
@@ -261,9 +281,10 @@ void AEidoverseBridge::Send(const TSharedRef<FJsonObject>& Message)
 bool AEidoverseBridge::Say(const FString& Text)
 {
     const double Now=FPlatformTime::Seconds();
-    if(!bJoined||!Socket||!Socket->IsConnected()||bSpectator||Text.TrimStartAndEnd().IsEmpty()||Text.Len()>4000||Now-LastChat<.4)return false;
+    if(bSpectator||Text.TrimStartAndEnd().IsEmpty()||Text.Len()>4000||Now-LastChat<.4)return false;
     auto J=MakeShared<FJsonObject>(),A=MakeShared<FJsonObject>();A->SetStringField(TEXT("text"),Text);
     J->SetStringField(TEXT("type"),TEXT("verb"));J->SetStringField(TEXT("verb"),TEXT("say"));J->SetObjectField(TEXT("args"),A);
+    if(!bJoined||!Socket||!Socket->IsConnected())return QueueWhileReconnecting(J,TEXT("say"));
     Send(J);LastChat=Now;return true;
 }
 bool AEidoverseBridge::Whisper(const FString& To,const FString& Text)
@@ -271,7 +292,7 @@ bool AEidoverseBridge::Whisper(const FString& To,const FString& Text)
     const double Now=FPlatformTime::Seconds();
     if(!bJoined||!Socket||!Socket->IsConnected()||bSpectator||To.TrimStartAndEnd().IsEmpty()||To.Len()>64||Text.TrimStartAndEnd().IsEmpty()||Text.Len()>4000||Now-LastChat<.4)return false;
     auto J=MakeShared<FJsonObject>();J->SetStringField(TEXT("type"),TEXT("whisper"));J->SetStringField(TEXT("to"),To);J->SetStringField(TEXT("text"),Text);
-    Send(J);LastChat=Now;AddChatLine(TEXT("to ")+To,Text,true);return true;
+    Send(J);LastChat=Now;return true;
 }
 void AEidoverseBridge::Announce(const FString& Id,const FString& Avatar)
 {
@@ -478,6 +499,7 @@ void AEidoverseBridge::Pose(const FString& Id,const TSharedPtr<FJsonObject>& Dat
         {Peer->ClipTime=float(ClipTime);Peer->ClipTimeSlot=Eido::String(Data,TEXT("clipTimeSlot")).Left(48);Peer->bClipSample=true;}
         Peer->ClipRate=Data->TryGetNumberField(TEXT("clipRate"),ClipRate)&&FMath::IsFinite(ClipRate)&&ClipRate>0&&ClipRate<=3.2?float(ClipRate):0.f;
     }
+    {const FString Presence=Eido::String(Data,TEXT("presence"));if(Presence==TEXT("present")||Presence==TEXT("away")||Presence==TEXT("busy"))Peer->Presence=Presence;}
     // Head pitch and a held pose (sent on every packet once set; null clears).
     {
         double Pitch=0;Peer->Pitch=Data->TryGetNumberField(TEXT("pitch"),Pitch)&&FMath::IsFinite(Pitch)?float(FMath::Clamp(Pitch,-.6,.6)):0.f;
@@ -500,7 +522,9 @@ void AEidoverseBridge::Pose(const FString& Id,const TSharedPtr<FJsonObject>& Dat
     if(Data->TryGetObjectField(TEXT("locomotion"),Loc)){Peer->Mode=Eido::String(*Loc,TEXT("mode")).Left(32);Body=Eido::String(*Loc,TEXT("body"));}
     else Peer->Mode=Eido::String(Data,TEXT("clip"));
     double Speed=0;Data->TryGetNumberField(TEXT("speed"),Speed);Peer->Speed=FMath::IsFinite(Speed)?FMath::Clamp(float(Speed),0.f,10.f):0;
-    Peer->bPawnAnchor=Body==TEXT("diver")||Body==TEXT("submarine");
+    // Every humanoid sends its feet (web swimmers/climbers/pilots say body:'diver' with
+    // feet coordinates); only a submarine is anchored at its centre.
+    Peer->bPawnAnchor=Body==TEXT("submarine");
     const bool Sub=Body==TEXT("submarine");
     if(Sub!=Peer->bSubmarine&&Peer->Mesh.IsValid())
     {Peer->bSubmarine=Sub;Peer->Mesh->SetStaticMesh(Sub&&SubmarineProxyMesh?SubmarineProxyMesh:DiverProxyMesh);Peer->Mesh->SetRelativeScale3D(Sub?FVector(1):FVector(.5,.5,1.7));}
@@ -549,12 +573,19 @@ void AEidoverseBridge::Receive(const FString& Message)
         // The roster normally names my body; fall back to what I asked to wear.
         if(!SelfBody.AvatarAsset.IsValid()&&!AvatarPath.IsEmpty()&&SelfBody.AvatarPath!=AvatarPath)RequestAvatar(SelfBody,AvatarPath);
         Status(TEXT("joined ")+WorldName+TEXT(" as ")+AssignedIdentity);
-        bool Recording=false;if(J->TryGetBoolField(TEXT("recording"),Recording)&&Recording)Status(TEXT("joined; server is recording movement and chat"));
+        bool Recording=false;if(J->TryGetBoolField(TEXT("recording"),Recording)&&Recording)Narrate(TEXT("⏺ this performance is being recorded (movement + chat, for the archive)"));
+        if(Sim&&Epoch)(*Epoch)->TryGetStringField(TEXT("sim"),SimId);
+        ReceiveSnapshotExtras(J,Now);
     }
     else if(Type==TEXT("render-scene")&&bJoined)ReceiveDynamicScene(J);
     else if(Type==TEXT("lease")&&bJoined)ReceiveLease(J);
     else if(Type==TEXT("snap")&&bJoined)ReceiveCapture(J);
-    else if(Type==TEXT("arrive")&&bJoined)Announce(Eido::String(J,TEXT("id")),Eido::String(J,TEXT("avatar")));
+    else if(Type==TEXT("arrive")&&bJoined)
+    {
+        const FString Id=Eido::String(J,TEXT("id"));
+        if(!Peers.Contains(Id)&&Id!=AssignedIdentity)Narrate(Id.Left(64)+TEXT(" arrived"));
+        Announce(Id,Eido::String(J,TEXT("avatar")));
+    }
     else if(Type==TEXT("avatar-updated")&&bJoined)
     {
         const FString Path=Eido::String(J,TEXT("path"));double Version;
@@ -562,9 +593,14 @@ void AEidoverseBridge::Receive(const FString& Message)
         for(auto& P:Peers)
         {FString Base=P.Value.AvatarPath;int32 Query;if(Base.FindChar('?',Query))Base=Base.Left(Query);if(Base==Path)RequestAvatar(P.Value,Path+FString::Printf(TEXT("?v=%.0f"),Version));}
         {FString Base=SelfBody.AvatarPath;int32 Query;if(Base.FindChar('?',Query))Base=Base.Left(Query);if(Base==Path)RequestAvatar(SelfBody,Path+FString::Printf(TEXT("?v=%.0f"),Version));}
+        Narrate(FString::Printf(TEXT("avatar “%s” updated (v%.0f)"),*Eido::String(J,TEXT("name")).Left(64),Version));
     }
     else if(Type==TEXT("leave"))
-    {const FString Id=Eido::String(J,TEXT("id"));if(auto* P=Peers.Find(Id))if(P->Actor.IsValid())P->Actor->Destroy();Peers.Remove(Id);RemoteCount=Peers.Num();}
+    {
+        const FString Id=Eido::String(J,TEXT("id"));
+        if(bJoined&&Peers.Contains(Id))Narrate(Id.Left(64)+TEXT(" left"));
+        if(auto* P=Peers.Find(Id))if(P->Actor.IsValid())P->Actor->Destroy();Peers.Remove(Id);RemoteCount=Peers.Num();RemoteMounts.Remove(Id);
+    }
     else if(Type==TEXT("frame")&&bJoined)
     {
         double T;if(!J->TryGetNumberField(TEXT("t"),T)||!FMath::IsFinite(T)||T<=LastFrameTime)return;LastFrameTime=T;
@@ -577,36 +613,55 @@ void AEidoverseBridge::Receive(const FString& Message)
         double Seq;if(!(*Entry)->TryGetNumberField(TEXT("seq"),Seq)||Seq<=LastLogSequence)return;LastLogSequence=int64(Seq);
         bSceneDirty=true;
         ReceiveInteraction(*Entry);
+        NarrateLogEntry(*Entry);
         {
             const FString Verb=Eido::String(*Entry,TEXT("verb"));const TSharedPtr<FJsonObject>* SeatArgs=nullptr;
             if((Verb==TEXT("mount")||Verb==TEXT("dismount"))&&(*Entry)->TryGetObjectField(TEXT("args"),SeatArgs))ReceiveSeatLog(Verb,*SeatArgs);
         }
         if(Eido::String(*Entry,TEXT("verb"))!=TEXT("say"))return;
         const TSharedPtr<FJsonObject>* Args=nullptr;if(!(*Entry)->TryGetObjectField(TEXT("args"),Args))return;
-        FString Sender=Eido::String(*Entry,TEXT("actor")),Text=Eido::String(*Args,TEXT("text")).Left(4000);AddChatLine(Sender,Text);NoteSpeaker(Sender,Text);
+        FString Sender=Eido::String(*Entry,TEXT("actor")),Text=Eido::String(*Args,TEXT("text")).Left(4000);FString Utt;double UttN;bool bSpoken=false;(*Args)->TryGetBoolField(TEXT("spoken"),bSpoken);
+        if(bSpoken&&(*Args)->TryGetNumberField(TEXT("utt"),UttN))Utt=FString::Printf(TEXT("%.0f"),UttN);else if(bSpoken)(*Args)->TryGetStringField(TEXT("utt"),Utt);
+        if(RenderedChatSeqs.Contains(int64(Seq)))return;RenderedChatSeqs.Add(int64(Seq));if(OldestChatSeq<0)OldestChatSeq=int64(Seq);
+        AddChatLine(Sender,Text,false,Utt.Left(64),bSpoken);
+        if(!bSpoken)NoteSpeaker(Sender,Text);   // spoken says were performed live by their captions
     }
     else if(Type==TEXT("your-rights")&&bJoined)
-    {const TSharedPtr<FJsonObject>* Rights=nullptr;if(J->TryGetObjectField(TEXT("rights"),Rights))ReadRights(*Rights);}
+    {
+        const TSharedPtr<FJsonObject>* Rights=nullptr;if(!J->TryGetObjectField(TEXT("rights"),Rights))return;
+        const FString Before=WorldRole;const bool bGenBefore=bCanGenerate;ReadRights(*Rights);
+        if((WorldRole!=Before||bCanGenerate!=bGenBefore)&&!bWorldOpen&&WorldRole!=TEXT("owner"))
+            Narrate(FString::Printf(TEXT("this world has an owner — you are a %s%s here"),*WorldRole,bCanGenerate?TEXT(" +gen"):TEXT("")));
+    }
     else if(Type==TEXT("anim")&&bJoined)ReceiveAgentAnimation(J);
+    else if(Type==TEXT("caption")&&bJoined)PerformSpeech(Eido::String(J,TEXT("id")),Eido::String(J,TEXT("text")).Left(500));
     else if(Type==TEXT("inspect")&&bJoined){InspectedId=Eido::String(J,TEXT("id"));InspectReply=J;++InspectSerial;}
     else if(Type==TEXT("typing")&&bJoined)
     {
         // Public composing, or a whisper being composed to us; others' DMs stay private.
         const FString Id=Eido::String(J,TEXT("id")),To=Eido::String(J,TEXT("to"));
         if(Id.IsEmpty()||Id==AssignedIdentity||(!To.IsEmpty()&&To!=AssignedIdentity))return;
-        if(HUD)HUD->NoteTyping(Id);
-        if(auto* Peer=Peers.Find(Id))if(auto* Plate=Peer->Plate.Get())if(auto* W=Cast<UEidoverseNameplate>(Plate->GetUserWidgetObject()))W->ShowTyping(4);
+        // state: ear | think | tool | mic glyphs (agents, live voices); none = composing dots.
+        const FString State=Eido::String(J,TEXT("state"));
+        if(HUD&&State.IsEmpty())HUD->NoteTyping(Id);
+        if(auto* Peer=Peers.Find(Id))if(auto* Plate=Peer->Plate.Get())if(auto* W=Cast<UEidoverseNameplate>(Plate->GetUserWidgetObject()))W->ShowTypingState(State);
     }
     else if(Type==TEXT("whisper")&&bJoined)
-    {FString Sender=Eido::String(J,TEXT("from")),Text=Eido::String(J,TEXT("text")).Left(4000);AddChatLine(Sender,Text,true);}
-    else if(Type==TEXT("error"))Status(TEXT("server refused a request; check permissions/credentials")); // no credential-bearing payload logs
+    {
+        // The server echoes my own whispers (echo:true) so every tab of mine sees them.
+        const FString From=Eido::String(J,TEXT("from")).Left(64),To=Eido::String(J,TEXT("to")).Left(64),Text=Eido::String(J,TEXT("text")).Left(4000);
+        bool bEcho=false;J->TryGetBoolField(TEXT("echo"),bEcho);
+        if(bEcho)AddChatLine(TEXT("to ")+To,Text,true);
+        else{LastWhisperFrom=From;AddChatLine(From,Text,true);if(HUD)HUD->Toast(From+TEXT(" whispered you"));}
+    }
+    else ReceiveProtocol(Type,J,Now);
 }
 void AEidoverseBridge::SendPose()
 {
     auto* Pawn=UGameplayStatics::GetPlayerPawn(this,0);if(!Pawn)return;
     const bool Sub=Pawn->ActorHasTag(TEXT("OceanSubmarine"));
     const bool Land=Pawn->IsA<AEidoverseExplorer>();
-    const FVector P=ToWirePosition(Pawn->GetActorLocation()-OriginCentimeters-(Land?FVector(0,0,88):FVector::ZeroVector));
+    const FVector P=ToWirePosition(Pawn->GetActorLocation()-OriginCentimeters-(Land?FVector(0,0,88):Sub?FVector::ZeroVector:FVector(0,0,85)));
     const FQuat Q=ToWireRotation(Pawn->GetActorQuat().GetNormalized());
     const FVector F=ToWirePosition(Pawn->GetActorForwardVector());
     const FVector BodyV=Cast<AEidoverseExplorer>(Pawn)?Cast<AEidoverseExplorer>(Pawn)->BodyVelocity:Pawn->GetVelocity();
@@ -643,6 +698,12 @@ void AEidoverseBridge::SendPose()
     Loc->SetStringField(TEXT("mode"),Mode);Loc->SetStringField(TEXT("body"),bSwimmer?TEXT("diver"):Land?TEXT("avatar"):Sub?TEXT("submarine"):TEXT("diver"));
     Loc->SetStringField(TEXT("medium"),(Mode==TEXT("walk")||Mode==TEXT("climb"))?TEXT("air"):TEXT("water"));Data->SetObjectField(TEXT("locomotion"),Loc);
     if(LocalReach)Data->SetObjectField(TEXT("reach"),LocalReach);
+    // The rest of the public body (net.js sendPose): presence, wings, held pose.
+    Data->SetStringField(TEXT("presence"),CurrentPresence());
+    Data->SetBoolField(TEXT("wingsFolded"),bWingsFolded);
+    if(Speed>=.05){bBodyMovedThisSession=true;if(SelfHeldPose)SetSelfHeldPose(nullptr,false);}   // walking away ends a held pose
+    if(SelfHeldPose)Data->SetObjectField(TEXT("pose"),SelfHeldPose);
+    else if(bSendHeldNull){Data->SetField(TEXT("pose"),MakeShared<FJsonValueNull>());bSendHeldNull=false;}
     if(!PendingEmote.IsEmpty()){Data->SetStringField(TEXT("emote"),PendingEmote);PendingEmote.Empty();}
     J->SetStringField(TEXT("type"),TEXT("pose"));J->SetObjectField(TEXT("pose"),Data);Send(J);++SentPoseCount;
 }
@@ -709,7 +770,10 @@ void AEidoverseBridge::Tick(float DeltaSeconds)
     if(ChatPanel&&!HUD)if(auto* PC=UGameplayStatics::GetPlayerController(this,0))
         if(PC->WasInputKeyJustPressed(EKeys::Enter))OpenChat(); // F2 is Unreal's Unlit debug binding.
     if(bWanted&&!bJoined&&RetryAt==0&&Now-OpenedAt>15){Lost(1006);}
-    if(bWanted&&RetryAt>0&&Now>=RetryAt){Connect();return;}
+    if(bWanted&&RetryAt>0&&Now>=RetryAt){bRetrying=true;Connect();bRetrying=false;return;}
+    // world-reset: reload after the 1.8 s the web gives people to read the notice.
+    if(ResetReconnectAt>0&&Now>=ResetReconnectAt){ResetReconnectAt=0;Connect();return;}
+    if(FSlateApplication::IsInitialized())LastLocalInputAt=FMath::Max(LastLocalInputAt,FSlateApplication::Get().GetLastUserInteractionTime());
     if(bJoined&&!bSpectator&&Now-LastSend>=1./15){LastSend=Now;SendPose();}
     if(bJoined)
     {
