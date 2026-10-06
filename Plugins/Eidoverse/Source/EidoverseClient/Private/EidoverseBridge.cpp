@@ -252,6 +252,7 @@ void AEidoverseBridge::ReadRights(const TSharedPtr<FJsonObject>& Rights)
     if(!Rights)return;
     Rights->TryGetStringField(TEXT("role"),WorldRole);
     Rights->TryGetBoolField(TEXT("open"),bWorldOpen);
+    {bool bFly=false;RightsFly.Reset();if(Rights->TryGetBoolField(TEXT("fly"),bFly))RightsFly=bFly;}
     bCanGenerate=true;Rights->TryGetBoolField(TEXT("gen"),bCanGenerate);
 }
 bool AEidoverseBridge::SendVerb(const FString& Verb,const TSharedRef<FJsonObject>& Args)
@@ -490,7 +491,9 @@ void AEidoverseBridge::TickSelfBody(double Time)
     const bool bSwimming=Explorer->LocomotionMode!=TEXT("walk");
     const float Ground=FVector(Velocity.X,Velocity.Y,0).Size();
     TickLocomotion(Explorer,FMath::Min(float(FApp::GetDeltaTime()),.1f));
-    if(LocoMode.IsEmpty())TickSeating(Explorer,FPlatformTime::Seconds());
+    TickBodyPhysics(Explorer,FMath::Min(float(FApp::GetDeltaTime()),.1f));
+    const bool bFlying=IsFlying();
+    if(LocoMode.IsEmpty()&&!bDowned&&!bFlying)TickSeating(Explorer,FPlatformTime::Seconds());
     M->SetHeadPitch(SelfHeadPitch());
     // G folds the wings (controller.js toggleFold): needs wing chains to start; releasing always works.
     if(Explorer->bFoldPressed)
@@ -503,7 +506,7 @@ void AEidoverseBridge::TickSelfBody(double Time)
             if(HUD)HUD->Hint(bWingsFolded?TEXT("wings folded \u2014 the vigil posture costs the sky (G to unfold)"):M->CanFoldWings()?TEXT("wings open"):TEXT("folded-wing posture released \u2014 this body has no wings"),3);
         }
     }
-    M->SetWings(bWingsFolded,0);
+    M->SetWings(bWingsFolded,FlightEffort());
     SelfClipSlot=!LocoClip.IsEmpty()?LocoClip:Explorer->bMantling?TEXT("climb"):!SeatClip.IsEmpty()?SeatClip:EidoClipRules::SelectLocomotion(Explorer->bJumped,Explorer->AirborneSeconds,Explorer->bWantMove,Ground,Explorer->Posture);
     // Walking off a ledge eases into the fall over 0.5 s; a deliberate jump snaps in 0.1 s.
     bSelfJumpEase=SelfClipSlot==TEXT("jump")&&!Explorer->bJumped;

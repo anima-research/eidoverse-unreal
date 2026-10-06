@@ -220,6 +220,11 @@ public:
     bool HasWings() const { return !Wings.IsEmpty(); }
     // Remote VR bodies (xrbody.js applyRemoteXR): head relative to the facing frame (glTF
     // quaternion), finger curls [lIndex,lGrip,rIndex,rGrip]; hands are solved by the bridge.
+    // The normalized rotations this frame (after layers), for going limp from where you are.
+    TMap<FName,FQuat> LastNormalized;
+    // Neutral-rest world positions of the humanoid bones in wire metres (avatar.restBonePositions).
+    bool RestWorldWire(TMap<FName,FVector>& Out,const FVector& OriginCm) const;
+    TArray<FString> BoneNames() const;
     void SetXR(bool bOn, const FQuat& HeadRel, const FVector4f& Curls) { bXR=bOn; XRHead=HeadRel; XRCurls=Curls; }
     // Per-frame interpolated pose (normalized rotations), applied immediately.
     void SetHeldPoseDirect(const TMap<FName,FQuat>& Pose);

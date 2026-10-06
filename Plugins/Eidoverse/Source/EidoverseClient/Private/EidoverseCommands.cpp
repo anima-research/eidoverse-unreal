@@ -51,6 +51,7 @@ namespace
             {TEXT("presence"), {TEXT("away"), TEXT("busy"), TEXT("back")}, TEXT("/presence present|away|busy — how you show in People"), true, false},
             {TEXT("clear"), {}, TEXT("clear your chat log"), true, false},
             {TEXT("help"), {}, TEXT("open the help sheet"), true, false},
+            {TEXT("flight"), {}, TEXT("why flight is (or is not) doing that \u2014 rig, capability, phase"), true, false},
             {TEXT("use"), {TEXT("pull"), TEXT("ring"), TEXT("open")}, TEXT("/use <thing> [action]"), false, true},
             {TEXT("mount"), {TEXT("attach")}, TEXT("/mount <thing> <onto> [slot]"), false, false},
             {TEXT("dismount"), {TEXT("detach")}, TEXT("/dismount <thing>"), false, false},
@@ -137,6 +138,7 @@ bool AEidoverseBridge::HandleInteractionCommand(const FString& Text)
     }
     else if (Name == TEXT("clear")) { ChatHistory.Reset(); if (HUD) HUD->ClearChat(); }
     else if (Name == TEXT("help")) { if (HUD) HUD->ToggleHelp(); }
+    else if (Name == TEXT("flight")) { TArray<FString> Lines; FlightDiagnostic().ParseIntoArrayLines(Lines); for (const FString& L : Lines) Narrate(L); }
     else if (Name == TEXT("panels"))
     {
         const float V = Args.Num() ? FCString::Atof(*Args[0]) : -1;

@@ -10,6 +10,7 @@ class UTextRenderComponent;
 class UStaticMeshComponent;
 class UEidoverseAvatarAsset;
 class UEidoverseAvatarMesh;
+namespace EidoRagdoll { class FRagdoll; }
 class SEidoversePanel;
 class SWidget;
 class IHttpRequest;
@@ -250,6 +251,21 @@ public:
     UFUNCTION(BlueprintPure, Category="Eidoverse") FString GetLocoMode() const { return LocoMode; }
     void TickLocomotion(class AEidoverseExplorer* Explorer,float Dt);
     bool ReceiveHelmLease(const FString& Op,const FString& Id,const TSharedPtr<FJsonObject>& J);
+    // ---- my body's physics (EidoverseBodyPhysics.cpp): ragdoll (R, shoves, blasts), flight (F) ----
+    TSharedPtr<EidoRagdoll::FRagdoll> Rag;
+    bool bDowned=false;                     // limp, settled or tumbling, until getting up
+    TMap<FName,FQuat> DownedPose;
+    FVector DownedRootWire=FVector::ZeroVector;
+    TOptional<bool> RightsFly;
+    TSharedPtr<struct FEidoFlightRuntime> FlightRt;
+    UFUNCTION(BlueprintCallable, Category="Eidoverse") void GoLimp();
+    void GoLimpWith(const FVector& LeanWire,const FString& By);
+    UFUNCTION(BlueprintCallable, Category="Eidoverse") void GetUp();
+    UFUNCTION(BlueprintCallable, Category="Eidoverse") bool HandleFlyKey();
+    UFUNCTION(BlueprintPure, Category="Eidoverse") bool IsFlying() const;
+    float FlightEffort() const;
+    FString FlightDiagnostic();
+    void TickBodyPhysics(class AEidoverseExplorer* Explorer,float Dt);
     void EndHelm(bool bRelease);
     double LastReachTick=0;
     const FEidoversePeer& GetSelfBody() const { return SelfBody; }

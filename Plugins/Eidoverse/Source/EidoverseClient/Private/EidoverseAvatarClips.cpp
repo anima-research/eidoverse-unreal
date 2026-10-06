@@ -156,6 +156,7 @@ bool UEidoverseAvatarMesh::AnimateClips(double Time)
     // 2. Layers on top (head pitch, held pose, agent animations, eyes), still normalized.
     FVector HipsOffsetModel = FVector::ZeroVector;
     ApplyNormalizedLayers(Normalized, HipsOffsetModel, Dt, Time);
+    LastNormalized = Normalized;
     // 3. Normalized -> raw: raw = P^-1 * q * P * rest.
     for (const auto& Pair : HumanBoneIndex)
     {

@@ -143,6 +143,7 @@ void AEidoverseBridge::TickInteractions(float Dt,double Now)
     // Editing keys win while something is selected in build mode (web build.js priority).
     if(HUD&&HUD->IsFrameOpen(TEXT("build"))&&(!HUD->GetSelectedEntity().IsEmpty()||HUD->HasGhost()))return;
     if(PC->WasInputKeyJustPressed(EKeys::E)&&HandleUseKey())return;
+    if(PC->WasInputKeyJustPressed(EKeys::F)&&HandleFlyKey())return;   // F flies where flight is granted, else punts
     if(PC->WasInputKeyJustPressed(EKeys::E)||PC->WasInputKeyJustPressed(EKeys::F))
     {
         FVector Eye;FRotator R;PC->GetPlayerViewPoint(Eye,R);FHitResult Hit;FCollisionQueryParams Q;Q.bTraceComplex=true;if(PC->GetPawn())Q.AddIgnoredActor(PC->GetPawn());

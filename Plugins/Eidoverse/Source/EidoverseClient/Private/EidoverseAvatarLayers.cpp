@@ -334,3 +334,21 @@ void UEidoverseAvatarMesh::ApplyRawLayers(float Dt, double Time)
     const float T = float(FMath::Fmod(Time, 1000.0));
     SetExpression(TEXT("aa"), Time < SpeakingUntil ? FMath::Max(0.f, .5f + .5f * FMath::Sin(17 * T) * FMath::Sin(7.3f * T)) * .65f : 0.f);
 }
+
+bool UEidoverseAvatarMesh::RestWorldWire(TMap<FName, FVector>& Out, const FVector& OriginCm) const
+{
+    Out.Reset();
+    if (ReferenceComponent.IsEmpty()) return false;
+    for (const auto& Pair : HumanBoneIndex)
+        if (ReferenceComponent.IsValidIndex(Pair.Value))
+            Out.Add(Pair.Key, AEidoverseBridge::ToWirePosition(GetComponentTransform().TransformPosition(ReferenceComponent[Pair.Value].GetLocation()) - OriginCm));
+    return Out.Contains(LayerHips);
+}
+
+TArray<FString> UEidoverseAvatarMesh::BoneNames() const
+{
+    TArray<FString> Names;
+    if (Avatar && Avatar->Mesh) for (const FMeshBoneInfo& B : Avatar->Mesh->GetRefSkeleton().GetRefBoneInfo()) Names.Add(B.Name.ToString());
+    for (const auto& Pair : HumanBoneIndex) Names.AddUnique(Pair.Key.ToString());
+    return Names;
+}

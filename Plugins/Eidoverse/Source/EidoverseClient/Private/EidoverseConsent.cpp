@@ -36,6 +36,8 @@ void AEidoverseBridge::SetSelfHeldPose(const TSharedPtr<FJsonObject>& Pose, bool
 
 void AEidoverseBridge::KnockDown(const FVector& LeanWire, const FString& By)
 {
+    // The real thing: a Verlet tumble along the lean (or a fresh impulse mid-tumble).
+    if (SelfBody.AvatarMesh.IsValid()) { GoLimpWith(LeanWire, By); return; }
     auto* Explorer = Cast<AEidoverseExplorer>(UGameplayStatics::GetPlayerPawn(this, 0));
     if (!Explorer || Explorer->bSeated) return;
     // Topple along the lean: face away from it and lie down (move to get up).
