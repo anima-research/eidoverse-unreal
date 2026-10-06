@@ -41,4 +41,9 @@ namespace EidoMotion
     FResult EvalWholeMotion(const FBase& Base, const TSharedPtr<FJsonObject>& Motion, double NowMs);
 
     bool ReadBase(const TSharedPtr<FJsonObject>& Json, FBase& Out);
+
+    // client/lib/motion.js evalPart: one motion on a named node, in the node's parent
+    // frame, from its rest (mbase) pose. Part defaults: pivot [0,0,0], orbit radius 1.
+    struct FPartPose { FVec3 Pos; FQuat4 Quat; };
+    bool EvalPartMotion(const FPartPose& Rest, const TSharedPtr<FJsonObject>& Motion, double NowMs, FPartPose& Out);
 }

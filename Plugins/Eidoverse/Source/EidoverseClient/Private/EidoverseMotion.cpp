@@ -250,4 +250,56 @@ FResult EvalWholeMotion(const FBase& Base, const TSharedPtr<FJsonObject>& M, dou
     }
     return R;
 }
+
+bool EvalPartMotion(const FPartPose& Rest, const TSharedPtr<FJsonObject>& M, double NowMs, FPartPose& Out)
+{
+    FString Type;
+    if (!M || !M->TryGetStringField(TEXT("type"), Type)) return false;
+    const double T = FMath::Max(0.0, (NowMs - NumberOr(M, TEXT("t0"), NowMs)) / 1000);
+    auto Hinge = [&](const FVec3& AxisRaw, double Theta)
+    {
+        double N = FMath::Sqrt(AxisRaw.X * AxisRaw.X + AxisRaw.Y * AxisRaw.Y + AxisRaw.Z * AxisRaw.Z); if (N == 0) N = 1;
+        const FQuat4 Q = AxisAngle({AxisRaw.X / N, AxisRaw.Y / N, AxisRaw.Z / N}, Theta);
+        const FVec3 Pivot = VecOr(M, TEXT("pivot"), {0, 0, 0});
+        const FVec3 Rp = Apply(Q, Pivot);
+        const FVec3 Shift = Apply(Rest.Quat, {Pivot.X - Rp.X, Pivot.Y - Rp.Y, Pivot.Z - Rp.Z});
+        Out.Quat = Mul(Rest.Quat, Q);
+        Out.Pos = {Rest.Pos.X + Shift.X, Rest.Pos.Y + Shift.Y, Rest.Pos.Z + Shift.Z};
+    };
+    Out = Rest;
+    if (Type == TEXT("pendulum"))
+    {
+        const double W0 = 2 * Pi / NumberOr(M, TEXT("period"), 3.5);
+        Hinge(AxisOf(M, {1, 0, 0}), AmpOf(M, 0) * FMath::Exp(-NumberOr(M, TEXT("damp"), 0) * T) * FMath::Cos(W0 * T + NumberOr(M, TEXT("phase"), 0)));
+    }
+    else if (Type == TEXT("spin"))
+    {
+        double Rate; if (!Number(M, TEXT("degPerSec"), Rate)) Rate = NumberOr(M, TEXT("rpm"), 6) * 6;
+        Hinge(AxisOf(M, {0, 1, 0}), NumberOr(M, TEXT("phase"), 0) + Rate * Pi / 180 * T);
+    }
+    else if (Type == TEXT("bob"))
+    {
+        const double Off = FMath::Sin(2 * Pi / NumberOr(M, TEXT("period"), 4) * T + NumberOr(M, TEXT("phase"), 0)) * AmpOf(M, 0.3);
+        const FVec3 Ax = AxisOf(M, {0, 1, 0}); double N = FMath::Sqrt(Ax.X * Ax.X + Ax.Y * Ax.Y + Ax.Z * Ax.Z); if (N == 0) N = 1;
+        Out.Pos = {Rest.Pos.X + Ax.X / N * Off, Rest.Pos.Y + Ax.Y / N * Off, Rest.Pos.Z + Ax.Z / N * Off};
+    }
+    else if (Type == TEXT("orbit"))
+    {
+        const FVec3 C = VecOr(M, TEXT("center"), Rest.Pos);
+        const double Rad = NumberOr(M, TEXT("radius"), 1);
+        const double A = NumberOr(M, TEXT("phase"), 0) + NumberOr(M, TEXT("degPerSec"), 12) * Pi / 180 * T;
+        Out.Pos = {C.X + Rad * FMath::Sin(A), C.Y, C.Z + Rad * FMath::Cos(A)};
+        bool bFace = true; M->TryGetBoolField(TEXT("face"), bFace);
+        if (bFace) Out.Quat = YawQuat(A + Pi / 2);
+    }
+    else if (Type == TEXT("path"))
+    {
+        const FResult R = EvalPath(M, T, {Rest.Pos, 0});
+        if (!R.bOk) return false;
+        Out.Pos = R.Pos;
+        if (R.bRot) Out.Quat = YawQuat(R.Yaw);
+    }
+    else return false;
+    return Finite(Out.Pos) && Finite(Out.Quat);
+}
 }

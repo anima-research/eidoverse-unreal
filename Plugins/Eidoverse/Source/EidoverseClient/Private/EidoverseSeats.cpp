@@ -28,12 +28,16 @@ namespace SeatWire
     TSharedPtr<FJsonObject> SeatObj(const TSharedPtr<FJsonObject>& O, const TCHAR* K) { const TSharedPtr<FJsonObject>* V = nullptr; return O && O->TryGetObjectField(K, V) ? *V : nullptr; }
     // A socket's world transform: model-local pos through the parent's transform
     // (scale included), yaw = parent yaw + socket yaw (world.js mountTransform).
-    bool SocketWorld(const AActor* Parent, const TSharedPtr<FJsonObject>& Sock, const FVector* OffsetWire, FTransform& Out, const double* YawOverride = nullptr)
+    bool SocketWorld(const AActor* Parent, const TSharedPtr<FJsonObject>& Sock, const FVector* OffsetWire, FTransform& Out, const double* YawOverride = nullptr, const AEidoverseScene* Scene = nullptr, const FString& ParentId = FString())
     {
         if (!Parent) return false;
         FVector Pos(0, .5, 0);
         if (OffsetWire) Pos = *OffsetWire; else SeatVec(Sock, TEXT("pos"), Pos);
-        const FVector World = Parent->GetActorTransform().TransformPosition(AEidoverseBridge::FromWirePosition(Pos));
+        // A socket on a named part rides the part's live transform (world.js mountTransform).
+        FTransform Model = Parent->GetActorTransform();
+        const FString Part = SeatStr(Sock, TEXT("part"));
+        if (Scene && !Part.IsEmpty()) Scene->ModelWorldTransform(ParentId, Part, Model);
+        const FVector World = Model.TransformPosition(AEidoverseBridge::FromWirePosition(Pos));
         const FQuat Yaw = FRotator(0, Parent->GetActorRotation().Yaw, 0).Quaternion()
             * AEidoverseBridge::FromWireRotation(FQuat(FVector::YAxisVector, YawOverride ? *YawOverride : SeatNum(Sock, TEXT("yaw"), 0)));
         Out = FTransform(Yaw, World);
@@ -65,7 +69,7 @@ bool AEidoverseBridge::MountWorldTransform(const TSharedPtr<FJsonObject>& Mount,
     Pose = SeatStr(Sock, TEXT("pose")); if (Pose.IsEmpty()) Pose = TEXT("sitchair");
     FVector Offset; const bool bOffset = SeatVec(Mount, TEXT("offset"), Offset);
     double Yaw = 0; const bool bYaw = Mount->TryGetNumberField(TEXT("yaw"), Yaw) && FMath::IsFinite(Yaw);
-    return SocketWorld(Parent, Sock, bOffset ? &Offset : nullptr, Out, bYaw ? &Yaw : nullptr);
+    return SocketWorld(Parent, Sock, bOffset ? &Offset : nullptr, Out, bYaw ? &Yaw : nullptr, DynamicScene, To);
 }
 
 bool AEidoverseBridge::MountedSeatTransform(FTransform& Out, FString& Pose) const
@@ -77,7 +81,7 @@ bool AEidoverseBridge::MountedSeatTransform(FTransform& Out, FString& Pose) cons
     const TSharedPtr<FJsonObject> Sock = SeatObj(SeatObj(DynamicScene->Interaction(SeatTo), TEXT("sockets")), *SeatSlot);
     Pose = SeatStr(Sock, TEXT("pose"));
     if (Pose.IsEmpty()) Pose = TEXT("sitchair");
-    return SocketWorld(Parent, Sock, bSeatOffset ? &SeatOffsetWire : nullptr, Out);
+    return SocketWorld(Parent, Sock, bSeatOffset ? &SeatOffsetWire : nullptr, Out, nullptr, DynamicScene, SeatTo);
 }
 
 bool AEidoverseBridge::TryMountNearest(AEidoverseExplorer* Explorer)

@@ -51,6 +51,15 @@ struct FEidoverseSceneItem
     TArray<TWeakObjectPtr<class UPointLightComponent>> ModelLamps;
     TArray<float> ModelLampIntensity;
     TArray<bool> ModelLampSlotted;
+    // Named parts (motion.js): one component per part, animated by its own motion.
+    TMap<FString,TWeakObjectPtr<UStaticMeshComponent>> PartComps;
+    TSharedPtr<FJsonObject> PartMotions;      // transforms[].parts: {part: motion with t0}
+    FString MountPart;                        // mounted on a socket that rides a part
+    // picture (pictures.js): an image hung on a named part's material.
+    TSharedPtr<FJsonObject> Picture;
+    FString PictureApplied;                   // src|lit|flip last applied
+    // Presentation data kept for sounds and particles (render-scene entity.data).
+    TSharedPtr<FJsonObject> Sound, Particles;
 };
 
 // Disposable scene projection, never a second persistent fold.
@@ -144,6 +153,11 @@ public:
     // geom side-channel ({lib:{bbox:{center,size}}}): placeholders take the model's size.
     void SetGeom(const TSharedPtr<FJsonObject>& Geom);
     UFUNCTION(BlueprintCallable,Category="Eidoverse") FString DescribeLighting() const;
+    // The model-space delta a named part has moved this frame (identity at rest).
+    bool PartDelta(const FString& Id,const FString& Part,FTransform& OutDelta) const;
+    // World transform of an entity's model space, carried by a part when named.
+    bool ModelWorldTransform(const FString& Id,const FString& Part,FTransform& Out) const;
+    UFUNCTION(BlueprintCallable,Category="Eidoverse") FString DescribePart(const FString& Id,const FString& Part) const;
     TMap<FString,TPair<FVector,FVector>> GeomByLib;   // wire centre, size
     void SetSkyArgs(const TSharedPtr<FJsonObject>& Sky) { SkyArgs=Sky; if(LastAtmosphere) ApplyWeather(LastAtmosphere); }
     TWeakObjectPtr<APostProcessVolume> ScenePost;
@@ -158,6 +172,11 @@ private:
     double NextLightRank=0;
     FVector LastLightRankEye=FVector::ZeroVector;
     void TickPlacedLights(double Now);
+    void TickParts();
+    void TickPictures();
+    struct FPictureLoad { bool bDone=false; TWeakObjectPtr<UTexture2D> Texture; };
+    TMap<FString,FPictureLoad> PictureLoads;      // url+flip -> texture
+    UPROPERTY() TArray<TObjectPtr<UTexture2D>> PictureTextures;
     double LastRainUpdate=0;
     TSharedPtr<FJsonObject> FloraData;
     TSharedPtr<FJsonObject> LastAtmosphere;

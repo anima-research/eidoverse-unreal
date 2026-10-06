@@ -365,14 +365,46 @@ void UEidoverseAvatarAsset::FinishDecode(const TSharedPtr<FJsonObject>& J,TShare
     if(!PrepareLitMaterials(J)){Fail(TEXT("lit avatar material templates missing; cook /Game/Underwater/Avatars"));return;}
     if(bStaticModel)
     {
-        auto MeshConfig=StaticGeometryConfig();MeshConfig.MaterialsConfig=MaterialConfig();
-        // Workers must not touch a mesh owned by a world being torn down.
-        // Adopt completed meshes and cook collision on the game thread below.
-        MeshConfig.bAllowCPUAccess=true;
-        MeshConfig.bBuildComplexCollision=false;MeshConfig.CollisionComplexity=CTF_UseDefault;
-        FglTFRuntimeStaticMeshAsync Done;Done.BindDynamic(this,&UEidoverseAvatarAsset::StaticMeshReady);
+        // Named parts: their subtrees load as their own meshes, then the base without them.
+        PartMeshes.Reset();PartMeshObjects.Reset();BaseExclude.Reset();NextPart=0;
+        if(!SplitParts.IsEmpty())
+        {
+            const auto& Nodes=Array(J,TEXT("nodes"));
+            TMap<int32,int32> Parent;TMap<FString,int32> ByName;
+            for(int32 I=0;I<Nodes.Num();++I)
+            {
+                const auto O=Nodes[I]->AsObject();if(!O)continue;
+                FString Name;if(O->TryGetStringField(TEXT("name"),Name)&&!ByName.Contains(Name))ByName.Add(Name,I);
+                for(const auto& C:Array(O,TEXT("children"))){double CI;if(C->TryGetNumber(CI)&&CI>=0&&CI<Nodes.Num())Parent.Add(int32(CI),I);}
+            }
+            auto Local=[&Nodes](int32 I)
+            {
+                const auto O=Nodes[I]->AsObject();FTransform T=FTransform::Identity;
+                const auto& M=Array(O,TEXT("matrix"));
+                if(M.Num()==16)
+                {
+                    FMatrix X;for(int32 R=0;R<4;++R)for(int32 C=0;C<4;++C)X.M[R][C]=M[R*4+C]->AsNumber();   // glTF column-major = UE row-vector rows
+                    return FTransform(X);
+                }
+                const auto& Tr=Array(O,TEXT("translation"));const auto& Ro=Array(O,TEXT("rotation"));const auto& Sc=Array(O,TEXT("scale"));
+                if(Tr.Num()==3)T.SetTranslation(FVector(Tr[0]->AsNumber(),Tr[1]->AsNumber(),Tr[2]->AsNumber()));
+                if(Ro.Num()==4)T.SetRotation(FQuat(Ro[0]->AsNumber(),Ro[1]->AsNumber(),Ro[2]->AsNumber(),Ro[3]->AsNumber()).GetNormalized());
+                if(Sc.Num()==3)T.SetScale3D(FVector(Sc[0]->AsNumber(),Sc[1]->AsNumber(),Sc[2]->AsNumber()));
+                return T;
+            };
+            for(const FString& Part:SplitParts)
+            {
+                const int32* Idx=ByName.Find(Part);if(!Idx)continue;
+                FPartMesh PM;PM.Name=Part;PM.RestLocal=Local(*Idx);
+                for(const int32* P=Parent.Find(*Idx);P;P=Parent.Find(*P))PM.ParentWorld=PM.ParentWorld*Local(*P).ToMatrixWithScale();
+                // Exclude the whole subtree from the base mesh.
+                TArray<int32> Stack={*Idx};
+                while(Stack.Num()){const int32 N=Stack.Pop();FString NN;if(const auto O=Nodes[N]->AsObject())O->TryGetStringField(TEXT("name"),NN);if(!NN.IsEmpty())BaseExclude.AddUnique(NN);for(const auto& C:Array(Nodes[N]->AsObject(),TEXT("children"))){double CI;if(C->TryGetNumber(CI)&&CI>=0&&CI<Nodes.Num())Stack.Add(int32(CI));}}
+                PartMeshes.Add(PM);
+            }
+        }
         AddToRoot();bRootedForBuild=true;
-        Loader->LoadStaticMeshRecursiveAsync(TEXT(""),{},Done,MeshConfig);return;
+        LoadNextPart();return;
     }
     auto Extensions=Object(J,TEXT("extensions"));auto VRM1=Object(Extensions,TEXT("VRMC_vrm"));auto VRM0=Object(Extensions,TEXT("VRM"));bVRM0=!VRM1&&VRM0.IsValid();
     auto AddBone=[this](const FString& Human,int32 Index){FglTFRuntimeNode N;if(Loader->GetNode(Index,N))Humanoid.Add(FName(Human),FName(N.Name));};
@@ -396,6 +428,35 @@ void UEidoverseAvatarAsset::FinishDecode(const TSharedPtr<FJsonObject>& J,TShare
     // Keep the loader and callback alive even if a peer leaves during worker decoding.
     AddToRoot();bRootedForBuild=true;
     Loader->LoadSkeletalMeshRecursiveAsync(TEXT(""),Exclude,Done,MeshConfig);
+}
+void UEidoverseAvatarAsset::LoadNextPart()
+{
+    if(bCancelled||!Loader){if(bRootedForBuild){RemoveFromRoot();bRootedForBuild=false;}return;}
+    if(NextPart>=PartMeshes.Num()){LoadBaseStatic();return;}
+    auto MeshConfig=StaticGeometryConfig();MeshConfig.MaterialsConfig=MaterialConfig();MeshConfig.bAllowCPUAccess=true;
+    MeshConfig.bBuildComplexCollision=false;MeshConfig.CollisionComplexity=CTF_UseDefault;
+    FglTFRuntimeStaticMeshAsync Done;Done.BindDynamic(this,&UEidoverseAvatarAsset::PartMeshReady);
+    Loader->LoadStaticMeshRecursiveAsync(PartMeshes[NextPart].Name,{},Done,MeshConfig);
+}
+void UEidoverseAvatarAsset::PartMeshReady(UStaticMesh* Result)
+{
+    if(bCancelled){if(bRootedForBuild){RemoveFromRoot();bRootedForBuild=false;}Loader=nullptr;return;}
+    if(Result&&PartMeshes.IsValidIndex(NextPart))
+    {
+        if(UObject* Owner=StaticMeshOuter.Get())Result->Rename(nullptr,Owner,REN_DontCreateRedirectors|REN_DoNotDirty|REN_NonTransactional);
+        PartMeshes[NextPart].Mesh=PartMeshObjects.Add(Result);
+    }
+    ++NextPart;LoadNextPart();
+}
+void UEidoverseAvatarAsset::LoadBaseStatic()
+{
+    auto MeshConfig=StaticGeometryConfig();MeshConfig.MaterialsConfig=MaterialConfig();
+    // Workers must not touch a mesh owned by a world being torn down.
+    // Adopt completed meshes and cook collision on the game thread below.
+    MeshConfig.bAllowCPUAccess=true;
+    MeshConfig.bBuildComplexCollision=false;MeshConfig.CollisionComplexity=CTF_UseDefault;
+    FglTFRuntimeStaticMeshAsync Done;Done.BindDynamic(this,&UEidoverseAvatarAsset::StaticMeshReady);
+    Loader->LoadStaticMeshRecursiveAsync(TEXT(""),BaseExclude,Done,MeshConfig);
 }
 void UEidoverseAvatarAsset::StaticMeshReady(UStaticMesh* Result)
 {

@@ -160,8 +160,15 @@ void AEidoverseScene::Apply(const TSharedPtr<FJsonObject>& Message,const FVector
                 // Async jobs can outlive EndPlay. Rooted jobs must not be
                 // children of the PIE world, which forcibly marks its outers
                 // as garbage while worker callbacks are still outstanding.
-                if(!Assets.Contains(URL)&&Assets.Num()<64){auto* Asset=NewObject<UEidoverseAvatarAsset>();Asset->bStaticModel=true;Asset->StaticMeshOuter=this;Asset->Url=URL;Assets.Add(URL,Asset);}
-                if(auto* Asset=Assets.Find(URL))Item.Asset=*Asset;
+                // Named parts (part motions, a picture's part, part sockets) split the model.
+                TArray<FString> PartNames;
+                if(auto Parts=Obj(Obj(E,TEXT("data")),TEXT("parts")))for(const auto& P:Parts->Values)PartNames.AddUnique(FString(P.Key));
+                {const FString Pic=Str(Obj(Obj(E,TEXT("data")),TEXT("picture")),TEXT("part"));if(!Pic.IsEmpty())PartNames.AddUnique(Pic);}
+                if(auto Sockets=Obj(Obj(E,TEXT("interact")),TEXT("sockets")))for(const auto& S:Sockets->Values){const FString SP=Str(S.Value?S.Value->AsObject():nullptr,TEXT("part"));if(!SP.IsEmpty())PartNames.AddUnique(SP);}
+                PartNames.Sort();if(PartNames.Num()>16)PartNames.SetNum(16);
+                const FString Key=PartNames.IsEmpty()?URL:URL+TEXT("#parts=")+FString::Join(PartNames,TEXT(","));
+                if(!Assets.Contains(Key)&&Assets.Num()<64){auto* Asset=NewObject<UEidoverseAvatarAsset>();Asset->bStaticModel=true;Asset->StaticMeshOuter=this;Asset->Url=URL;Asset->SplitParts=PartNames;Assets.Add(Key,Asset);}
+                if(auto* Asset=Assets.Find(Key))Item.Asset=*Asset;
             }
             auto* M=NewObject<UStaticMeshComponent>(A);A->AddInstanceComponent(M);M->SetupAttachment(R);
             M->SetStaticMesh(LoadObject<UStaticMesh>(nullptr,TEXT("/Engine/BasicShapes/Cube.Cube")));M->SetRelativeScale3D(FVector(.25));M->SetMaterial(0,Material(TEXT("trim")));
@@ -181,12 +188,13 @@ void AEidoverseScene::Apply(const TSharedPtr<FJsonObject>& Message,const FVector
         // transform above remains the fallback when evaluation refuses.
         auto Motion=Obj(T,TEXT("motion"));
         E->Motion=Motion?Obj(Motion,TEXT("m")):nullptr;E->MotionBase=Motion?Obj(Motion,TEXT("base")):nullptr;
-        E->MountTo.Empty();
+        E->MountTo.Empty();E->MountPart.Empty();
+        E->PartMotions=Obj(T,TEXT("parts"));
         if(auto Mount=Obj(T,TEXT("mount")))
         {
             FVector Offset;
             if(Vec(Arr(Mount,TEXT("offset")),Offset)&&!Str(Mount,TEXT("to")).IsEmpty())
-            {E->MountTo=Str(Mount,TEXT("to"));E->MountOffsetWire=Offset;E->MountYaw=Num(Mount,TEXT("yaw"));E->OwnScale=FMath::Clamp(Num(Mount,TEXT("scale"),1),.001,1000.);}
+            {E->MountTo=Str(Mount,TEXT("to"));E->MountPart=Str(Mount,TEXT("part"));E->MountOffsetWire=Offset;E->MountYaw=Num(Mount,TEXT("yaw"));E->OwnScale=FMath::Clamp(Num(Mount,TEXT("scale"),1),.001,1000.);}
         }
         if(!E->bPlaced&&E->Actor.IsValid()){E->Actor->SetActorTransform(E->Target);E->bPlaced=true;}
     }
@@ -194,7 +202,7 @@ void AEidoverseScene::Apply(const TSharedPtr<FJsonObject>& Message,const FVector
 }
 void AEidoverseScene::Tick(float Dt)
 {
-    Super::Tick(Dt);TickWeather(Dt);TickPlacedLights(FPlatformTime::Seconds());int Loading=0;for(auto& A:Assets)Loading+=A.Value->State==UEidoverseAvatarAsset::EState::Loading;
+    Super::Tick(Dt);TickWeather(Dt);TickPlacedLights(FPlatformTime::Seconds());TickParts();TickPictures();int Loading=0;for(auto& A:Assets)Loading+=A.Value->State==UEidoverseAvatarAsset::EState::Loading;
     // Stream nearest first: start queued models in order of distance to the viewer.
     if(Loading<4)
     {
@@ -222,6 +230,13 @@ void AEidoverseScene::Tick(float Dt)
         {
             if(A->State==UEidoverseAvatarAsset::EState::Ready&&E.Model.IsValid()){if(E.Model->GetStaticMesh()!=A->StaticMesh&&Appeared++<2){EidoLoadTrace::FScope Apply(TEXT("model-apply"),A->Url);E.Model->SetStaticMesh(A->StaticMesh);E.Model->SetRelativeLocation(FVector::ZeroVector);E.Model->SetRelativeScale3D(A->bMirrored?FVector(1,-1,1):FVector::OneVector);E.Model->EmptyOverrideMaterials();E.Model->SetCollisionProfileName(E.bCollide?TEXT("BlockAll"):TEXT("NoCollision"));bFloraDirty=true;
                 for(auto& L:E.ModelLamps)if(L.IsValid())L->DestroyComponent();E.ModelLamps.Reset();E.ModelLampIntensity.Reset();E.ModelLampSlotted.Reset();
+                for(auto& PC:E.PartComps)if(PC.Value.IsValid())PC.Value->DestroyComponent();E.PartComps.Reset();
+                for(const auto& PM:A->PartMeshes)if(A->PartMeshObjects.IsValidIndex(PM.Mesh))
+                {
+                    auto* C=NewObject<UStaticMeshComponent>(E.Actor.Get());E.Actor->AddInstanceComponent(C);C->SetupAttachment(E.Model.Get());
+                    C->SetStaticMesh(A->PartMeshObjects[PM.Mesh]);C->SetCollisionEnabled(ECollisionEnabled::NoCollision);C->RegisterComponent();
+                    E.PartComps.Add(PM.Name,C);
+                }
                 for(const FEidoverseAvatarLamp& Lamp:A->Lamps)
                 {
                     auto* L=NewObject<UPointLightComponent>(E.Actor.Get());E.Actor->AddInstanceComponent(L);L->SetupAttachment(E.Model.Get());
@@ -259,6 +274,15 @@ bool AEidoverseScene::LocalTransform(const FString& Id,FTransform& Out,int32 Dep
 {
     const auto* E=Items.Find(Id);
     if(!E||Depth<=0||!bServerClockKnown)return false;
+    if(!E->MountTo.IsEmpty()&&!E->MountPart.IsEmpty())
+    {
+        // Cargo on a part socket rides the part's live transform (models.js execMount).
+        FTransform Model;
+        if(!ModelWorldTransform(E->MountTo,E->MountPart,Model))return false;
+        const FQuat Yaw=AEidoverseBridge::FromWireRotation(FQuat(FVector(0,1,0),E->MountYaw));
+        Out=FTransform(Model.GetRotation()*Yaw,Model.TransformPosition(AEidoverseBridge::FromWirePosition(E->MountOffsetWire)),FVector(Model.GetScale3D().X*E->OwnScale));
+        return true;
+    }
     if(!E->MountTo.IsEmpty())
     {
         // world = parent ∘ (offset × parent scale, then yaw about wire Y).
@@ -546,4 +570,65 @@ void AEidoverseScene::SetGeom(const TSharedPtr<FJsonObject>& Geom)
             if(const auto* G=GeomByLib.Find(Pair.Value.Lib))
                 if(M->GetStaticMesh()&&M->GetStaticMesh()->GetPathName().StartsWith(TEXT("/Engine/BasicShapes/Cube")))
                 {M->SetRelativeLocation(AEidoverseBridge::FromWirePosition(G->Key));M->SetRelativeScale3D(AEidoverseBridge::FromWirePosition(G->Value).GetAbs()/100.0);}
+}
+
+namespace
+{
+    // glTF numbers (metres, right-handed, row-vector) -> mesh space (UE cm): v' = (z, -x, y) * 100.
+    const FMatrix& GltfToUE() { static const FMatrix B(FPlane(0,-100,0,0),FPlane(0,0,100,0),FPlane(100,0,0,0),FPlane(0,0,0,1)); return B; }
+}
+
+bool AEidoverseScene::PartDelta(const FString& Id,const FString& Part,FTransform& OutDelta) const
+{
+    OutDelta=FTransform::Identity;
+    const FEidoverseSceneItem* E=Items.Find(Id);if(!E)return false;
+    const UStaticMeshComponent* C=E->PartComps.FindRef(Part).Get();if(!C)return false;
+    OutDelta=C->GetRelativeTransform();
+    return true;
+}
+
+bool AEidoverseScene::ModelWorldTransform(const FString& Id,const FString& Part,FTransform& Out) const
+{
+    const FEidoverseSceneItem* E=Items.Find(Id);
+    if(!E||!E->Actor.IsValid())return false;
+    Out=E->Actor->GetActorTransform();
+    FTransform Delta;
+    if(!Part.IsEmpty()&&PartDelta(Id,Part,Delta))Out=Delta*Out;
+    return true;
+}
+
+void AEidoverseScene::TickParts()
+{
+    if(!bServerClockKnown)return;
+    FVector Eye=SceneOrigin;FRotator View;
+    if(auto* PC=GetWorld()->GetFirstPlayerController())PC->GetPlayerViewPoint(Eye,View);
+    const double Now=ServerNowMs();
+    const FMatrix& B=GltfToUE();const FMatrix BInv=B.Inverse();
+    for(auto& Pair:Items)
+    {
+        FEidoverseSceneItem& E=Pair.Value;
+        if(E.PartComps.IsEmpty()||!E.Actor.IsValid())continue;
+        // Closed-form: a far part skipped now lands at the right phase later (90 m gate).
+        if(FVector::DistSquared(Eye,E.Actor->GetActorLocation())>9000.*9000.)continue;
+        const UEidoverseAvatarAsset* A=E.Asset.Get();if(!A)continue;
+        for(const auto& PM:A->PartMeshes)
+        {
+            UStaticMeshComponent* C=E.PartComps.FindRef(PM.Name).Get();if(!C)continue;
+            const TSharedPtr<FJsonObject> M=Obj(E.PartMotions,*PM.Name);
+            EidoMotion::FPartPose Rest,Live;
+            const FVector RP=PM.RestLocal.GetTranslation();const FQuat RQ=PM.RestLocal.GetRotation();
+            Rest.Pos={RP.X,RP.Y,RP.Z};Rest.Quat={RQ.X,RQ.Y,RQ.Z,RQ.W};
+            if(!M||!EidoMotion::EvalPartMotion(Rest,M,Now,Live)){if(!C->GetRelativeTransform().Equals(FTransform::Identity))C->SetRelativeTransform(FTransform::Identity);continue;}
+            // Model-space delta (row-vector): D = PW^-1 * Lrest^-1 * Llive * PW, then into UE.
+            const FTransform LiveLocal(FQuat(Live.Quat.X,Live.Quat.Y,Live.Quat.Z,Live.Quat.W),FVector(Live.Pos.X,Live.Pos.Y,Live.Pos.Z),PM.RestLocal.GetScale3D());
+            const FMatrix D=PM.ParentWorld.Inverse()*PM.RestLocal.ToMatrixWithScale().Inverse()*LiveLocal.ToMatrixWithScale()*PM.ParentWorld;
+            C->SetRelativeTransform(FTransform(BInv*D*B));
+        }
+    }
+}
+
+FString AEidoverseScene::DescribePart(const FString& Id,const FString& Part) const
+{
+    FTransform D;if(!PartDelta(Id,Part,D))return TEXT("no part");
+    return FString::Printf(TEXT("rot=%s loc=%s"),*D.Rotator().ToString(),*D.GetLocation().ToString());
 }

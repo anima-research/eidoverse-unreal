@@ -70,6 +70,13 @@ public:
     // still need a world-aware (unrooted) outer for runtime physics cooking.
     TWeakObjectPtr<UObject> StaticMeshOuter;
     UPROPERTY() TObjectPtr<UStaticMesh> StaticMesh;
+    // Named parts (motion:<part>, picture, part sockets): loaded as their own meshes so
+    // they can move; the base mesh excludes their subtrees. Vertices stay in model space;
+    // rest transforms are in glTF numbers (metres, right-handed) for the motion law.
+    TArray<FString> SplitParts;
+    struct FPartMesh { FString Name; FTransform RestLocal; FMatrix ParentWorld=FMatrix::Identity; int32 Mesh=INDEX_NONE; };
+    TArray<FPartMesh> PartMeshes;
+    UPROPERTY() TArray<TObjectPtr<UStaticMesh>> PartMeshObjects;
     TMap<FName,FName> Humanoid;
     UPROPERTY() TObjectPtr<USkeletalMesh> Mesh;
     UPROPERTY() TArray<FEidoverseAvatarAttachment> Attachments;
@@ -110,6 +117,11 @@ private:
     void Fail(const FString& Why);
     void BuildEmissiveLamps();
     UFUNCTION() void MeshReady(USkeletalMesh* Result);
+    UFUNCTION() void PartMeshReady(UStaticMesh* Result);
+    void LoadNextPart();
+    void LoadBaseStatic();
+    int32 NextPart=0;
+    TArray<FString> BaseExclude;
     UFUNCTION() void StaticMeshReady(UStaticMesh* Result);
 };
 

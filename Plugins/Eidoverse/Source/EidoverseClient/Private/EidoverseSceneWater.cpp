@@ -67,6 +67,9 @@ namespace
 void AEidoverseScene::ReadComponentData(AActor* Actor, FEidoverseSceneItem& Item, const TSharedPtr<FJsonObject>& Data)
 {
     Item.WaterData = ObjectField(Data, TEXT("water"));
+    Item.Picture = ObjectField(Data, TEXT("picture"));
+    Item.Sound = ObjectField(Data, TEXT("sound"));
+    Item.Particles = ObjectField(Data, TEXT("particles"));
     Item.EnvironmentData = ObjectField(Data, TEXT("environment"));
     const TArray<TSharedPtr<FJsonValue>>* Boxes = nullptr;
     const auto Air = ObjectField(Data, TEXT("air"));
