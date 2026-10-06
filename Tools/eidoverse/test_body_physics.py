@@ -24,7 +24,7 @@ def me(w):
 def tick(dt):
     st['t'] += dt
     w = editor.get_game_world()
-    if st['t'] > 160: return done(False, 'timeout at ' + st['step'])
+    if st['t'] > 240: return done(False, 'timeout at ' + st['step'])
     if not w: return
     bs = unreal.GameplayStatics.get_all_actors_of_class(w, unreal.EidoverseBridge)
     if not bs or not bs[0].get_editor_property('hud'): return
@@ -36,7 +36,7 @@ def tick(dt):
         b.join_from_door(SERVER, WORLD, 'unreal-body-test'); return step('wait')
     if st['step'] == 'wait':
         p, m = me(w)
-        if not (b.get_editor_property('joined') and m and m.get_editor_property('avatar') and since > 10): return
+        if not (b.get_editor_property('joined') and m and m.human_bone_position('hips') and since > 10): return
         b.go_limp(); return step('limp')
     if st['step'] == 'limp' and since > 4:
         p, m = me(w)
@@ -46,7 +46,7 @@ def tick(dt):
     if st['step'] == 'up' and since > 2:
         p, m = me(w)
         result['after_get_up_limp'] = m.is_limp()
-        b.handle_interaction_command('/grant unreal-body-test +fly')
+        b.handle_interaction_command('/grant unreal-body-test owner +fly')
         return step('granted')
     if st['step'] == 'granted' and since > 2:
         p, m = me(w)
@@ -60,8 +60,33 @@ def tick(dt):
         result['still_flying'] = b.is_flying()
         result['narration'] = [l.text for l in b.get_editor_property('chat_history') if l.sender == '*'][-3:]
         return step('shove')
-    if st['step'] == 'shove' and since > 6:
+    if st['step'] == 'shove':
+        if b.is_flying(): b.handle_fly_key()
         p, m = me(w)
-        result['shoved_limp'] = m.is_limp()
-        return done(True)
+        if m.is_limp() or since > 40:
+            result['shoved_limp'] = m.is_limp(); st['p0'] = p.get_actor_location(); return step('grab')
+    if st['step'] == 'grab':
+        if b.get_dragged_by() == 'drag-bot' or since > 15:
+            result['grabbed_by'] = b.get_dragged_by(); return step('dragging')
+    if st['step'] == 'dragging' and since > 1.6:
+        unreal.SystemLibrary.execute_console_command(w, 'shot showui'); return step('release')
+    if st['step'] == 'release':
+        if (b.get_dragged_by() == '' and since > 1) or since > 10:
+            p, m = me(w)
+            d = p.get_actor_location() - st['p0']
+            result['dragged_cm'] = [round(d.x), round(d.y), round(d.z)]
+            result['pins_after_release'] = b.get_pin_count(); result['still_limp'] = m.is_limp()
+            return step('markers')
+    if st['step'] == 'markers' and since > 2:
+        result['pin_markers'] = b.get_pin_marker_count()
+        unreal.SystemLibrary.execute_console_command(w, 'shot showui'); return step('unpin')
+    if st['step'] == 'unpin':
+        if b.get_pin_count() == 0 or since > 12:
+            result['pins_after_unpin'] = b.get_pin_count(); return step('getup')
+    if st['step'] == 'getup' and since > 2:
+        b.get_up(); return step('end')
+    if st['step'] == 'end' and since > 2:
+        p, m = me(w); result['final_limp'] = m.is_limp(); return done(True)
+
+
 handle = unreal.register_slate_post_tick_callback(tick)

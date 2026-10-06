@@ -10,7 +10,7 @@ class UTextRenderComponent;
 class UStaticMeshComponent;
 class UEidoverseAvatarAsset;
 class UEidoverseAvatarMesh;
-namespace EidoRagdoll { class FRagdoll; }
+namespace EidoRagdoll { class FRagdoll; struct FSnapshot; }
 class SEidoversePanel;
 class SWidget;
 class IHttpRequest;
@@ -90,6 +90,7 @@ struct FEidoversePeer
     double SpeakingUntil=0;
     FString Presence=TEXT("present");
     bool bWingsFolded=false;
+    TArray<TPair<FName,FVector>> Pins;   // bodydrag nails from presence (wire positions)
     TSharedPtr<FJsonObject> XR;   // pose.xr: VR head, grips, curls (rendered, never sent by this client)
     // Reach easing (12/s in and out), last targets for easing out, and narration state.
     TMap<FName,float> ReachWeight;
@@ -256,6 +257,27 @@ public:
     bool bDowned=false;                     // limp, settled or tumbling, until getting up
     TMap<FName,FQuat> DownedPose;
     FVector DownedRootWire=FVector::ZeroVector;
+    double DownedYaw=0;
+    // Bodydrag, owner side (bodydrag.js / localbody.js): who holds my limp body, when
+    // their last sample came, and my nails (joint -> wire position), streamed as pins.
+    FString DraggedBy;
+    double DragLastSampleAt=0;
+    TMap<FName,FVector> MyPins;
+    bool bSendPinsNull=false;
+    UPROPERTY(Transient) TArray<TObjectPtr<UStaticMeshComponent>> PinMarkers;
+    UPROPERTY(Transient) TObjectPtr<AActor> PinHolder;
+    void StartSelfRagdoll(const FVector& Lean,const EidoRagdoll::FSnapshot* Seed);
+    void ApplyDraggedSample(const TSharedPtr<FJsonObject>& J);
+    void EndDragged(const TSharedPtr<FJsonObject>& J);
+    void AddPin(FName Joint,const FVector& AtWire);
+    void RemovePin(FName Joint);
+    void ClearPins();
+    void ApplyMyPins();
+    void TickPinMarkers();
+    UFUNCTION(BlueprintPure,Category="Eidoverse") FString GetDraggedBy() const { return DraggedBy; }
+    UFUNCTION(BlueprintPure,Category="Eidoverse") int32 GetPinCount() const { return MyPins.Num(); }
+    UFUNCTION(BlueprintPure,Category="Eidoverse") int32 GetPinMarkerCount() const;
+    UFUNCTION(BlueprintPure,Category="Eidoverse") bool IsDowned() const { return bDowned; }
     TOptional<bool> RightsFly;
     TSharedPtr<struct FEidoFlightRuntime> FlightRt;
     UFUNCTION(BlueprintCallable, Category="Eidoverse") void GoLimp();

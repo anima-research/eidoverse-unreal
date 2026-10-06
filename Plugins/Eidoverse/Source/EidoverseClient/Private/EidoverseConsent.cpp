@@ -103,18 +103,6 @@ void AEidoverseBridge::ReceivePuppet(const TSharedPtr<FJsonObject>& J)
     }
 }
 
-void AEidoverseBridge::ReceiveBodyDrag(const TSharedPtr<FJsonObject>& J)
-{
-    // Being dragged needs a limp body; until local ragdoll exists, decline politely
-    // so the dragger's client lets go at once instead of waiting out a timeout.
-    const FString By = CStr(J, TEXT("by")).Left(64);
-    if (!J->HasField(TEXT("grab")) || By.IsEmpty()) return;
-    if (!EidoSettings::Pushable()) ToastText(By + TEXT(" tried to drag you — /pushable on to allow"));
-    auto Out = MakeShared<FJsonObject>();
-    Out->SetStringField(TEXT("target"), By); Out->SetBoolField(TEXT("end"), true);
-    SendRaw(TEXT("bodydrag"), Out);
-}
-
 void AEidoverseBridge::ReceiveForce(const TSharedPtr<FJsonObject>& A)
 {
     // shared/force.js: radius 4, power 3, cap 6, below 0.3 a breeze, inside 0.05 no direction.

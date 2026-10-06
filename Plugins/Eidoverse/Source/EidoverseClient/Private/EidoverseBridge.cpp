@@ -412,6 +412,7 @@ void AEidoverseBridge::TickAvatars(double Time)
         }
     }
     TickSelfBody(Time);
+    TickPinMarkers();
     TickGaze(Time);
     if(SelfBody.AvatarMesh.IsValid()&&!SelfBody.AvatarMesh->EmissiveLights.IsEmpty())
         Lamps.Add({SelfBody.AvatarMesh.Get(),0.,SelfBody.AvatarMesh->IsVisible()});
@@ -550,6 +551,17 @@ void AEidoverseBridge::Pose(const FString& Id,const TSharedPtr<FJsonObject>& Dat
         Peer->ClipRate=Data->TryGetNumberField(TEXT("clipRate"),ClipRate)&&FMath::IsFinite(ClipRate)&&ClipRate>0&&ClipRate<=3.2?float(ClipRate):0.f;
     }
     {bool bFold=false;if(Data->TryGetBoolField(TEXT("wingsFolded"),bFold))Peer->bWingsFolded=bFold;}
+    if(const TSharedPtr<FJsonValue> PinsV=Data->TryGetField(TEXT("pins")))
+    {
+        Peer->Pins.Reset();
+        const TArray<TSharedPtr<FJsonValue>>* A=nullptr;
+        if(PinsV->TryGetArray(A))for(const auto& V:*A)
+        {
+            const TSharedPtr<FJsonObject>* O=nullptr;const TArray<TSharedPtr<FJsonValue>>* At=nullptr;FVector W;bool bOk=false;
+            if(V->TryGetObject(O)&&(*O)->TryGetArrayField(TEXT("at"),At)&&At->Num()==3){bOk=true;for(int32 I=0;I<3;++I){double N;bOk&=(*At)[I]->TryGetNumber(N)&&FMath::IsFinite(N);W[I]=bOk?N:0;}}
+            if(bOk&&Peer->Pins.Num()<8)Peer->Pins.Emplace(FName(Eido::String(*O,TEXT("j")).Left(48)),W);
+        }
+    }
     {const TSharedPtr<FJsonObject>* X=nullptr;Peer->XR=Data->TryGetObjectField(TEXT("xr"),X)?*X:nullptr;}
     {const FString Presence=Eido::String(Data,TEXT("presence"));if(Presence==TEXT("present")||Presence==TEXT("away")||Presence==TEXT("busy"))Peer->Presence=Presence;}
     // Head pitch and a held pose (sent on every packet once set; null clears).
@@ -760,6 +772,9 @@ void AEidoverseBridge::SendPose()
     if(Speed>=.05){bBodyMovedThisSession=true;if(SelfHeldPose)SetSelfHeldPose(nullptr,false);}   // walking away ends a held pose
     if(SelfHeldPose)Data->SetObjectField(TEXT("pose"),SelfHeldPose);
     else if(bSendHeldNull){Data->SetField(TEXT("pose"),MakeShared<FJsonValueNull>());bSendHeldNull=false;}
+    // Bodydrag nails ride presence too (net.js): [{j, at}] while any, null once to clear.
+    if(MyPins.Num()){TArray<TSharedPtr<FJsonValue>> Pins;for(const auto& Pin:MyPins){auto O=MakeShared<FJsonObject>();O->SetStringField(TEXT("j"),Pin.Key.ToString());O->SetArrayField(TEXT("at"),Eido::Numbers({Pin.Value.X,Pin.Value.Y,Pin.Value.Z}));Pins.Add(MakeShared<FJsonValueObject>(O));}Data->SetArrayField(TEXT("pins"),Pins);}
+    else if(bSendPinsNull){Data->SetField(TEXT("pins"),MakeShared<FJsonValueNull>());bSendPinsNull=false;}
     if(!PendingEmote.IsEmpty()){Data->SetStringField(TEXT("emote"),PendingEmote);PendingEmote.Empty();}
     J->SetStringField(TEXT("type"),TEXT("pose"));J->SetObjectField(TEXT("pose"),Data);Send(J);++SentPoseCount;
 }
