@@ -491,6 +491,7 @@ void UEidoverseHUD::TickBuild(double Now)
     if (TickStructure(PC, Scene)) return;
     TickSeatPlacement(PC, Scene);
     if (bArmSeat) return;
+    if (TickSeatGizmos(PC, Scene, bShift)) return;
     TickDrag(PC, Scene, bShift);
     if (Drag.bActive) return;
     const bool bCtrl = PC->IsInputKeyDown(EKeys::LeftControl) || PC->IsInputKeyDown(EKeys::RightControl) || PC->IsInputKeyDown(EKeys::LeftCommand);

@@ -221,6 +221,20 @@ public:
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") bool ApplyInspectTransform(FVector Pos, float YawDegrees, float Scale);
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void SetSceneFind(const FString& Query);
     UFUNCTION(BlueprintPure, Category="Eidoverse|UI") int32 GetSceneListCount() const;
+    // Seat-anchor gizmos (seatedit.js): markers for the selected thing's seats, picked
+    // by click; Q/E face, Del removes, drag slides along the surface, Esc done.
+    UFUNCTION(BlueprintPure, Category="Eidoverse|UI") int32 GetSeatGizmoCount() const;
+    UFUNCTION(BlueprintPure, Category="Eidoverse|UI") FString GetSelectedSeat() const { return SeatSel; }
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void SelectSeat(const FString& SeatSlot) { SeatSel = SeatSlot; }
+private:
+    FString SeatSel, SeatSelOn;
+    bool bSeatDragArmed = false, bSeatDragging = false;
+    FVector2D SeatDragStart = FVector2D::ZeroVector;
+    FVector SeatDragLocal = FVector::ZeroVector;   // wire metres, model frame
+    UPROPERTY() TObjectPtr<AActor> SeatGizmoHolder;
+    UPROPERTY() TArray<TObjectPtr<UStaticMeshComponent>> SeatGizmoParts;
+    bool TickSeatGizmos(APlayerController* PC, class AEidoverseScene* Scene, bool bShift);
+public:
 private:
     UPROPERTY() TArray<TObjectPtr<UEditableTextBox>> InspectFields;
     UPROPERTY() TObjectPtr<UEditableTextBox> SceneFind;
