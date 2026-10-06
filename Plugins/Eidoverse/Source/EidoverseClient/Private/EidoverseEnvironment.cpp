@@ -1,3 +1,5 @@
+#include "Materials/MaterialParameterCollection.h"
+#include "Materials/MaterialParameterCollectionInstance.h"
 #include "EidoverseScene.h"
 #include "EidoverseBridge.h"
 #include "EidoverseGroundCover.h"
@@ -167,6 +169,10 @@ void AEidoverseScene::ApplyLightingNow()
     const float FillK=FMath::Clamp(Num(SkyArgs,TEXT("fill"),1),0.,2.5),ExpK=FMath::Clamp(Num(SkyArgs,TEXT("exposure"),1),.3,1.8),FogK=FMath::Clamp(Num(SkyArgs,TEXT("fog"),1),0.,3.);
     const float Azimuth=Num(SkyArgs,TEXT("azimuth"),180);
     const float Elevation=FMath::Sin((WeatherHour-6)*PI/12),Day=FMath::Clamp(Elevation*3.f,0.f,1.f),Warmth=FMath::Pow(1-FMath::Max(0.f,Elevation),1.5f);
+    SunElevationSin=FMath::Sin(FMath::DegreesToRadians(FMath::Max(0.f,Elevation)*75));
+    if(Sun&&!Sun->LightFunctionMaterial)
+        if(UMaterialInterface* LF=LoadObject<UMaterialInterface>(nullptr,TEXT("/Eidoverse/FX/M_EidoverseCloudShadow.M_EidoverseCloudShadow")))
+            Sun->SetLightFunctionMaterial(LF);
     SunFactor=Day*(1-CloudAmount*.83);CloudCover=CloudAmount;SunLight=SunFactor;
     if(Sun){Sun->SetWorldRotation(FRotator(-Elevation*75,(WeatherHour-12)*15-35+(Azimuth-180),0));Sun->SetIntensity(3.2f*Day*(1-CloudAmount*.83)*SunK);Sun->SetLightColor(FMath::Lerp(FLinearColor(1,.67,.37),FLinearColor(1,.95,.88),Day));}
     if(SkyFill)SkyFill->SetIntensity(FMath::Lerp(.2f,.8f,Day)*(1-CloudAmount*.45)*AmbK);
@@ -199,6 +205,17 @@ void AEidoverseScene::TickWeather(float Dt)
         CloudAmount+=(CoverTarget-CloudAmount)*FMath::Min(1.f,Step/15);
         Wetness+=(WetTarget-Wetness)*FMath::Min(1.f,Step/(WetTarget>Wetness?10.f:40.f));
         if(bWeatherEased&&FMath::Abs(CoverTarget-CloudAmount)+FMath::Abs(WetTarget-Wetness)>.001f)ApplyLightingNow();
+        // Surfaces (materials.js): wetness and the scrolling cloud shade, one parameter set.
+        if(!WeatherCollection)WeatherCollection=LoadObject<UMaterialParameterCollection>(nullptr,TEXT("/Eidoverse/FX/MPC_EidoverseWeather.MPC_EidoverseWeather"));
+        if(UMaterialParameterCollectionInstance* MPC=WeatherCollection?GetWorld()->GetParameterCollectionInstance(WeatherCollection):nullptr)
+        {
+            const float Speed=1+2.5f*CloudAmount;
+            CloudScroll1+=FVector2D(1.9,.55)*Speed*Step;CloudScroll2+=FVector2D(-.7,1.3)*Speed*Step;
+            const float Strength=.5f*FMath::Clamp(4*SunElevationSin,0.f,1.f)*(1-FMath::Clamp((CloudAmount-.8f)/.17f,0.f,1.f))*FMath::Min(1.f,3*CloudAmount);
+            MPC->SetScalarParameterValue(TEXT("Wet"),Wetness);MPC->SetScalarParameterValue(TEXT("Coverage"),CloudAmount);MPC->SetScalarParameterValue(TEXT("Strength"),Strength);
+            MPC->SetScalarParameterValue(TEXT("Scroll1X"),CloudScroll1.X/420);MPC->SetScalarParameterValue(TEXT("Scroll1Y"),CloudScroll1.Y/420);
+            MPC->SetScalarParameterValue(TEXT("Scroll2X"),CloudScroll2.X/97);MPC->SetScalarParameterValue(TEXT("Scroll2Y"),CloudScroll2.Y/97);
+        }
     }
     LastRainUpdate=Now;
     if(!Rain&&RainAmount>0)

@@ -168,6 +168,9 @@ public:
     // cloud cover eases over 15 s. Read by the surface materials' parameter collection.
     float Wetness=0, CoverTarget=0, WetTarget=0;
     bool bWeatherEased=false;
+    FVector2D CloudScroll1=FVector2D::ZeroVector, CloudScroll2=FVector2D::ZeroVector;
+    float SunElevationSin=1;
+    UPROPERTY() TObjectPtr<class UMaterialParameterCollection> WeatherCollection;
 private:
     TSharedPtr<FJsonObject> SkyArgs;
     UPROPERTY() TObjectPtr<UDirectionalLightComponent> Moon;

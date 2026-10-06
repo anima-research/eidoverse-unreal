@@ -18,7 +18,7 @@ def done(ok, why=''):
     unreal.unregister_slate_post_tick_callback(handle)
     level.editor_request_end_play()
     unreal.SystemLibrary.quit_editor()
-PLAN = [('noon', 12), ('dusk', 18.5), ('night', 22)]
+PLAN = [(os.environ.get('SKY_LABEL','noon'), float(os.environ.get('SKY_HOUR','12')))]
 def tick(dt):
     st['t'] += dt
     w = editor.get_game_world()
@@ -43,7 +43,7 @@ def tick(dt):
         st['scene'] = unreal.GameplayStatics.get_all_actors_of_class(w, unreal.EidoverseScene)[-1]
         st['i'] = 0; st['scene'].set_preview_hour(PLAN[0][1])
         return step('settle')
-    if st['step'] == 'settle' and since > 4:
+    if st['step'] == 'settle' and since > float(os.environ.get('SKY_SETTLE','4')):
         result.setdefault('lighting', []).append(PLAN[st['i']][0] + ' ' + st['scene'].describe_lighting())
         unreal.SystemLibrary.execute_console_command(w, 'shot')
         return step('shot')
