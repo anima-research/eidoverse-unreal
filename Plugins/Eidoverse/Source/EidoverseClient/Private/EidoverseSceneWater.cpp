@@ -71,6 +71,8 @@ void AEidoverseScene::ReadComponentData(AActor* Actor, FEidoverseSceneItem& Item
     Item.Sound = ObjectField(Data, TEXT("sound"));
     Item.Particles = ObjectField(Data, TEXT("particles"));
     Item.EnvironmentData = ObjectField(Data, TEXT("environment"));
+    Item.Traversal = ObjectField(Data, TEXT("traversal"));
+    Item.Vehicle = ObjectField(Data, TEXT("vehicle"));
     const TArray<TSharedPtr<FJsonValue>>* Boxes = nullptr;
     const auto Air = ObjectField(Data, TEXT("air"));
     if (!Actor || !Air || !Air->TryGetArrayField(TEXT("boxes"), Boxes)) return;

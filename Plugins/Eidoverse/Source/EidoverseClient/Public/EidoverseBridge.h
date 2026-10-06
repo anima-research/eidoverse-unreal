@@ -236,6 +236,18 @@ public:
     // sounds.js, pictures.js); the reply's {path} goes to OnDone (empty on failure).
     void UploadFile(const FString& LocalPath,const FString& As,TFunction<void(const FString& Path,const FString& Error)> OnDone);
     bool bRetrying=false,bSelfJumpEase=false;
+    // ---- locomotion (EidoverseLocomotion.cpp): climb routes, helm, flight ----
+    struct FClimb { FString Id; TArray<FVector> PathLocal; int32 Segment=0; double Distance=0; float Speed=1.3f; bool bReverse=false; };
+    TOptional<FClimb> Climb;
+    FString ClimbHintKey;
+    struct FHelm { FString Id; bool bPending=false; bool bActive=false; FVector Vel=FVector::ZeroVector; double YawWire=0; double SentAt=0; };
+    FHelm Helm;
+    FString LocoMode, LocoClip; float LocoSpeed=0;   // overrides the pose's locomotion while climbing/piloting/flying
+    UFUNCTION(BlueprintCallable, Category="Eidoverse") bool HandleUseKey();
+    UFUNCTION(BlueprintPure, Category="Eidoverse") FString GetLocoMode() const { return LocoMode; }
+    void TickLocomotion(class AEidoverseExplorer* Explorer,float Dt);
+    bool ReceiveHelmLease(const FString& Op,const FString& Id,const TSharedPtr<FJsonObject>& J);
+    void EndHelm(bool bRelease);
     double LastReachTick=0;
     const FEidoversePeer& GetSelfBody() const { return SelfBody; }
     const FEidoversePeer* FindPeer(const FString& Id) const { return Peers.Find(Id); }

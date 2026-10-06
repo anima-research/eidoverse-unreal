@@ -484,7 +484,8 @@ void AEidoverseBridge::TickSelfBody(double Time)
     // My clip, chosen as the browser's controller does (locomotion_clip.js).
     const bool bSwimming=Explorer->LocomotionMode!=TEXT("walk");
     const float Ground=FVector(Velocity.X,Velocity.Y,0).Size();
-    TickSeating(Explorer,FPlatformTime::Seconds());
+    TickLocomotion(Explorer,FMath::Min(float(FApp::GetDeltaTime()),.1f));
+    if(LocoMode.IsEmpty())TickSeating(Explorer,FPlatformTime::Seconds());
     M->SetHeadPitch(SelfHeadPitch());
     // G folds the wings (controller.js toggleFold): needs wing chains to start; releasing always works.
     if(Explorer->bFoldPressed)
@@ -498,7 +499,7 @@ void AEidoverseBridge::TickSelfBody(double Time)
         }
     }
     M->SetWings(bWingsFolded,0);
-    SelfClipSlot=!SeatClip.IsEmpty()?SeatClip:EidoClipRules::SelectLocomotion(Explorer->bJumped,Explorer->AirborneSeconds,Explorer->bWantMove,Ground,Explorer->Posture);
+    SelfClipSlot=!LocoClip.IsEmpty()?LocoClip:Explorer->bMantling?TEXT("climb"):!SeatClip.IsEmpty()?SeatClip:EidoClipRules::SelectLocomotion(Explorer->bJumped,Explorer->AirborneSeconds,Explorer->bWantMove,Ground,Explorer->Posture);
     // Walking off a ledge eases into the fall over 0.5 s; a deliberate jump snaps in 0.1 s.
     bSelfJumpEase=SelfClipSlot==TEXT("jump")&&!Explorer->bJumped;
     // First person while seated, lying or posed: the eye rides the head (fp_view.js).
@@ -738,7 +739,10 @@ void AEidoverseBridge::SendPose()
             Data->SetStringField(TEXT("clipTimeSlot"),Clip);
             Data->SetNumberField(TEXT("clipRate"),FMath::RoundToDouble(M->CurrentClipRate()*1000)/1000);
         }
-    Loc->SetStringField(TEXT("mode"),Mode);Loc->SetStringField(TEXT("body"),bSwimmer?TEXT("diver"):Land?TEXT("avatar"):Sub?TEXT("submarine"):TEXT("diver"));
+    // Climbing, piloting and flying speak for the body (traversal.js / vehicles.js / flight).
+    const bool bLoco=!LocoMode.IsEmpty();
+    if(bLoco){Mode=LocoMode;Data->SetNumberField(TEXT("speed"),LocoSpeed);}
+    Loc->SetStringField(TEXT("mode"),Mode);Loc->SetStringField(TEXT("body"),bLoco||bSwimmer?TEXT("diver"):Land?TEXT("avatar"):Sub?TEXT("submarine"):TEXT("diver"));
     Loc->SetStringField(TEXT("medium"),(Mode==TEXT("walk")||Mode==TEXT("climb"))?TEXT("air"):TEXT("water"));Data->SetObjectField(TEXT("locomotion"),Loc);
     if(LocalReach)Data->SetObjectField(TEXT("reach"),LocalReach);
     // The rest of the public body (net.js sendPose): presence, wings, held pose.

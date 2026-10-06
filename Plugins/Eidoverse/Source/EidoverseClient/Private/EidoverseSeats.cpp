@@ -243,7 +243,7 @@ void AEidoverseBridge::TickSeating(AEidoverseExplorer* Explorer, double Now)
     FTransform Seat; FString Pose;
     if (!SeatTo.IsEmpty() && MountedSeatTransform(Seat, Pose)) SeatClip = Pose;
     else if (bChairSeat) { Seat = ChairSeat; SeatClip = TEXT("sitchair"); }
-    else { SeatClip.Empty(); if (Explorer->bSeated) Explorer->SetSeated(false); return; }   // parent still loading: stand where we are
+    else { SeatClip.Empty(); if (Explorer->bSeated && LocoMode.IsEmpty() && !Climb.IsSet() && !Helm.bActive) Explorer->SetSeated(false); return; }   // parent still loading: stand where we are
     // The body rides the seat: root at the socket, yaw only (mounted bodies render upright).
     Explorer->SetSeated(true);
     Explorer->Posture = SeatClip == TEXT("sit") || SeatClip == TEXT("lie") ? SeatClip : TEXT("sitchair");

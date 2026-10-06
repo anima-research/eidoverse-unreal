@@ -61,6 +61,7 @@ struct FEidoverseSceneItem
     FString PictureApplied;                   // src|lit|flip last applied
     // Presentation data kept for sounds and particles (render-scene entity.data).
     TSharedPtr<FJsonObject> Sound, Particles;
+    TSharedPtr<FJsonObject> Traversal, Vehicle;   // climb routes, helm (traversal.js, vehicles.js)
     // The particle emitter built from Particles (EidoverseSceneParticles.cpp).
     TSharedPtr<struct FEidoParticleEmitter> Emitter;
     FString EmitterKey;
@@ -268,6 +269,10 @@ public:
     UPROPERTY(Transient,BlueprintReadWrite,Category="Eidoverse") bool bFoldPressed=false;
     // First person while seated, lying or posed: the eye rides the head bone (fp_view.js).
     bool bEyeOverride=false; FVector EyeOverride=FVector::ZeroVector;
+    // Mantle (controller.js): Space at a 0.3-1.7 m ledge lifts you onto it over 0.55 s.
+    UPROPERTY(Transient,BlueprintReadOnly,Category="Eidoverse") bool bMantling=false;
+    FVector MantleFrom=FVector::ZeroVector, MantleTo=FVector::ZeroVector; float MantleT=0;
+    UFUNCTION(BlueprintCallable,Category="Eidoverse") bool TryMantle();
     UPROPERTY(Transient,BlueprintReadOnly,Category="Eidoverse") bool bSeated=false;
     void SetSeated(bool bOn);
     UFUNCTION(BlueprintCallable,Category="Eidoverse") void SetCameraDistance(float Meters);

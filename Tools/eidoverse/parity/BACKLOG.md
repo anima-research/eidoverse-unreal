@@ -37,7 +37,7 @@ Specs live in the four audit reports next to this file: `ui-protocol.md`, `avata
 - [ ] residency demotion, flora density/pushers
 
 ## M4 Build tools
-- [ ] drag move (send/receive), lights editor, lock/guard, scene tree + attach, seat anchor editor,
+- [x] drag move (send/receive), lights editor, lock/guard, scene tree + attach, seat anchor editor,
       sky sliders, ground auto-apply, structure editor, uploads, sound/picture editors, scripts panel
 
 ## M5 Locomotion

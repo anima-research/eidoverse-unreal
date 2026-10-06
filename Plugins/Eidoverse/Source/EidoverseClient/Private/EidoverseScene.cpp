@@ -426,6 +426,15 @@ void AEidoverseExplorer::Tick(float Dt)
     if(GetCharacterMovement()->IsFalling())AirborneSeconds+=Dt;else{AirborneSeconds=0;bJumped=false;}
     bWantMove=false;
     if(PC->IsMoveInputIgnored())return;
+    if(bMantling)
+    {
+        // k^2 (3 - 2k) over 0.55 s, then grounded on the ledge.
+        MantleT=FMath::Min(1.f,MantleT+Dt/.55f);const float E=MantleT*MantleT*(3-2*MantleT);
+        const double Half=GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+        SetActorLocation(FMath::Lerp(MantleFrom,MantleTo,E)+FVector(0,0,Half+1),false,nullptr,ETeleportType::TeleportPhysics);
+        if(MantleT>=1){bMantling=false;SetActorEnableCollision(true);GetCharacterMovement()->SetMovementMode(MOVE_Walking);}
+        return;
+    }
     if(bSeated)
     {
         // Placed by the bridge; WASD or X means "get up" (localbody.js updateMountedMe).
@@ -449,7 +458,8 @@ void AEidoverseExplorer::Tick(float Dt)
     if(PC->WasInputKeyJustPressed(EKeys::G))bFoldPressed=true;
     if(!bCtrl&&PC->WasInputKeyJustPressed(EKeys::Z))Posture=Posture==TEXT("lie")?FString():TEXT("lie");
     if(bWantMove||PC->WasInputKeyJustPressed(EKeys::SpaceBar))Posture.Empty();
-    if(PC->WasInputKeyJustPressed(EKeys::SpaceBar)){if(!GetCharacterMovement()->IsFalling())bJumped=true;Jump();}
+    if(PC->WasInputKeyJustPressed(EKeys::SpaceBar)&&!GetCharacterMovement()->IsFalling()&&TryMantle()){}
+    else if(PC->WasInputKeyJustPressed(EKeys::SpaceBar)){if(!GetCharacterMovement()->IsFalling())bJumped=true;Jump();}
     if(PC->WasInputKeyJustReleased(EKeys::SpaceBar))StopJumping();
 }
 
@@ -631,4 +641,33 @@ FString AEidoverseScene::DescribePart(const FString& Id,const FString& Part) con
 {
     FTransform D;if(!PartDelta(Id,Part,D))return TEXT("no part");
     return FString::Printf(TEXT("rot=%s loc=%s"),*D.Rotator().ToString(),*D.GetLocation().ToString());
+}
+
+bool AEidoverseExplorer::TryMantle()
+{
+    // colliders.js blockedTop: something in front at chest height whose top is 0.3-1.7 m up.
+    const double Half=GetCapsuleComponent()->GetScaledCapsuleHalfHeight(),Radius=GetCapsuleComponent()->GetScaledCapsuleRadius();
+    const FVector Feet=GetActorLocation()-FVector(0,0,Half),Fwd=GetActorForwardVector().GetSafeNormal2D();
+    FCollisionQueryParams Q(SCENE_QUERY_STAT(EidoverseMantle),false,this);
+    FHitResult Wall;
+    const FVector Chest=Feet+FVector(0,0,100);
+    if(!GetWorld()->SweepSingleByChannel(Wall,Chest,Chest+Fwd*(40+Radius),FQuat::Identity,ECC_Visibility,FCollisionShape::MakeSphere(20),Q)){
+        // a low ledge may sit under the chest line
+        const FVector Knee=Feet+FVector(0,0,45);
+        if(!GetWorld()->SweepSingleByChannel(Wall,Knee,Knee+Fwd*(40+Radius),FQuat::Identity,ECC_Visibility,FCollisionShape::MakeSphere(15),Q))return false;
+    }
+    if(Wall.ImpactNormal.Z>.6)return false;   // a slope, not a ledge
+    FHitResult Top;
+    const FVector Probe=Wall.ImpactPoint+Fwd*30;
+    if(!GetWorld()->LineTraceSingleByChannel(Top,FVector(Probe.X,Probe.Y,Feet.Z+180),FVector(Probe.X,Probe.Y,Feet.Z+20),ECC_Visibility,Q)||Top.bStartPenetrating)return false;
+    const double Reach=Top.ImpactPoint.Z-Feet.Z;
+    if(Reach<=30||Reach>170)return false;
+    // Room to stand up there?
+    FHitResult Head;
+    const FVector Stand=FVector(Feet.X,Feet.Y,0)+Fwd*60+FVector(0,0,Top.ImpactPoint.Z+Half+2);
+    if(GetWorld()->SweepSingleByChannel(Head,Stand,Stand+FVector(0,0,1),FQuat::Identity,ECC_Visibility,FCollisionShape::MakeCapsule(Radius*.9f,Half*.95f),Q))return false;
+    bMantling=true;MantleT=0;MantleFrom=Feet;MantleTo=FVector(Feet.X,Feet.Y,0)+Fwd*60+FVector(0,0,Top.ImpactPoint.Z);
+    GetCharacterMovement()->StopMovementImmediately();GetCharacterMovement()->DisableMovement();SetActorEnableCollision(false);
+    AirborneSeconds=0;bJumped=false;
+    return true;
 }

@@ -90,6 +90,7 @@ void AEidoverseBridge::ReceiveInteraction(const TSharedPtr<FJsonObject>& Entry)
 void AEidoverseBridge::ReceiveLease(const TSharedPtr<FJsonObject>& J)
 {
     if(!DynamicScene)return;const FString Op=Str(J,TEXT("op")),Id=Str(J,TEXT("id"));
+    if(ReceiveHelmLease(Op,Id,J))return;
     if(Op!=TEXT("state")&&Op!=TEXT("claimed"))PendingPuntExpiry.Remove(Id);
     if(Op==TEXT("state")){DynamicScene->LeaseTransform(Id,J,OriginCentimeters);return;}
     if(Op==TEXT("granted"))
@@ -141,6 +142,7 @@ void AEidoverseBridge::TickInteractions(float Dt,double Now)
     auto* PC=UGameplayStatics::GetPlayerController(this,0);if(!PC||PC->IsMoveInputIgnored()||bSpectator)return;
     // Editing keys win while something is selected in build mode (web build.js priority).
     if(HUD&&HUD->IsFrameOpen(TEXT("build"))&&(!HUD->GetSelectedEntity().IsEmpty()||HUD->HasGhost()))return;
+    if(PC->WasInputKeyJustPressed(EKeys::E)&&HandleUseKey())return;
     if(PC->WasInputKeyJustPressed(EKeys::E)||PC->WasInputKeyJustPressed(EKeys::F))
     {
         FVector Eye;FRotator R;PC->GetPlayerViewPoint(Eye,R);FHitResult Hit;FCollisionQueryParams Q;Q.bTraceComplex=true;if(PC->GetPawn())Q.AddIgnoredActor(PC->GetPawn());
