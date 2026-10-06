@@ -42,6 +42,20 @@ void AEidoverseScene::SetSelected(const FString& Id)
 bool AEidoverseScene::HoldGhost(const FString& Lib)
 {
     ClearGhost();
+    if (Lib == TEXT("@light"))
+    {
+        // lights.js: the light tile holds a 0.13 m bulb, placed 0.9 m above the aim.
+        AActor* A = GetWorld()->SpawnActor<AActor>();
+        A->SetFlags(RF_Transient); A->SetActorEnableCollision(false);
+        auto* Root = NewObject<USceneComponent>(A); A->AddInstanceComponent(Root); A->SetRootComponent(Root); Root->RegisterComponent();
+        auto* M = NewObject<UStaticMeshComponent>(A); A->AddInstanceComponent(M); M->SetupAttachment(Root);
+        M->SetStaticMesh(LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Sphere.Sphere")));
+        M->SetRelativeScale3D(FVector(.26)); M->SetRelativeLocation(FVector(0, 0, 90));
+        M->SetCollisionEnabled(ECollisionEnabled::NoCollision); M->SetCastShadow(false); M->RegisterComponent();
+        GhostActor = A; GhostMesh = M; GhostLib = Lib;
+        TickGhost();
+        return true;
+    }
     FString Url;
     if (!UEidoverseAvatarAsset::ResolveUrl(LibraryBase, Lib, Url)) return false;
     Url += Url.Contains(TEXT("?")) ? TEXT("&native=1") : TEXT("?native=1");

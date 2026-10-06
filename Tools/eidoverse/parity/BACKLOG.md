@@ -27,13 +27,13 @@ Specs live in the four audit reports next to this file: `ui-protocol.md`, `avata
 - [x] reach: weight easing, self solve, reached, narration
 
 ## M3 World rendering
-- [ ] fog/sky args (fog, sun, ambient, exposure, azimuth, clouds), night floor
-- [ ] placed lights: day dimming, gizmo, 8-slot budget, no shadows (server: keep/day)
-- [ ] inferred lamps on emissive models
-- [ ] geom placeholders, comp collision.enabled=false
-- [ ] weather surfaces: wetness, puddles, cloud shadows, cloud kind
-- [ ] server render-scene: particles/picture/sound passthrough, part motions, part sockets, sim v
-- [ ] node-hierarchy import + part motion; pictures; particles (Niagara)
+- [x] fog/sky args (fog, sun, ambient, exposure, azimuth, clouds), night floor
+- [x] placed lights: day dimming, gizmo, 8-slot budget, no shadows (server: keep/day)
+- [x] inferred lamps on emissive models
+- [x] geom placeholders, comp collision.enabled=false
+- [x] weather surfaces: wetness, puddles, cloud shadows, cloud kind
+- [x] server render-scene: particles/picture/sound passthrough, part motions, part sockets, sim v
+- [x] node-hierarchy import + part motion; pictures; particles (Niagara)
 - [ ] residency demotion, flora density/pushers
 
 ## M4 Build tools

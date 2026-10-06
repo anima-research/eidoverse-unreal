@@ -26,7 +26,12 @@ ws.onmessage = (ev) => {
   for (const v of JSON.parse(process.env.POSE_BOT_VERBS ?? "[]")) ws.send(JSON.stringify({ type: "verb", verb: v.verb, args: v.args }));
   const nod = () => ws.send(JSON.stringify({ type: "anim", dur: 1.6, loop: true, replace: true, tracks: { head: [
       { t: 0, q: [0, 0, 0, 1] }, { t: .4, q: [0.38, 0, 0, 0.925] }, { t: .8, q: [0, 0, 0, 1] }, { t: 1.2, q: [0, 0.38, 0, 0.925] }, { t: 1.6, q: [0, 0, 0, 1] }] } }));
-  if (process.env.POSE_BOT_ANIM) { nod(); setInterval(nod, 6000); }   // late joiners miss a one-off
+  if (process.env.POSE_BOT_ANIM) { nod(); setInterval(nod, 6000); }
+  // POSE_BOT_DRAG=<entity id>: a live build drag in a 1.5 m circle (the `drag` stream).
+  if (process.env.POSE_BOT_DRAG) setInterval(() => {
+    const a = (Date.now() - t0) / 1000;
+    ws.send(JSON.stringify({ type: "drag", id: process.env.POSE_BOT_DRAG, pos: [1.5 * Math.sin(a), 0, 1.5 * Math.cos(a)], yaw: 0 }));
+  }, 66);   // late joiners miss a one-off
   if (process.env.POSE_BOT_SAY) {
     const say = () => ws.send(JSON.stringify({ type: "verb", verb: "say", args: { text: process.env.POSE_BOT_SAY } }));
     setTimeout(say, 1500); setInterval(say, 8000);

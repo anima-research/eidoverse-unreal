@@ -93,6 +93,8 @@ UWidget* UEidoverseHUD::BuildBuild()
         Actions->AddChildToWrapBox(Button);
     }
     Column->AddChildToVerticalBox(Actions)->SetPadding(FMargin(0, 6, 0, 0));
+    BuildExtras = WidgetTree->ConstructWidget<UVerticalBox>();
+    Column->AddChildToVerticalBox(BuildExtras)->SetPadding(FMargin(0, 6, 0, 0));
     Column->AddChildToVerticalBox(Label(TEXT("pick a model, click where it goes (Esc cancels) · click to select (pointer: M) · Q/E turn · R/F raise · , . size · arrows nudge · Del remove · Ctrl+Z undo"),
         9, FEidoverseTheme::Dim()))->SetPadding(FMargin(0, 8, 0, 0));
     SearchLibrary(TEXT(""));
@@ -105,6 +107,15 @@ void UEidoverseHUD::PaintLibrary(const TArray<TSharedPtr<FJsonValue>>& Items)
     BuildResults->ClearChildren();
     for (auto It = ButtonIds.CreateIterator(); It; ++It) if (!It->Key.IsValid()) It.RemoveCurrent();
     const FString Base = HttpBase();
+    // palette.js: a light is always on offer, ahead of the models.
+    {
+        UButton* LightTile = TextButton(TEXT("light"));
+        LightTile->SetToolTipText(FText::FromString(TEXT("a point light \u2014 click where it goes")));
+        LightTile->OnClicked.AddDynamic(this, &UEidoverseHUD::OnBuildClicked);
+        ButtonIds.Add(LightTile, FName(TEXT("build:hold:@light")));
+        LibNames.Add(TEXT("@light"), TEXT("light"));
+        BuildResults->AddChildToWrapBox(LightTile);
+    }
     for (const auto& V : Items)
     {
         const TSharedPtr<FJsonObject> O = V->AsObject();
@@ -225,6 +236,7 @@ bool UEidoverseHUD::PlaceSelected(TFunctionRef<void(FVector& Pos, double& Yaw, d
 void UEidoverseHUD::BuildAction(const FString& Action)
 {
     if (!Bridge) return;
+    if (BuildToolAction(Action)) return;
     if (!Bridge->CanBuild()) { Toast(TEXT("You can't build in this world."), true); return; }
     AEidoverseScene* Scene = Bridge->GetScene();
     if (Action.StartsWith(TEXT("build:spawn:")))
@@ -250,7 +262,7 @@ void UEidoverseHUD::BuildAction(const FString& Action)
         if (!Bridge->SendVerb(TEXT("spawn"), Args)) return;
         LastSpawned = Id;
         auto Undo = MakeShared<FJsonObject>(); Undo->SetStringField(TEXT("id"), Id);
-        UndoStack.Add({TEXT("remove"), ToJson(Undo)});
+        PushUndo(TEXT("remove"), Undo);
         Hint(TEXT("placed ") + LibNames.FindRef(Lib), 2);
         return;
     }
@@ -290,7 +302,7 @@ void UEidoverseHUD::BuildAction(const FString& Action)
     else if (Action.StartsWith(TEXT("build:size:")))
     {
         const double K = FCString::Atod(*Action.Mid(11));
-        PlaceSelected([K](FVector&, double&, double& Scale) { Scale = FMath::Clamp(Scale * K, .05, 50.0); });
+        PlaceSelected([K](FVector&, double&, double& Scale) { Scale = FMath::Clamp(Scale * K, .1, 12.0); });
     }
     else if (Action.StartsWith(TEXT("build:nudge:")))
     {
@@ -382,6 +394,18 @@ bool UEidoverseHUD::PlaceGhost()
     if (!Scene || !Scene->HasGhost() || !bGhostAimed) return false;
     const FString Lib = Scene->GetGhostLib();
     const FVector Wire = AEidoverseBridge::ToWirePosition(Scene->GetGhostActor()->GetActorLocation() - Scene->GetSceneOrigin());
+    if (Lib == TEXT("@light"))
+    {
+        auto Args = MakeShared<FJsonObject>(); const FString Id = NewEntityId();
+        Args->SetStringField(TEXT("id"), Id); Args->SetArrayField(TEXT("pos"), Vec3(Wire + FVector(0, .9, 0)));
+        Args->SetNumberField(TEXT("color"), 16767392); Args->SetNumberField(TEXT("intensity"), 16); Args->SetNumberField(TEXT("range"), 10);
+        if (!Bridge->SendVerb(TEXT("light"), Args)) return false;
+        LastSpawned = Id;
+        auto Undo = MakeShared<FJsonObject>(); Undo->SetStringField(TEXT("id"), Id);
+        PushUndo(TEXT("remove"), Undo);
+        Scene->ClearGhost(); Hint(TEXT("placed a light"), 2);
+        return true;
+    }
     auto Args = MakeShared<FJsonObject>();
     const FString Id = NewEntityId();
     Args->SetStringField(TEXT("id"), Id);
@@ -402,6 +426,7 @@ bool UEidoverseHUD::PlaceGhost()
 void UEidoverseHUD::RefreshBuild()
 {
     if (!Bridge) return;
+    RebuildBuildExtras();
     if (BuildNote) BuildNote->SetText(FText::FromString(!Bridge->bJoined ? TEXT("Join a world to build.")
         : Bridge->CanBuild() ? FString() : TEXT("You can look, but this world's owner hasn't made you a builder.")));
     AEidoverseScene* Scene = Bridge->GetScene();
@@ -422,7 +447,18 @@ void UEidoverseHUD::RefreshBuild()
 void UEidoverseHUD::TickBuild(double Now)
 {
     if (bSearchPending && Now >= SearchAt) SearchLibrary(PendingQuery);
-    if (!IsFrameOpen("build") || !Bridge || !Bridge->bJoined || !Bridge->CanBuild()) { CancelGhost(); return; }
+    if (!IsFrameOpen("build") || !Bridge || !Bridge->bJoined || !Bridge->CanBuild())
+    {
+        CancelGhost();
+        // build.js: Ctrl/Cmd+Z undoes your own edits even with edit mode closed.
+        APlayerController* UPC = GetOwningPlayer();
+        const TSharedPtr<SWidget> F = FSlateApplication::Get().GetKeyboardFocusedWidget();
+        const bool bText = F.IsValid() && (F->GetType() == TEXT("SEditableText") || F->GetType() == TEXT("SMultiLineEditableText"));
+        if (UPC && Bridge && Bridge->CanBuild() && !bText && !UndoStack.IsEmpty() && UPC->WasInputKeyJustPressed(EKeys::Z) &&
+            (UPC->IsInputKeyDown(EKeys::LeftControl) || UPC->IsInputKeyDown(EKeys::RightControl) || UPC->IsInputKeyDown(EKeys::LeftCommand)))
+            BuildAction(TEXT("build:undo"));
+        return;
+    }
     RefreshBuild();
     APlayerController* PC = GetOwningPlayer();
     AEidoverseScene* Scene = Bridge->GetScene();
@@ -451,13 +487,9 @@ void UEidoverseHUD::TickBuild(double Now)
         if (PC->WasInputKeyJustPressed(EKeys::LeftMouseButton)) PlaceGhost();
         return;
     }
-    // Click in the world with the pointer to select (clicks on panels never reach the game).
-    if (bPointerMode && PC->WasInputKeyJustPressed(EKeys::LeftMouseButton))
-    {
-        FHitResult Hit;
-        if (PC->GetHitResultUnderCursor(ECC_Visibility, true, Hit) && Hit.GetActor()) SelectEntity(Scene->EntityId(Hit.GetActor()));
-        else SelectEntity(FString());
-    }
+    // Click to select; press-and-drag moves (build.js); "attach to…" takes the next click as the parent.
+    TickDrag(PC, Scene, bShift);
+    if (Drag.bActive) return;
     const bool bCtrl = PC->IsInputKeyDown(EKeys::LeftControl) || PC->IsInputKeyDown(EKeys::RightControl) || PC->IsInputKeyDown(EKeys::LeftCommand);
     if (bCtrl && PC->WasInputKeyJustPressed(EKeys::Z)) { BuildAction(TEXT("build:undo")); return; }
     if (GetSelectedEntity().IsEmpty()) return;

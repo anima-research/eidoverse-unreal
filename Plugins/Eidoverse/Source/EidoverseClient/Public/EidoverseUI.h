@@ -237,6 +237,18 @@ private:
     TMap<FString, FString> LibNames;
     FString LastSpawned;
     double GhostYaw = 0, GhostScale = 1, GhostLift = 0;
+    // ---- build tools (EidoverseUIBuildTools.cpp, build.js / lights.js / scenegraph.js) ----
+    struct FDrag { FString Id; FVector2D StartMouse=FVector2D::ZeroVector; bool bArmed=false, bActive=false, bVertical=false;
+        double Depth=0, Yaw=0, Scale=1, LastSent=0; FVector Grab=FVector::ZeroVector, StartWorld=FVector::ZeroVector, BeforeWire=FVector::ZeroVector, CurrentWire=FVector::ZeroVector; };
+    FDrag Drag;
+    void TickDrag(class APlayerController* PC, class AEidoverseScene* Scene, bool bShift);
+    UPROPERTY() TObjectPtr<UVerticalBox> BuildExtras;
+    FString ExtrasFor;
+    FString AttachPick;          // "attach to…" armed: the child waiting for a parent click
+    void RebuildBuildExtras();
+    FString AuthorRefusal(const FString& Id) const;
+    bool BuildToolAction(const FString& Action);
+    void PushUndo(const FString& Verb, const TSharedRef<FJsonObject>& Args);
     bool bGhostAimed = false;
     bool AimGhost(FVector& OutWorld) const;
     UButton* ActionButton(const FString& Text, const FString& Id, bool bPrimary = false);
