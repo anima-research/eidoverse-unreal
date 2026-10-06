@@ -1414,6 +1414,7 @@ void UEidoverseHUD::NativeTick(const FGeometry& Geometry, float Delta)
         FScreenshotRequest::RequestScreenshot(FString::Printf(TEXT("eidoverse-%s-%s.png"), Bridge ? *Bridge->WorldName : TEXT("world"), *Stamp), false, false);
         Hint(TEXT("screenshot saved"), 2);
     }
+    else if (PC->WasInputKeyJustPressed(EKeys::F3)) { if (Bridge) Bridge->ToggleDebugOverlay(); }
     else if (PC->WasInputKeyJustPressed(EKeys::M)) SetPointerMode(!bPointerMode);
     else if (PC->WasInputKeyJustPressed(EKeys::F1)) SetVisibility(GetVisibility() == ESlateVisibility::Hidden ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Hidden);
     else if (PC->WasInputKeyJustPressed(EKeys::Slash) && (PC->IsInputKeyDown(EKeys::LeftShift) || PC->IsInputKeyDown(EKeys::RightShift))) ToggleHelp();

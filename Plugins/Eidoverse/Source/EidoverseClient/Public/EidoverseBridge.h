@@ -289,6 +289,12 @@ public:
     UFUNCTION(BlueprintPure,Category="Eidoverse") FString GetHeldBody() const { return HeldBody.IsValid()?HeldBody->Id:FString(); }
     UFUNCTION(BlueprintCallable,Category="Eidoverse") bool GrabBodyAt(FVector RayOrigin,FVector RayDirection);   // held until LetGoOfBody (scripts, tests)
     UFUNCTION(BlueprintCallable,Category="Eidoverse") void LetGoOfBody(bool bNail) { ReleaseHeldBody(bNail); }
+    // F3 (debug.js): what physics thinks the world is — collision volumes (show Collision),
+    // the ragdoll joints, and a stats line.
+    bool bDebugOverlay=false;
+    UFUNCTION(BlueprintCallable,Category="Eidoverse") void ToggleDebugOverlay();
+    UFUNCTION(BlueprintPure,Category="Eidoverse") FString DebugStats() const;
+    void TickDebugOverlay();
     UPROPERTY(Transient) TObjectPtr<class UMaterialParameterCollection> FloraCollection;
     UFUNCTION(BlueprintPure,Category="Eidoverse") FString GetDraggedBy() const { return DraggedBy; }
     UFUNCTION(BlueprintPure,Category="Eidoverse") int32 GetPinCount() const { return MyPins.Num(); }

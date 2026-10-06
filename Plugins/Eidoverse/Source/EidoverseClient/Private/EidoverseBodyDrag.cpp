@@ -14,6 +14,8 @@
 #include "Dom/JsonValue.h"
 #include "GameFramework/PlayerController.h"
 #include "Kismet/GameplayStatics.h"
+#include "DrawDebugHelpers.h"
+#include "EidoverseVoice.h"
 
 namespace
 {
@@ -190,4 +192,41 @@ void AEidoverseBridge::TickHeldBody(APlayerController* PC, float Dt)
         Msg->SetField(TEXT("p"), V3(R.RootPosition)); Msg->SetNumberField(TEXT("yaw"), R.RootYaw);
         SendRaw(TEXT("bodydrag"), Msg);
     }
+}
+
+// ---------------------------------------------------------------- F3
+void AEidoverseBridge::ToggleDebugOverlay()
+{
+    bDebugOverlay = !bDebugOverlay;
+    if (APlayerController* PC = UGameplayStatics::GetPlayerController(this, 0)) PC->ConsoleCommand(TEXT("show Collision"));
+    if (HUD) HUD->Hint(bDebugOverlay ? TEXT("debug: collision volumes and ragdoll joints (F3 to hide)") : TEXT("debug off"), 2.5f);
+}
+
+FString AEidoverseBridge::DebugStats() const
+{
+    const float Fps = FApp::GetDeltaTime() > 0 ? 1.f / float(FApp::GetDeltaTime()) : 0.f;
+    const AEidoverseScene* S = DynamicScene.Get();
+    int32 Demoted = S ? S->GetDemotedCount() : 0;
+    const APawn* Me = UGameplayStatics::GetPlayerPawn(this, 0);
+    const FVector P = Me ? ToWirePosition(Me->GetActorLocation() - OriginCentimeters) : FVector::ZeroVector;
+    return FString::Printf(TEXT("%.0f fps · %s · %d people · %d things (%d demoted) · at %.1f %.1f %.1f · %s%s"),
+        Fps, *WorldName, Peers.Num(), S ? S->GetItems().Num() : 0, Demoted, P.X, P.Y, P.Z,
+        bDowned ? TEXT("limp") : IsFlying() ? TEXT("flying") : TEXT("standing"), Voice ? *(TEXT(" · ") + Voice->DescribeState()) : TEXT(""));
+}
+
+void AEidoverseBridge::TickDebugOverlay()
+{
+    if (!bDebugOverlay) return;
+    UWorld* World = GetWorld();
+    auto Draw = [this, World](const EidoRagdoll::FRagdoll& Rd)
+    {
+        for (const FName J : EidoRagdoll::Joints())
+        {
+            FVector W; if (!Rd.GetParticle(J, W)) continue;
+            DrawDebugSphere(World, OriginCentimeters + FromWirePosition(W), 6, 8, FColor(0xff, 0x8f, 0xb0), false, -1, SDPG_Foreground, 1);
+        }
+    };
+    if (Rag.IsValid()) Draw(*Rag);
+    if (HeldBody.IsValid()) Draw(*HeldBody->Rd);
+    if (HUD) HUD->Hint(DebugStats(), .3f);
 }
