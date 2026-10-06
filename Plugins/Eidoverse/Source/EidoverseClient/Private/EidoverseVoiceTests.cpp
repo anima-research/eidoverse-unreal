@@ -1,4 +1,5 @@
 #include "EidoverseVoice.h"
+#include "EidoverseVoiceWave.h"
 #include "Misc/AutomationTest.h"
 #if WITH_DEV_AUTOMATION_TESTS
 #include "Dom/JsonObject.h"
@@ -62,7 +63,9 @@ bool FEidoverseVoiceLoopback::RunTest(const FString&)
     }
 
     const FString Url = FPlatformMisc::GetEnvironmentVariable(TEXT("EIDO_VOICE_TEST_URL")).IsEmpty() ? TEXT("ws://127.0.0.1:8994/ws") : FPlatformMisc::GetEnvironmentVariable(TEXT("EIDO_VOICE_TEST_URL"));
-    const FString WorldName = FPlatformMisc::GetEnvironmentVariable(TEXT("EIDO_VOICE_TEST_WORLD")).IsEmpty() ? TEXT("water-preview") : FPlatformMisc::GetEnvironmentVariable(TEXT("EIDO_VOICE_TEST_WORLD"));
+    // A fresh world each run: a long-lived one accumulates voice incarnations across runs.
+    const FString WorldName = FPlatformMisc::GetEnvironmentVariable(TEXT("EIDO_VOICE_TEST_WORLD")).IsEmpty()
+        ? FString::Printf(TEXT("voice-test-%lld"), FDateTime::UtcNow().ToUnixTimestamp()) : FPlatformMisc::GetEnvironmentVariable(TEXT("EIDO_VOICE_TEST_WORLD"));
     FString BunPath = FPlatformMisc::GetEnvironmentVariable(TEXT("BUN"));
     if (BunPath.IsEmpty()) BunPath = FPaths::Combine(FPlatformMisc::GetEnvironmentVariable(TEXT("HOME")), TEXT(".bun/bin/bun"));
     const FString Script = FPaths::ConvertRelativePathToFull(FPaths::Combine(FPaths::ProjectDir(), TEXT("Tools/eidoverse/voice_bot.ts")));
@@ -121,13 +124,32 @@ bool FEidoverseVoiceLoopback::RunTest(const FString&)
                 if (USoundWaveProcedural* Wave = S->Voice->GetSpeakerWaves().FindRef(TEXT("voicebot")))
                 {
                     TArray<int16> Pcm; Pcm.SetNumZeroed(1024);
+                    float EnginePeak = 0;
                     for (int32 K = 0; K < 4; ++K)
                     {
                         Wave->GeneratePCMData(reinterpret_cast<uint8*>(Pcm.GetData()), Pcm.Num());
-                        for (int16 V : Pcm) S->WavePeak = FMath::Max(S->WavePeak, FMath::Abs(float(V)) / 32768.f);
+                        for (int16 V : Pcm) EnginePeak = FMath::Max(EnginePeak, FMath::Abs(float(V)) / 32768.f);
                     }
+                    // What the render thread's callback produces (the engine may not pull an unplayed wave).
+                    TArray<uint8> Raw;
+                    for (int32 K = 0; K < 4; ++K)
+                    {
+                        static_cast<UEidoVoiceSpeakerWave*>(Wave)->OnGeneratePCMAudio(Raw, 1024);
+                        const int16* V16 = reinterpret_cast<const int16*>(Raw.GetData());
+                        for (int32 I = 0; I < Raw.Num() / 2; ++I) S->WavePeak = FMath::Max(S->WavePeak, FMath::Abs(float(V16[I])) / 32768.f);
+                    }
+                    S->WavePeak = FMath::Max(S->WavePeak, EnginePeak);
+                    const auto& R = static_cast<UEidoVoiceSpeakerWave*>(Wave)->Ring;
+                    UE_LOG(LogTemp, Display, TEXT("[voice-test] wave PCM: engine pull peak %.3f, generator peak %.3f, ring w=%llu r=%llu primed=%d"), EnginePeak, S->WavePeak,
+                        R ? R->Write.load() : 0, R ? R->Read.load() : 0, R ? int32(R->bPrimed) : -1);
                     S->WavePeak = FMath::Max(S->WavePeak, 1e-6f);
                 }
+            }
+            if (L > .05f && !S->bHeard)
+            {
+                // Nothing plays this wave in a test, so its 1 s ring filled with whatever came first
+                // (pre-tone silence) and dropped the rest: empty it, as a playing component would.
+                if (USoundWaveProcedural* W = S->Voice->GetSpeakerWaves().FindRef(TEXT("voicebot"))) { TArray<uint8> Flush; static_cast<UEidoVoiceSpeakerWave*>(W)->OnGeneratePCMAudio(Flush, 48000); }
             }
             if (L > .05f && !S->bHeard) { S->bHeard = true; S->HeardAt = Now; UE_LOG(LogTemp, Display, TEXT("[voice-test] heard voicebot at level %.3f after %.1fs — %s"), L, Now - S->T0, *S->Voice->DescribeState()); }
         }
