@@ -266,9 +266,16 @@ private:
     UPROPERTY() TObjectPtr<UTextBlock> SkyState;
     UPROPERTY() TObjectPtr<UTextBlock> SkyNote;
     UPROPERTY() TObjectPtr<UWrapBox> SkyPresets;
+    // skypanel.js sliders: field -> slider, and the value last shown (user moves differ).
+    UPROPERTY() TMap<FString, TObjectPtr<class USlider>> SkySliders;
+    TMap<FString, float> SkySliderShown;
+    UPROPERTY() TObjectPtr<UWrapBox> SkyClocks;
+    void PreviewSkyDraft(bool bOn);
     UPROPERTY() TArray<TObjectPtr<UButton>> OwnerButtons;
     FString GroundShape = TEXT("hills"), GroundTint = TEXT("meadow"), GrassHeight = TEXT("meadow"), GrassDensity = TEXT("normal");
     int32 GroundSeed = 7;
+    // groundpanel.js: shape/tint apply at once; height/density regrow what was planted.
+    FString LastPlanting; bool bGrassGrown = false;
     UPROPERTY() TObjectPtr<UTextBlock> GroundState;
     UPROPERTY() TObjectPtr<UTextBlock> GroundNote;
     UPROPERTY() TObjectPtr<UWrapBox> GroundShapes;

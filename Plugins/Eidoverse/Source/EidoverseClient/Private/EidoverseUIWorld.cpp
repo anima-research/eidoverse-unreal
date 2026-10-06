@@ -3,6 +3,8 @@
 // scenegraph.js, mybody.js). The UI only enables what the server would accept
 // (yourRights); the server remains the authority and refuses with 'error'.
 #include "EidoverseUI.h"
+#include "Components/Slider.h"
+#include "Components/SizeBox.h"
 #include "EidoverseBridge.h"
 #include "EidoverseScene.h"
 #include "Blueprint/WidgetTree.h"
@@ -31,7 +33,13 @@ namespace
 {
     const TCHAR* WorldTabNames[] = {TEXT("here"), TEXT("avatar"), TEXT("sky"), TEXT("ground"), TEXT("scene")};
     const TCHAR* Clouds[] = {TEXT("clear"), TEXT("cumulus"), TEXT("stratus"), TEXT("cirrus")};
-    const TCHAR* Weathers[] = {TEXT("clear"), TEXT("fair"), TEXT("sunshower"), TEXT("overcast"), TEXT("rain"), TEXT("storm")};
+    const TCHAR* Weathers[] = {TEXT("clear"), TEXT("fair"), TEXT("sunshower"), TEXT("overcast"), TEXT("rain"), TEXT("storm"), TEXT("cyclone"), TEXT("darkstorm")};
+    // skypanel.js SLIDERS: [key, min, max, step, default]
+    struct FSkySlider { const TCHAR* Key; const TCHAR* Label; float Min, Max, Step, Default; };
+    const FSkySlider SkySliderSpec[] = {
+        {TEXT("hours"), TEXT("hour"), 0, 24, .1f, 12}, {TEXT("rate"), TEXT("day speed"), 0, 48, .5f, 0}, {TEXT("azimuth"), TEXT("sun bearing"), 0, 360, 5, 180},
+        {TEXT("sun"), TEXT("sun"), 0, 2.5f, .05f, 1}, {TEXT("ambient"), TEXT("ambient"), 0, 2.5f, .05f, 1}, {TEXT("fill"), TEXT("fill"), 0, 2.5f, .05f, 1},
+        {TEXT("exposure"), TEXT("exposure"), .3f, 1.8f, .05f, 1}, {TEXT("fog"), TEXT("fog"), 0, 3, .05f, 1}};
 
     TSharedPtr<FJsonObject> Copy(const TSharedPtr<FJsonObject>& O)
     {
@@ -114,6 +122,22 @@ UWidget* UEidoverseHUD::BuildWorldSky()
     Section(TEXT("Time of day"));
     UWrapBox* Hours = Wrap();
     for (const TCHAR* Step : {TEXT("-3h"), TEXT("-1h"), TEXT("+1h"), TEXT("+3h")}) Hours->AddChildToWrapBox(ActionButton(Step, FString(TEXT("sky:h")) + Step));
+    Section(TEXT("Light"));
+    for (const FSkySlider& S : SkySliderSpec)
+    {
+        auto* Row = WidgetTree->ConstructWidget<UHorizontalBox>();
+        auto* Name = Label(S.Label, 10, FEidoverseTheme::Dim());
+        auto* NameBox = WidgetTree->ConstructWidget<USizeBox>(); NameBox->SetWidthOverride(84); NameBox->SetContent(Name);
+        Row->AddChildToHorizontalBox(NameBox);
+        auto* Slider = WidgetTree->ConstructWidget<USlider>();
+        Slider->SetMinValue(S.Min); Slider->SetMaxValue(S.Max); Slider->SetStepSize(S.Step); Slider->SetValue(S.Default);
+        Slider->SetSliderBarColor(FEidoverseTheme::Brand().CopyWithNewOpacity(.35f)); Slider->SetSliderHandleColor(FEidoverseTheme::Brand());
+        Row->AddChildToHorizontalBox(Slider)->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+        Column->AddChildToVerticalBox(Row)->SetPadding(FMargin(0, 1));
+        SkySliders.Add(S.Key, Slider); SkySliderShown.Add(S.Key, S.Default);
+    }
+    Section(TEXT("Clock"));
+    SkyClocks = Wrap();
     Section(TEXT("Clouds"));
     UWrapBox* CloudRow = Wrap();
     for (const TCHAR* C : Clouds) CloudRow->AddChildToWrapBox(ActionButton(C, FString(TEXT("sky:clouds:")) + C));
@@ -287,6 +311,31 @@ void UEidoverseHUD::RefreshWorldPanels()
     if (SkyPresets && SkyPresets->GetChildrenCount() == 0 && Defs)
         if (const TSharedPtr<FJsonObject> Presets = Sub(Defs, TEXT("skyPresets")))
             for (const auto& P : Presets->Values) SkyPresets->AddChildToWrapBox(ActionButton(FString(P.Key), TEXT("sky:preset:") + FString(P.Key)));
+    // Sliders: a user move edits the draft and previews it here; otherwise they follow the draft.
+    for (const auto& Pair : SkySliders)
+    {
+        USlider* S = Pair.Value; if (!S) continue;
+        const float Shown = SkySliderShown.FindRef(Pair.Key);
+        double Draft = Shown; const bool bHas = SkyDraft->TryGetNumberField(*Pair.Key, Draft);
+        if (!FMath::IsNearlyEqual(S->GetValue(), Shown, .0001f))
+        {
+            SkyDraft->SetNumberField(*Pair.Key, FMath::RoundToDouble(S->GetValue() * 1000) / 1000);
+            SkySliderShown.Add(Pair.Key, S->GetValue()); bSkyDirty = true; PreviewSkyDraft(true);
+        }
+        else if (bHas && !FMath::IsNearlyEqual(float(Draft), Shown, .0001f)) { S->SetValue(float(Draft)); SkySliderShown.Add(Pair.Key, float(Draft)); }
+    }
+    if (SkyClocks && SkyClocks->GetChildrenCount() == 0 && Defs)
+    {
+        SkyClocks->AddChildToWrapBox(ActionButton(TEXT("authored"), TEXT("sky:clock:authored")));
+        if (const TSharedPtr<FJsonObject> Clocks = Sub(Defs, TEXT("skyClocks")))
+            for (const auto& C : Clocks->Values)
+            {
+                const TSharedPtr<FJsonObject> O = C.Value ? C.Value->AsObject() : nullptr; FString Tz, Lbl;
+                if (!O || !O->TryGetStringField(TEXT("tz"), Tz)) continue;
+                if (!O->TryGetStringField(TEXT("label"), Lbl)) Lbl = Tz;
+                SkyClocks->AddChildToWrapBox(ActionButton(Lbl, TEXT("sky:clock:") + Tz));
+            }
+    }
     double Hours = 12;
     SkyDraft->TryGetNumberField(TEXT("hours"), Hours);
     FString CloudState = TEXT("clear"), WeatherState = TEXT("clear");
@@ -332,10 +381,37 @@ void UEidoverseHUD::RefreshWorldPanels()
         {
             SceneHash = SHash;
             SceneList->ClearChildren();
-            for (const auto& E : Entities)
+            // scenegraph.js: a tree under mounts (14 px a level), riders listed, component badges.
+            const AEidoverseScene* SceneRO = Bridge->GetScene();
+            TMap<FString, TArray<int32>> Children; TArray<int32> Roots;
+            for (int32 I = 0; I < Entities.Num(); ++I)
             {
+                const FEidoverseSceneItem* It = SceneRO ? SceneRO->GetItems().Find(Entities[I].Key) : nullptr;
+                const FString Parent = It ? It->MountTo : FString();
+                if (!Parent.IsEmpty() && Entities.ContainsByPredicate([&](const TPair<FString, FString>& X) { return X.Key == Parent; })) Children.FindOrAdd(Parent).Add(I); else Roots.Add(I);
+            }
+            TArray<TPair<int32, int32>> Order;   // entity index, depth
+            TFunction<void(int32, int32)> Walk = [&](int32 I, int32 Depth)
+            { Order.Add({I, Depth}); if (Depth < 8) for (int32 C : Children.FindRef(Entities[I].Key)) Walk(C, Depth + 1); };
+            for (int32 R : Roots) Walk(R, 0);
+            for (const auto& O : Order)
+            {
+                const auto& E = Entities[O.Key];
+                const FEidoverseSceneItem* It = SceneRO ? SceneRO->GetItems().Find(E.Key) : nullptr;
                 auto* Row = WidgetTree->ConstructWidget<UHorizontalBox>();
-                auto* Name = Label(Leaf(E.Value).IsEmpty() ? E.Key : Leaf(E.Value), 11, E.Key == Selected ? FEidoverseTheme::Brand() : FEidoverseTheme::Text(), E.Key == Selected);
+                FString Badges;
+                if (It)
+                {
+                    if (It->Motion || It->PartMotions) Badges += TEXT(" \u21BB");
+                    { const TSharedPtr<FJsonObject>* Sk = nullptr; if (It->Interact && It->Interact->TryGetObjectField(TEXT("sockets"), Sk)) Badges += TEXT(" \u2610seat"); }
+                    if (It->Particles) Badges += TEXT(" \u2728");
+                    if (It->Sound) Badges += TEXT(" \u266A");
+                    if (It->Picture) Badges += TEXT(" \u25A3");
+                    if (It->Light.IsValid()) Badges += TEXT(" \u2600");
+                }
+                const FString Title = (O.Value ? FString(TEXT("\u21B3 ")) : FString()) + (Leaf(E.Value).IsEmpty() ? E.Key : Leaf(E.Value)) + Badges;
+                if (O.Value) Row->AddChildToHorizontalBox(Label(TEXT(""), 11))->SetPadding(FMargin(14 * O.Value, 0, 0, 0));
+                auto* Name = Label(Title, 11, E.Key == Selected ? FEidoverseTheme::Brand() : FEidoverseTheme::Text(), E.Key == Selected);
                 Name->SetAutoWrapText(false);
                 Row->AddChildToHorizontalBox(Name)->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
                 auto* Id = Label(E.Key, 9, FEidoverseTheme::Dim());
@@ -391,14 +467,16 @@ void UEidoverseHUD::WorldAction(const FString& Action)
         }
         else if (Id.StartsWith(TEXT("sky:clouds:"))) { SkyDraft->SetStringField(TEXT("clouds"), Id.Mid(11)); bSkyDirty = true; }
         else if (Id.StartsWith(TEXT("sky:weather:"))) { SkyDraft->SetStringField(TEXT("weather"), Id.Mid(12)); SkyDraft->SetNumberField(TEXT("weatherSeconds"), 12); bSkyDirty = true; }
-        else if (Id == TEXT("sky:revert")) { SkyDraft = Copy(SkySource); bSkyDirty = false; }
+        else if (Id == TEXT("sky:revert")) { SkyDraft = Copy(SkySource); bSkyDirty = false; PreviewSkyDraft(false); }
+        else if (Id == TEXT("sky:clock:authored")) { SkyDraft->RemoveField(TEXT("clock")); SkyDraft->RemoveField(TEXT("tz")); bSkyDirty = true; }
+        else if (Id.StartsWith(TEXT("sky:clock:"))) { SkyDraft->SetStringField(TEXT("clock"), TEXT("real")); SkyDraft->SetStringField(TEXT("tz"), Id.Mid(10)); bSkyDirty = true; }
         else if (Id == TEXT("sky:apply"))
         {
             // Web skypanel gather(): the whole sky, hours and azimuth always present.
             auto Args = Copy(SkyDraft);
             if (!Args->HasField(TEXT("hours"))) Args->SetNumberField(TEXT("hours"), 12);
             if (!Args->HasField(TEXT("azimuth"))) Args->SetNumberField(TEXT("azimuth"), 180);
-            if (Bridge->IsOwner() && Bridge->SendVerb(TEXT("sky"), Args.ToSharedRef())) { bSkyDirty = false; Toast(TEXT("Sky applied.")); }
+            if (Bridge->IsOwner() && Bridge->SendVerb(TEXT("sky"), Args.ToSharedRef())) { bSkyDirty = false; Toast(TEXT("Sky applied.")); PreviewSkyDraft(false); }
             else Refused(TEXT("only the owner can change the sky"));
         }
     }
@@ -418,16 +496,20 @@ void UEidoverseHUD::WorldAction(const FString& Action)
             if (Bridge->IsOwner() && Bridge->SendVerb(TEXT("terrain"), Args)) Toast(TEXT("Terrain applied."));
             else Refused(TEXT("only the owner can reshape the ground"));
         };
-        if (Id.StartsWith(TEXT("ground:shape:"))) GroundShape = Id.Mid(13);
-        else if (Id.StartsWith(TEXT("ground:tint:"))) GroundTint = Id.Mid(12);
-        else if (Id.StartsWith(TEXT("ground:height:"))) GrassHeight = Id.Mid(14);
-        else if (Id.StartsWith(TEXT("ground:density:"))) GrassDensity = Id.Mid(15);
+        // groundpanel.js: a shape or tint applies at once (a tint also regrows grass);
+        // height and density regrow the last planting.
+        auto Regrow = [&]() { if (bGrassGrown && !LastPlanting.IsEmpty()) WorldAction(TEXT("ground:plant:") + LastPlanting); };
+        if (Id.StartsWith(TEXT("ground:shape:"))) { GroundShape = Id.Mid(13); SendTerrain(); }
+        else if (Id.StartsWith(TEXT("ground:tint:"))) { GroundTint = Id.Mid(12); SendTerrain(); Regrow(); }
+        else if (Id.StartsWith(TEXT("ground:height:"))) { GrassHeight = Id.Mid(14); Regrow(); }
+        else if (Id.StartsWith(TEXT("ground:density:"))) { GrassDensity = Id.Mid(15); Regrow(); }
         else if (Id == TEXT("ground:apply")) SendTerrain();
         else if (Id == TEXT("ground:reshuffle")) { GroundSeed = FMath::RandRange(0, 9998); SendTerrain(); }
         else if (Id == TEXT("ground:mow"))
         {
             auto Args = MakeShared<FJsonObject>(); Args->SetBoolField(TEXT("clear"), true);
             if (!(Bridge->IsOwner() && Bridge->SendVerb(TEXT("grass"), Args))) Refused(TEXT("only the owner can mow"));
+            else bGrassGrown = false;
         }
         else if (Id.StartsWith(TEXT("ground:plant:")))
         {
@@ -447,7 +529,7 @@ void UEidoverseHUD::WorldAction(const FString& Action)
             double Density = 1;
             if (auto D = Sub(Palette, TEXT("grassDensity"))) D->TryGetNumberField(*GrassDensity, Density);
             Args->SetNumberField(TEXT("density"), Density);
-            if (Bridge->IsOwner() && Bridge->SendVerb(TEXT("grass"), Args.ToSharedRef())) Toast(TEXT("Planted."));
+            if (Bridge->IsOwner() && Bridge->SendVerb(TEXT("grass"), Args.ToSharedRef())) { Toast(TEXT("Planted.")); LastPlanting = Id.Mid(13); bGrassGrown = true; }
             else Refused(TEXT("only the owner can plant"));
         }
     }
@@ -460,4 +542,17 @@ void UEidoverseHUD::WorldAction(const FString& Action)
         SceneHash = 0;
     }
     RefreshWorldPanels();
+}
+
+void UEidoverseHUD::PreviewSkyDraft(bool bOn)
+{
+    // skypanel.js preview: the draft lights this view only; apply or revert restores the fold.
+    AEidoverseScene* Scene = Bridge ? Bridge->GetScene() : nullptr;
+    if (!Scene) return;
+    if (bOn && SkyDraft)
+    {
+        Scene->SetSkyArgs(SkyDraft);
+        double Hours = 12; if (SkyDraft->TryGetNumberField(TEXT("hours"), Hours)) Scene->SetPreviewHour(float(Hours));
+    }
+    else { Scene->SetSkyArgs(Bridge->WorldSky); Scene->SetPreviewHour(-1); }
 }
