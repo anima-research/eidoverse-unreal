@@ -34,6 +34,7 @@
 #include "Serialization/JsonSerializer.h"
 #include "Styling/CoreStyle.h"
 #include "Misc/ConfigCacheIni.h"
+#include "Widgets/SViewport.h"
 
 // ---------------------------------------------------------------- theme
 
@@ -1469,6 +1470,14 @@ void UEidoverseHUD::NativeTick(const FGeometry& Geometry, float Delta)
     // Any focused text field is typing: no world keys.
     const TSharedPtr<SWidget> Focused = FSlateApplication::Get().GetKeyboardFocusedWidget();
     const bool bTyping = Focused.IsValid() && (Focused->GetType() == TEXT("SEditableText") || Focused->GetType() == TEXT("SMultiLineEditableText"));
+    // A click into the 3D view while typing hands keyboard focus to the viewport without our
+    // click handler ever seeing it (it ran while the text still had focus): treat it as the
+    // click that returns to looking around, so look input is not left ignored.
+    {
+        const TSharedPtr<SViewport> GameViewport = FSlateApplication::Get().GetGameViewport();
+        if (bWasTyping && !bTyping && Focused.IsValid() && GameViewport.IsValid() && Focused == StaticCastSharedPtr<SWidget>(GameViewport)) LeaveChat(true);
+        bWasTyping = bTyping;
+    }
     if (!PC || bTyping) { if (!bTyping) return; TickBuild(Now); return; }
     TickBuild(Now);
     // A click in the 3D view (panels swallow their own clicks) goes back to looking

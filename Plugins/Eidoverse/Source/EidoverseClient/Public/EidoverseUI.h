@@ -296,6 +296,7 @@ private:
     UPROPERTY() TObjectPtr<UTextBlock> TypingLine;
     double LastTypingSent = 0;
     int32 RecallIndex = -1;
+    bool bWasTyping = false;
     // World / people / profile
     UPROPERTY() TObjectPtr<UTextBlock> WorldStatus;
     UPROPERTY() TObjectPtr<UTextBlock> LoginStatus;

@@ -114,10 +114,17 @@ void AEidoverseBridge::GetUp()
     if (UEidoverseAvatarMesh* M = SelfBody.AvatarMesh.Get()) M->SetLimp(false);
     if (Explorer)
     {
-        // Resume from where the body lies; gravity finds the floor.
+        // Stand up where the body lies: over the hips (a lying ragdoll's root sits about a
+        // metre under the ground), on whatever is under them.
         const double Half = Explorer->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
-        Explorer->SetActorLocation(OriginCentimeters + FromWirePosition(DownedRootWire) + FVector(0, 0, Half + 30), false, nullptr, ETeleportType::TeleportPhysics);
+        FVector At = OriginCentimeters + FromWirePosition(DownedRootWire);
+        if (UEidoverseAvatarMesh* M = SelfBody.AvatarMesh.Get()) { FVector Hips; if (M->HumanBonePosition(TEXT("hips"), Hips)) { At.X = Hips.X; At.Y = Hips.Y; At.Z = Hips.Z; } }
+        FHitResult Hit; FCollisionQueryParams Q(SCENE_QUERY_STAT(EidoverseGetUp), false, Explorer);
+        if (GetWorld()->LineTraceSingleByChannel(Hit, At + FVector(0, 0, 150), At - FVector(0, 0, 400), ECC_Visibility, Q)) At.Z = Hit.ImpactPoint.Z;
         Explorer->SetSeated(false);
+        Explorer->SetActorLocation(At + FVector(0, 0, Half + 2), false, nullptr, ETeleportType::TeleportPhysics);
+        Explorer->GetCharacterMovement()->Velocity = FVector::ZeroVector;
+        Explorer->GetCharacterMovement()->SetMovementMode(MOVE_Falling);
     }
 }
 
