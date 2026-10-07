@@ -187,6 +187,14 @@ void AEidoverseScene::ApplyLightingNow()
     }
     // Counter-fill from the other side of the sky in the warm hours (sky.js fill = .95 warmth).
     if(Moon){Moon->SetWorldRotation(FRotator(-50,(WeatherHour-12)*15+145,0));Moon->SetIntensity((.45f*(1-Day)+.25f*Warmth*FillK*Day)*AmbK);}
+    // One shadowed key light: the sun by day, the moon once the sun has dimmed below it
+    // (otherwise nights cast no shadows at all). Flip only on change: it rebuilds shadow state.
+    if(Sun&&Moon)
+    {
+        const bool bMoonKey=Sun->Intensity<Moon->Intensity;
+        if(Sun->CastShadows==bMoonKey)Sun->SetCastShadows(!bMoonKey);
+        if(Moon->CastShadows!=bMoonKey){Moon->SetCastShadows(bMoonKey);Moon->SetDynamicShadowCascades(3);}
+    }
     if(APostProcessVolume* PP=ScenePost.Get()){PP->Settings.bOverride_AutoExposureBias=true;PP->Settings.AutoExposureBias=FMath::Log2((1-.22f*Warmth*(1-Day))*ExpK);}
     if(Clouds){Clouds->SetVisibility(CloudAmount>.01);CloudMaterial->SetScalarParameterValue(TEXT("Coverage"),CloudAmount);CloudMaterial->SetVectorParameterValue(TEXT("CloudColor"),FMath::Lerp(FLinearColor(.018,.025,.04),FLinearColor(.55,.59,.63),Day)*(1-RainAmount*.5));}
     // core.js FogExp2(0.018 x sky.fog): 50 % at 46 m. UE fog density is per 1000 cm.

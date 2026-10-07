@@ -1,4 +1,5 @@
 #include "EidoverseBridge.h"
+#include "UnrealClient.h"
 #include "EidoverseLoadTrace.h"
 #include "EidoverseClips.h"
 #include "EidoverseUI.h"
@@ -797,6 +798,13 @@ void AEidoverseBridge::TickCommandLine(double Now)
             if(Parts.Num()==3)JoinFromDoor(Parts[0],Parts[1],Parts[2]);
             else UE_LOG(LogTemp,Warning,TEXT("EIDOVERSE -EidoverseJoin wants <server>,<world>,<name>"));
         }
+    }
+    // -EidoverseShotAt=<s after joining>: one screenshot of a packaged run (checks without the editor).
+    double ShotAt=0;static bool bShotTaken=false;static double ShotJoined=0;
+    if(bJoined&&!bShotTaken&&FParse::Value(FCommandLine::Get(),TEXT("EidoverseShotAt="),ShotAt)&&ShotAt>0)
+    {
+        if(ShotJoined<=0)ShotJoined=Now;
+        else if(Now-ShotJoined>ShotAt){bShotTaken=true;FScreenshotRequest::RequestScreenshot(TEXT("eidoverse-shot.png"),true,false);UE_LOG(LogTemp,Warning,TEXT("EIDOVERSE_SHOT requested"));}
     }
     double QuitAfter=0;
     if(bJoined&&FParse::Value(FCommandLine::Get(),TEXT("EidoverseQuitAfter="),QuitAfter)&&QuitAfter>0)
