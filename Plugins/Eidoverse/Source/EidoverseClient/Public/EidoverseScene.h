@@ -143,11 +143,33 @@ public:
     void SetGhostPose(const FVector& World, double WireYaw, double Scale);
     UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Eidoverse|Water") int32 WaterVolumeCount=0;
     UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Eidoverse|Water") int32 AirBoxCount=0;
+    // The world's one water LEVEL (client/lib/water.js, shared/terrainshape.js + waterkind.js + waves.js):
+    // a sheet over the terrain wherever the level is above ground, its kinds and flows from the server.
+    struct FLevelWaterSample { int32 Kind=-1; double Depth=0, Shore=0, WaveSpeed=0; FVector2D Flow=FVector2D::ZeroVector, ToShore=FVector2D::ZeroVector; };
+    bool HasLevelWater() const { return LevelWater.bOn; }
+    double LevelWaterLevel() const { return LevelWater.Level; }
+    // Wire metres: the analysed water at (x, z) (bilinear, as waterkind.sample), false on dry ground.
+    bool LevelWaterSample(double X, double Z, FLevelWaterSample& Out) const;
+    // shared/waves.js surfaceOffset + the level: where the surface stands at (x, z) now.
+    double LevelWaterSurface(double X, double Z) const;
+    double LevelWaveTime() const;
+    static double SurfaceOffset(const FLevelWaterSample& W, double X, double Z, double T);
+    UFUNCTION(BlueprintPure,Category="Eidoverse|Water") int32 GetLevelWaterWetCount() const { return LevelWater.WetCount; }
+    UFUNCTION(BlueprintPure,Category="Eidoverse|Water") FString DescribeLevelWater(FVector WirePosition) const;
 private:
     TMap<FString,FEidoverseSceneItem> Items;
     UPROPERTY() TMap<FString,TObjectPtr<UEidoverseAvatarAsset>> Assets;
     UPROPERTY() TMap<FString,TObjectPtr<UMaterialInstanceDynamic>> Materials;
     UPROPERTY() TObjectPtr<UProceduralMeshComponent> Terrain;
+    UPROPERTY() TObjectPtr<UProceduralMeshComponent> LevelWaterMesh;
+    UPROPERTY() TObjectPtr<class UMaterialParameterCollection> LevelWaterCollection;
+    struct FLevelWater
+    {
+        bool bOn=false; double Level=0, Size=0; int32 N=0, WetCount=0;
+        TArray<double> Heights; TArray<int8> Kind; TArray<float> Shore, WaveSpeed; TArray<FVector2D> Dir;   // Dir: river flow or ocean way to shore
+    } LevelWater;
+    void BuildLevelWater(const TSharedPtr<FJsonObject>& Water,const TArray<TSharedPtr<FJsonValue>>& Heights,int32 N,double Size,const FVector& Origin);
+    void TickLevelWater();
     UPROPERTY() TArray<TObjectPtr<UProceduralMeshComponent>> Flora;
     UPROPERTY() TObjectPtr<UStaticMesh> GroundCoverMesh;
     UPROPERTY() TObjectPtr<UHierarchicalInstancedStaticMeshComponent> GroundCover;
@@ -297,6 +319,8 @@ public:
     UPROPERTY(Transient,BlueprintReadOnly,Category="Eidoverse") bool bPhoto=false;
     FVector PhotoPos=FVector::ZeroVector, PhotoVel=FVector::ZeroVector; FRotator PhotoView=FRotator::ZeroRotator; float PhotoFov=55, PhotoFovWant=55;
     UFUNCTION(BlueprintCallable,Category="Eidoverse") void SetPhotoMode(bool bOn);
+    // Place the photo camera (tests, scripted shots): photo mode on, at a UE position looking along View.
+    UFUNCTION(BlueprintCallable,Category="Eidoverse") void SetPhotoView(FVector Position,FRotator View) { if(!bPhoto)SetPhotoMode(true); PhotoPos=Position; PhotoVel=FVector::ZeroVector; PhotoView=View; }
     void TickPhoto(float Dt,class APlayerController* PC);
     FVector MantleFrom=FVector::ZeroVector, MantleTo=FVector::ZeroVector; float MantleT=0;
     UFUNCTION(BlueprintCallable,Category="Eidoverse") bool TryMantle();

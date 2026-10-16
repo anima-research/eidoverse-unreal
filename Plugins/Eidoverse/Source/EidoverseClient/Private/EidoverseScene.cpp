@@ -111,6 +111,7 @@ void AEidoverseScene::ApplyEnvironment(const TSharedPtr<FJsonObject>& Env,const 
     auto* GroundMaterial=Material(TEXT("terrain"));const uint32 Tint=uint32(Num(T,TEXT("color"),0x70815a));
     if(GroundMaterial)GroundMaterial->SetVectorParameterValue(TEXT("baseColorFactor"),FLinearColor::FromSRGBColor(FColor((Tint>>16)&255,(Tint>>8)&255,Tint&255)));
     Terrain->CreateMeshSection_LinearColor(0,P,Indices,Normals,UV,{}, {},true);Terrain->SetMaterial(0,GroundMaterial);Terrain->SetCollisionProfileName(TEXT("BlockAll"));
+    BuildLevelWater(Obj(Env,TEXT("water")),H,N,Size,Origin);
 }
 void AEidoverseScene::Apply(const TSharedPtr<FJsonObject>& Message,const FVector& Origin,const FString& Library)
 {
@@ -203,7 +204,7 @@ void AEidoverseScene::Apply(const TSharedPtr<FJsonObject>& Message,const FVector
 }
 void AEidoverseScene::Tick(float Dt)
 {
-    Super::Tick(Dt);TickWeather(Dt);TickPlacedLights(FPlatformTime::Seconds());TickResidency(FPlatformTime::Seconds());TickParts();TickPictures();TickParticles(Dt);TickSounds();int Loading=0;for(auto& A:Assets)Loading+=A.Value->State==UEidoverseAvatarAsset::EState::Loading;
+    Super::Tick(Dt);TickWeather(Dt);TickLevelWater();TickPlacedLights(FPlatformTime::Seconds());TickResidency(FPlatformTime::Seconds());TickParts();TickPictures();TickParticles(Dt);TickSounds();int Loading=0;for(auto& A:Assets)Loading+=A.Value->State==UEidoverseAvatarAsset::EState::Loading;
     // Stream nearest first: start queued models in order of distance to the viewer.
     if(Loading<4)
     {
