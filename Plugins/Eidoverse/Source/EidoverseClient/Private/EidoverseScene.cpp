@@ -457,6 +457,7 @@ void AEidoverseExplorer::Tick(float Dt)
     GetCharacterMovement()->MaxWalkSpeed=bRun?400:bCreep?55:155;
     AddMovementInput(R.Vector(),Forward);
     AddMovementInput(FRotationMatrix(R).GetUnitAxis(EAxis::Y),Right);
+    TickLevelWater(Dt,bRun);
     // Postures: X sit, Z lie (Ctrl+Z stays build-mode undo); walking or jumping stands up.
     const bool bCtrl=PC->IsInputKeyDown(EKeys::LeftControl)||PC->IsInputKeyDown(EKeys::RightControl)||PC->IsInputKeyDown(EKeys::LeftCommand);
     if(PC->WasInputKeyJustPressed(EKeys::X)){if(bSeatHandled)bSitPressed=true;else Posture=Posture==TEXT("sit")?FString():TEXT("sit");}
@@ -771,4 +772,52 @@ FString AEidoverseScene::DescribeResidency(const FString& Id) const
     const auto* G=GeomByLib.Find(E->Lib);
     return FString::Printf(TEXT("lib=%s key=%d bbox=%d light=%d mount=%d held=%d parts=%d d=%.0fm demoted=%d"),*E->Lib,!E->AssetKey.IsEmpty(),G!=nullptr,E->Light.IsValid(),
         !E->MountTo.IsEmpty(),HeldTransforms.Contains(Id),E->AssetParts.Num(),FMath::Min(FVector::Dist(Eye,E->Actor->GetActorLocation()),FVector::Dist(Body,E->Actor->GetActorLocation()))/100,E->bDemoted);
+}
+
+void AEidoverseExplorer::TickLevelWater(float Dt,bool bRun)
+{
+    TActorIterator<AEidoverseScene> SceneIt(GetWorld());
+    AEidoverseScene* Scene=SceneIt?*SceneIt:nullptr;
+    auto* Move=GetCharacterMovement();
+    auto Leave=[&](){if(bLevelSwim){bLevelSwim=false;Move->SetMovementMode(MOVE_Falling);}WadeFactor=1;};
+    if(!Scene||!Scene->HasLevelWater()||bSeated||bMantling){Leave();return;}
+    const FVector Origin=Scene->GetSceneOrigin();
+    const double Half=GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+    const FVector Feet=GetActorLocation()-FVector(0,0,Half);
+    // What the body would stand on (the water sheet has no collision): a pier over deep water is dry.
+    FHitResult Hit;FCollisionQueryParams Q(SCENE_QUERY_STAT(EidoverseWadeFloor),true,this);
+    const double Ground=GetWorld()->LineTraceSingleByChannel(Hit,Feet+FVector(0,0,60),Feet-FVector(0,0,4000),ECC_Visibility,Q)?(Hit.ImpactPoint.Z-Origin.Z)/100:(Feet.Z-Origin.Z)/100;
+    const double H=1.7*BodyScale,Level=Scene->LevelWaterLevel();
+    // shared/terrainshape.js waterStance
+    const double Depth=Level-Ground,FloatAt=Level-.75*H;
+    if(!(Ground<FloatAt))
+    {
+        Leave();
+        const double F=FMath::Max(Depth,0.0)/H,T=FMath::Clamp((F-.08)/.67,0.0,1.0);
+        WadeFactor=float(1-.5*T*T*(3-2*T));
+        Move->MaxWalkSpeed*=WadeFactor;
+        return;
+    }
+    const double FeetWire=(Feet.Z-Origin.Z)/100;
+    // Reaching the water starts the float, not the bank: a body walking off a high bank falls first.
+    if(!bLevelSwim&&FeetWire>FloatAt+.3)return;
+    if(!bLevelSwim){bLevelSwim=true;FloatY=FeetWire;FloatVY=Move->Velocity.Z/100;Move->SetMovementMode(MOVE_Flying);}
+    WadeFactor=1;
+    Move->MaxFlySpeed=float((bRun?1.5:.9)*100*BodyScale);
+    // footprintSurface over the moving surface, then floatStep (substepped at 120 Hz, damping 0.6)
+    const FVector W=AEidoverseBridge::ToWirePosition(Feet-Origin);
+    auto Surf=[Scene](double X,double Z){return Scene->LevelWaterSurface(X,Z);};
+    const double R=.35,Surface=(Surf(W.X,W.Z)*2+Surf(W.X+R,W.Z)+Surf(W.X-R,W.Z)+Surf(W.X,W.Z+R)+Surf(W.X,W.Z-R))/6;
+    const double Sub0=.75*H,G=9.8,C=2*.6*FMath::Sqrt(G/Sub0);
+    const int32 N=FMath::Max(1,FMath::CeilToInt(Dt/(1.0/120)));const double Step=Dt/N;
+    for(int32 I=0;I<N;++I)
+    {
+        const double Sub=FMath::Min(H,FMath::Max(0.0,Surface-FloatY));
+        FloatVY+=(G*(Sub/Sub0-1)-C*FloatVY)*Step;FloatY+=FloatVY*Step;
+        if(FloatY<Ground){FloatY=Ground;if(FloatVY<0)FloatVY=0;}
+    }
+    FVector At=GetActorLocation();At.Z=Origin.Z+FloatY*100+Half;
+    SetActorLocation(At,false,nullptr,ETeleportType::TeleportPhysics);
+    Move->Velocity.Z=0;
+    Posture.Empty();   // you cannot sit down in deep water
 }

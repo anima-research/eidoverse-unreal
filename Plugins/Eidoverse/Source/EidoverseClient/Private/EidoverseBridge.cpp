@@ -430,10 +430,13 @@ void AEidoverseBridge::TickAvatars(double Time)
         Candidate.Mesh->UpdateEmissiveLights(Time,Day,Enable);
     }
 }
-bool AEidoverseBridge::AnimateWithClips(FEidoversePeer& P,const FString& Slot,float Speed,double Time)
+bool AEidoverseBridge::AnimateWithClips(FEidoversePeer& P,const FString& SlotIn,float Speed,double Time)
 {
     UEidoverseAvatarMesh* M=P.AvatarMesh.Get();
     if(!M||!ClipLibrary)return false;
+    // swim/tread are procedural layers over idle (avatar.js _swimLayer): no rig ships them.
+    M->SetSwimSlot(SlotIn);
+    const FString Slot=SlotIn==TEXT("swim")||SlotIn==TEXT("tread")?FString(TEXT("idle")):SlotIn;
     // Emotes: one-shot clips from the server's emote table, loaded on first use
     // (avatar.js playEmote); moving cancels them (setClip with speed > 0.05).
     if(P.bEmotePending)
@@ -511,7 +514,7 @@ void AEidoverseBridge::TickSelfBody(double Time)
         }
     }
     M->SetWings(bWingsFolded,FlightEffort());
-    SelfClipSlot=!LocoClip.IsEmpty()?LocoClip:Explorer->bMantling?TEXT("climb"):!SeatClip.IsEmpty()?SeatClip:EidoClipRules::SelectLocomotion(Explorer->bJumped,Explorer->AirborneSeconds,Explorer->bWantMove,Ground,Explorer->Posture);
+    SelfClipSlot=!LocoClip.IsEmpty()?LocoClip:Explorer->bLevelSwim?(Explorer->bWantMove||Ground>.15f?TEXT("swim"):TEXT("tread")):Explorer->bMantling?TEXT("climb"):!SeatClip.IsEmpty()?SeatClip:EidoClipRules::SelectLocomotion(Explorer->bJumped,Explorer->AirborneSeconds,Explorer->bWantMove,Ground,Explorer->Posture);
     // Walking off a ledge eases into the fall over 0.5 s; a deliberate jump snaps in 0.1 s.
     bSelfJumpEase=SelfClipSlot==TEXT("jump")&&!Explorer->bJumped;
     // First person while seated, lying or posed: the eye rides the head (fp_view.js).
@@ -588,7 +591,13 @@ void AEidoverseBridge::Pose(const FString& Id,const TSharedPtr<FJsonObject>& Dat
     {if(!Eido::Vector(Data,TEXT("q"),4,Q))return;FQuat Rotation(Q[0],Q[1],Q[2],Q[3]);if(Rotation.SizeSquared()<.0001)return;Sample.Orientation=FromWireRotation(Rotation.GetNormalized());}
     const TSharedPtr<FJsonObject>* Loc=nullptr;FString Body;
     if(Data->TryGetObjectField(TEXT("locomotion"),Loc)){Peer->Mode=Eido::String(*Loc,TEXT("mode")).Left(32);Body=Eido::String(*Loc,TEXT("body"));}
-    else Peer->Mode=Eido::String(Data,TEXT("clip"));
+    else
+    {
+        // No locomotion: old underwater clients named their mode in the clip; a body swimming in the
+        // world's water LEVEL sends clip swim/tread on land locomotion (controller.js), so that is walking.
+        const FString Clip=Eido::String(Data,TEXT("clip"));
+        Peer->Mode=Clip==TEXT("swim")||Clip==TEXT("tread")?FString(TEXT("walk")):Clip;
+    }
     double Speed=0;Data->TryGetNumberField(TEXT("speed"),Speed);Peer->Speed=FMath::IsFinite(Speed)?FMath::Clamp(float(Speed),0.f,10.f):0;
     // Every humanoid sends its feet (web swimmers/climbers/pilots say body:'diver' with
     // feet coordinates); only a submarine is anchored at its centre.

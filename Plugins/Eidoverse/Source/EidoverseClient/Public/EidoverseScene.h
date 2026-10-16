@@ -339,6 +339,15 @@ private:
     bool bSwimming=false;
     // Returns true while the shared swim law moved the pawn this frame.
     bool TickSwimming(float Dt,class APlayerController* PC);
+    // The world's water LEVEL (controller.js): wading drags by depth, past the chest the body floats as a
+    // buoyant column on the moving surface (shared/buoyancy.js floatStep) and swims at a stroke's pace.
+    void TickLevelWater(float Dt,bool bRun);
+    double FloatY=0,FloatVY=0;
+public:
+    UPROPERTY(Transient,BlueprintReadOnly,Category="Eidoverse") bool bLevelSwim=false;
+    UPROPERTY(Transient,BlueprintReadOnly,Category="Eidoverse") float WadeFactor=1;
+    UPROPERTY(Transient,BlueprintReadWrite,Category="Eidoverse") float BodyScale=1;
+private:
     void LookYaw(float Value);
     void LookPitch(float Value);
 };

@@ -142,6 +142,37 @@ void UEidoverseAvatarMesh::ApplyNormalizedLayers(TMap<FName, FQuat>& Normalized,
     // Head pitch: a rotation about X in the parent's frame (premultiplied).
     if (FQuat* H = Normalized.Find(LayerHead)) *H = (FQuat(FVector(1, 0, 0), HeadPitch) * *H).GetNormalized();
 
+    // Swimming (avatar.js _swimLayer): swimTargets eased in at 4/s, the stroke mix at 3/s; never the head.
+    SwimW += (SwimWant - SwimW) * FMath::Min(1.f, 4 * Dt);
+    SwimMove += (SwimMoveWant - SwimMove) * FMath::Min(1.f, 3 * Dt);
+    if (SwimW < .005f && SwimWant <= 0) SwimW = 0;
+    if (SwimW > 0)
+    {
+        const double M = SwimMove, T = Time;
+        const double Ph = T * 2 * UE_DOUBLE_PI * (.6 + .25 * M);
+        const double S = .5 + .5 * FMath::Sin(Ph), K = .5 + .5 * FMath::Sin(Ph + UE_DOUBLE_PI);
+        auto L = [M](double A, double B) { return A + (B - A) * M; };
+        auto Mix = [](double A, double B, double W) { return A + (B - A) * W; };
+        struct FT { const TCHAR* Bone; double X, Y, Z; };
+        const FT Targets[] = {
+            {TEXT("hips"), L(.08, .55), 0, 0}, {TEXT("spine"), L(0, .1), 0, 0}, {TEXT("neck"), L(0, -.45), 0, 0},
+            {TEXT("leftUpperArm"), 0, L(.35 * FMath::Sin(Ph), Mix(-.2, -1.45, S)), L(-.55, Mix(-.6, -.15, S))},
+            {TEXT("rightUpperArm"), 0, L(-.35 * FMath::Sin(Ph), Mix(.2, 1.45, S)), L(.55, Mix(.6, .15, S))},
+            {TEXT("leftLowerArm"), 0, L(-.5, Mix(-1.2, -.1, S)), 0}, {TEXT("rightLowerArm"), 0, L(.5, Mix(1.2, .1, S)), 0},
+            {TEXT("leftUpperLeg"), L(-.45 - .25 * FMath::Sin(Ph), -.5 * K), 0, L(0, .25 * K)},
+            {TEXT("rightUpperLeg"), L(-.45 + .25 * FMath::Sin(Ph), -.5 * K), 0, L(0, -.25 * K)},
+            {TEXT("leftLowerLeg"), L(.9 + .3 * FMath::Sin(Ph), 1.4 * K), 0, 0}, {TEXT("rightLowerLeg"), L(.9 - .3 * FMath::Sin(Ph), 1.4 * K), 0, 0}};
+        for (const FT& Tg : Targets)
+        {
+            FQuat* Q = Normalized.Find(FName(Tg.Bone)); if (!Q) continue;
+            // three.js Euler order 'YZX' -> quaternion (Quaternion.setFromEuler), in the wire frame
+            const double C1 = FMath::Cos(Tg.X / 2), C2 = FMath::Cos(Tg.Y / 2), C3 = FMath::Cos(Tg.Z / 2);
+            const double S1 = FMath::Sin(Tg.X / 2), S2 = FMath::Sin(Tg.Y / 2), S3 = FMath::Sin(Tg.Z / 2);
+            const FQuat E(S1 * C2 * C3 + C1 * S2 * S3, C1 * S2 * C3 + S1 * C2 * S3, C1 * C2 * S3 - S1 * S2 * C3, C1 * C2 * C3 - S1 * S2 * S3);
+            *Q = FQuat::Slerp(*Q, E, SwimW).GetNormalized();
+        }
+    }
+
     // Held pose: absolute normalized rotations, replacing the clip's by the eased weight.
     HeldWeight += (HeldWant - HeldWeight) * FMath::Min(1.f, 12 * Dt);
     if (HeldWant <= 0 && HeldWeight < .02f) { HeldPose.Reset(); HeldWeight = 0; }
