@@ -2,7 +2,9 @@
 Vertex data from the native mesh: color R depth/10, G shore/20, B kind/2 (0 still, .5 river, 1 ocean);
 UV1 = river flow or ocean way-to-shore (wire x, z); UV2.x = river wave speed. MPC: WaveT (s on the
 shared clock), OriginX/OriginY (UE cm of the scene origin). Waves are shared/waves.js surfaceOffset,
-in a Custom node, as WPO and as an analytic normal. Params: Color, Opacity. Idempotent."""
+in a Custom node, as WPO and as an analytic normal. Params: Color, Opacity. Idempotent.
+From below (the back face, TwoSidedSign -1), water.js's underside: Snell's window, ~48.6 deg from straight up
+(cos 0.66), glows; past it the surface is a dark, nearly opaque mirror ceiling (total internal reflection)."""
 import unreal
 MEL = unreal.MaterialEditingLibrary
 AT = unreal.AssetToolsHelpers.get_asset_tools()
@@ -51,10 +53,17 @@ float depth = C.r * 10.0, shore = C.g * 20.0;
 float deep = smoothstep(0.0, 3.5, depth);
 float3 shallow = lerp(Col, float3(0.75, 0.88, 0.85), 0.55);
 float foam = (1.0 - smoothstep(0.0, 1.1, shore)) * (0.35 + 0.65 * step(0.75, C.b));
-return lerp(lerp(shallow, Col, deep), float3(0.95, 0.97, 0.98), foam * 0.8);"""
+float3 above = lerp(lerp(shallow, Col, deep), float3(0.95, 0.97, 0.98), foam * 0.8);
+// CamV points from the surface to the eye: the view looks the other way, so up = -CamV.z
+float snell = smoothstep(0.6, 0.72, -CamV.z);
+float3 below = lerp(Col * 0.35, Col * 1.15 + float3(0.08, 0.1, 0.1), snell);
+return lerp(below, above, Side * 0.5 + 0.5);"""
 OPAC = """float depth = C.r * 10.0, shore = C.g * 20.0;
 float foam = 1.0 - smoothstep(0.0, 1.1, shore);
-return saturate(lerp(0.3, Op, smoothstep(0.0, 2.5, depth)) + foam * 0.35);"""
+float above = saturate(lerp(0.3, Op, smoothstep(0.0, 2.5, depth)) + foam * 0.35);
+float snell = smoothstep(0.6, 0.72, -CamV.z);
+float below = lerp(0.92, 0.5, snell);   // the window still tints the sky
+return lerp(below, above, Side * 0.5 + 0.5);"""
 
 def custom(m, code, ins, out_type, x, y):
     n = MEL.create_material_expression(m, unreal.MaterialExpressionCustom, x, y)
@@ -94,10 +103,14 @@ def wire_wave(n):
         MEL.connect_material_expressions(src, '', n, nm)
 wpo = custom(m, WPO, wave_ins, unreal.CustomMaterialOutputType.CMOT_FLOAT3, -800, 0); wire_wave(wpo)
 nrm = custom(m, NORMAL, wave_ins, unreal.CustomMaterialOutputType.CMOT_FLOAT3, -800, 200); wire_wave(nrm)
-shade = custom(m, SHADE, ['C', 'Col'], unreal.CustomMaterialOutputType.CMOT_FLOAT3, -800, 400)
+camv = MEL.create_material_expression(m, unreal.MaterialExpressionCameraVectorWS, -1400, 1000)
+side = MEL.create_material_expression(m, unreal.MaterialExpressionTwoSidedSign, -1400, 1080)
+shade = custom(m, SHADE, ['C', 'Col', 'CamV', 'Side'], unreal.CustomMaterialOutputType.CMOT_FLOAT3, -800, 400)
 MEL.connect_material_expressions(vc, '', shade, 'C'); MEL.connect_material_expressions(col, '', shade, 'Col')
-opac = custom(m, OPAC, ['C', 'Op'], unreal.CustomMaterialOutputType.CMOT_FLOAT1, -800, 600)
+MEL.connect_material_expressions(camv, '', shade, 'CamV'); MEL.connect_material_expressions(side, '', shade, 'Side')
+opac = custom(m, OPAC, ['C', 'Op', 'CamV', 'Side'], unreal.CustomMaterialOutputType.CMOT_FLOAT1, -800, 600)
 MEL.connect_material_expressions(vc, '', opac, 'C'); MEL.connect_material_expressions(op, '', opac, 'Op')
+MEL.connect_material_expressions(camv, '', opac, 'CamV'); MEL.connect_material_expressions(side, '', opac, 'Side')
 rough = MEL.create_material_expression(m, unreal.MaterialExpressionConstant, -800, 760); rough.set_editor_property('r', 0.06)
 spec = MEL.create_material_expression(m, unreal.MaterialExpressionConstant, -800, 840); spec.set_editor_property('r', 0.5)
 MEL.connect_material_property(wpo, '', unreal.MaterialProperty.MP_WORLD_POSITION_OFFSET)
@@ -109,4 +122,4 @@ MEL.connect_material_property(spec, '', unreal.MaterialProperty.MP_SPECULAR)
 MEL.recompile_material(m)
 unreal.EditorAssetLibrary.save_loaded_asset(m)
 unreal.log_warning('LEVELWATER_MAT ok')
-unreal.SystemLibrary.quit_editor()
+if not unreal.SystemLibrary.is_unattended(): unreal.SystemLibrary.quit_editor()

@@ -9,6 +9,10 @@
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialParameterCollection.h"
 #include "Kismet/KismetMaterialLibrary.h"
+#include "Components/DirectionalLightComponent.h"
+#include "Components/ExponentialHeightFogComponent.h"
+#include "GameFramework/PlayerController.h"
+#include "Engine/World.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
 
@@ -91,6 +95,7 @@ void AEidoverseScene::BuildLevelWater(const TSharedPtr<FJsonObject>& Water, cons
     FLevelWater& L = LevelWater;
     const int32 n = N + 1, Count = n * n;
     L.bOn = true; L.Level = Level; L.Size = Size; L.N = N;
+    { FString Hex; Water->TryGetStringField(TEXT("color"), Hex); if (Hex.StartsWith(TEXT("#")) && Hex.Len() == 7) L.Color = FLinearColor::FromSRGBColor(FColor::FromHex(Hex)); }
     L.Heights.SetNumUninitialized(Count); for (int32 K = 0; K < Count; ++K) { const double Hy = Heights[K]->AsNumber(); L.Heights[K] = FMath::IsFinite(Hy) ? Hy : 0; }
     L.Kind.Init(-1, Count); L.Shore.Init(0, Count); L.WaveSpeed.Init(0, Count); L.Dir.Init(FVector2D::ZeroVector, Count);
     const TArray<TSharedPtr<FJsonValue>>* Cells = nullptr;
@@ -133,17 +138,57 @@ void AEidoverseScene::BuildLevelWater(const TSharedPtr<FJsonObject>& Water, cons
     if (UMaterialInterface* Base = LoadObject<UMaterialInterface>(nullptr, TEXT("/Eidoverse/FX/M_EidoverseLevelWater.M_EidoverseLevelWater")))
     {
         auto* MI = UMaterialInstanceDynamic::Create(Base, LevelWaterMesh);
-        FString Hex; Water->TryGetStringField(TEXT("color"), Hex);
-        FColor C = FColor(0x1d, 0x5a, 0x6e); if (Hex.StartsWith(TEXT("#")) && Hex.Len() == 7) C = FColor::FromHex(Hex);
-        MI->SetVectorParameterValue(TEXT("Color"), FLinearColor::FromSRGBColor(C));
+        MI->SetVectorParameterValue(TEXT("Color"), L.Color);
         double Opacity = .82; Water->TryGetNumberField(TEXT("opacity"), Opacity);
         MI->SetScalarParameterValue(TEXT("Opacity"), float(FMath::Clamp(Opacity, .1, 1.0)));
         LevelWaterMesh->SetMaterial(0, MI);
     }
 }
 
+void AEidoverseScene::UpdateUnderLevel()
+{
+    bool bUnder = false; int32 Kind = UnderKind;
+    if (LevelWater.bOn && GetWorld())
+        if (APlayerController* PC = GetWorld()->GetFirstPlayerController())
+        {
+            FVector Eye; FRotator View; PC->GetPlayerViewPoint(Eye, View);
+            const FVector W = AEidoverseBridge::ToWirePosition(Eye - SceneOrigin);
+            FLevelWaterSample S;
+            // below the actual wave at the camera, over wet ground (water.js surfaceHeightAt); an authored volume or a
+            // dry box the camera is in wins (the level is the lowest-priority medium)
+            if (LevelWaterSample(W.X, W.Z, S) && W.Y < LevelWater.Level + SurfaceOffset(S, W.X, W.Z, LevelWaveTime()))
+            { bUnder = !WaterAt(W) && !DryAt(Eye); Kind = S.Kind; }
+        }
+    if (bUnder != bUnderLevel || (bUnder && Kind != UnderKind)) { bUnderLevel = bUnder; UnderKind = Kind; ApplyLightingNow(); }
+}
+
+void AEidoverseScene::ApplyUnderLevelFog()
+{
+    if (!WeatherFog) return;
+    // watervolumes.js LEVEL_OPTICS: visibility by kind (Koschmieder: sigma = 3.9 / visibility) and a tint mixed into
+    // the world's water colour: still water green, rivers murky, the sea blue and furthest. What the water scatters
+    // back is daylight: it dims with the sun (and the moon standing in for it), never quite black.
+    struct FOptics { float Visibility; FLinearColor Tint; };
+    static const FOptics Optics[3] = {{8.f, FLinearColor(.42f, .6f, .52f)}, {3.5f, FLinearColor(.4f, .42f, .28f)}, {15.f, FLinearColor(.1f, .36f, .55f)}};
+    const FOptics& O = Optics[FMath::Clamp(UnderKind, 0, 2)];
+    const float Sigma = 3.9f / O.Visibility;
+    const float Light = FMath::Max(Sun ? Sun->Intensity : 0.f, Moon ? Moon->Intensity : 0.f);
+    const float Day = FMath::Clamp(Light / 3.2f, .06f, 1.f);
+    const FLinearColor Scatter = (LevelWater.Color * .5f + O.Tint * .5f) * Day * .9f;
+    // Uniform fog (no height falloff) from the eye, over the sky too (no cutoff): past the shore and the terrain's
+    // edge the view meets deep water, not the sky. UE's height fog transmits exp2(-density/1000 * ln2 * cm), so
+    // density = 1000 x 100 / ln2^2 / 1000 x sigma = 20.81 sigma for exp(-sigma x metres).
+    WeatherFog->SetVisibility(true);
+    WeatherFog->SetFogHeightFalloff(.001f); WeatherFog->SetStartDistance(0);
+    if (WeatherFog->FogCutoffDistance != 0.f) { WeatherFog->FogCutoffDistance = 0.f; WeatherFog->MarkRenderStateDirty(); }
+    WeatherFog->SetFogDensity(20.81f * Sigma);
+    WeatherFog->SetFogInscatteringColor(Scatter.CopyWithNewOpacity(1));
+    bUnderFogApplied = true;
+}
+
 void AEidoverseScene::TickLevelWater()
 {
+    UpdateUnderLevel();
     if (!LevelWater.bOn) return;
     if (!LevelWaterCollection) LevelWaterCollection = LoadObject<UMaterialParameterCollection>(nullptr, TEXT("/Eidoverse/FX/MPC_EidoverseWater.MPC_EidoverseWater"));
     if (!LevelWaterCollection) return;

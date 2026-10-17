@@ -163,7 +163,7 @@ UWidget* UEidoverseHUD::BuildMenu()
     const FEntry Lantern[] = {{"lantern", TEXT("Search"), PLATFORM_MAC ? TEXT("lantern  ·  Cmd K") : TEXT("lantern  ·  Ctrl K"), false}};
     const FEntry Windows[] = {
         {"profile", TEXT("Profile"), TEXT("profile"), true}, {"chat", TEXT("Chat"), TEXT("chat"), true},
-        {"world", TEXT("World"), TEXT("world"), true}, {"emotes", TEXT("Emotes"), TEXT("emotes"), true},
+        {"world", TEXT("World"), TEXT("world  \u00B7  travel"), true}, {"emotes", TEXT("Emotes"), TEXT("emotes"), true},
         {"people", TEXT("People"), TEXT("people here  ·  Tab"), true}, {"build", TEXT("Build"), TEXT("build  ·  B"), true},
         {"settings", TEXT("Settings"), TEXT("settings"), true}, {"help", TEXT("Help"), TEXT("help  ·  H"), true}};
     const FEntry Layout[] = {

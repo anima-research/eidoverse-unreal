@@ -166,10 +166,19 @@ private:
     struct FLevelWater
     {
         bool bOn=false; double Level=0, Size=0; int32 N=0, WetCount=0;
+        FLinearColor Color=FLinearColor::FromSRGBColor(FColor(0x1d,0x5a,0x6e));   // the world's water colour (linear)
         TArray<double> Heights; TArray<int8> Kind; TArray<float> Shore, WaveSpeed; TArray<FVector2D> Dir;   // Dir: river flow or ocean way to shore
     } LevelWater;
     void BuildLevelWater(const TSharedPtr<FJsonObject>& Water,const TArray<TSharedPtr<FJsonValue>>& Heights,int32 N,double Size,const FVector& Origin);
     void TickLevelWater();
+    // Under the level's surface (watervolumes.js levelSlot): the camera below the wave over wet ground, not in an
+    // authored volume or a dry box. The weather fog becomes the water's, by kind, and fogs the sky out.
+    bool bUnderLevel=false,bUnderFogApplied=false; int32 UnderKind=0;
+    void UpdateUnderLevel();
+    void ApplyUnderLevelFog();
+public:
+    UFUNCTION(BlueprintPure,Category="Eidoverse") bool IsUnderLevelWater() const { return bUnderLevel; }
+private:
     UPROPERTY() TArray<TObjectPtr<UProceduralMeshComponent>> Flora;
     UPROPERTY() TObjectPtr<UStaticMesh> GroundCoverMesh;
     UPROPERTY() TObjectPtr<UHierarchicalInstancedStaticMeshComponent> GroundCover;
@@ -339,6 +348,9 @@ private:
     bool bSwimming=false;
     // Returns true while the shared swim law moved the pawn this frame.
     bool TickSwimming(float Dt,class APlayerController* PC);
+    // DIVING in the world's water level (controller.js levelDiveWater): C / Ctrl from the float, deep enough and
+    // at least half under, takes the body into the same 3D swim the volumes use; back at the surface, the float.
+    bool bLevelDiving=false;
     // The world's water LEVEL (controller.js): wading drags by depth, past the chest the body floats as a
     // buoyant column on the moving surface (shared/buoyancy.js floatStep) and swims at a stroke's pace.
     void TickLevelWater(float Dt,bool bRun);

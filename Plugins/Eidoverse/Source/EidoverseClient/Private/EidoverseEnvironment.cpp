@@ -199,6 +199,9 @@ void AEidoverseScene::ApplyLightingNow()
     if(Clouds){Clouds->SetVisibility(CloudAmount>.01);CloudMaterial->SetScalarParameterValue(TEXT("Coverage"),CloudAmount);CloudMaterial->SetVectorParameterValue(TEXT("CloudColor"),FMath::Lerp(FLinearColor(.018,.025,.04),FLinearColor(.55,.59,.63),Day)*(1-RainAmount*.5));}
     // core.js FogExp2(0.018 x sky.fog): 50 % at 46 m. UE fog density is per 1000 cm.
     if(!WeatherFog){WeatherFog=NewObject<UExponentialHeightFogComponent>(this);AddInstanceComponent(WeatherFog);WeatherFog->SetupAttachment(RootComponent);WeatherFog->RegisterComponent();}
+    // Under the world's water level the fog is the water's (EidoverseLevelWater.cpp).
+    if(bUnderLevel){ApplyUnderLevelFog();for(auto& M:Materials)if(M.Value&&M.Key!=TEXT("glass"))M.Value->SetScalarParameterValue(TEXT("roughnessFactor"),FMath::Lerp(.86f,.2f,Wetness*.8f));return;}
+    if(bUnderFogApplied){bUnderFogApplied=false;WeatherFog->SetVisibility(!(Waters&&Waters->Num()>0));}
     WeatherFog->SetFogHeightFalloff(.001f);WeatherFog->SetStartDistance(0);
     // The browser's sky dome is exempt from fog: stop fogging past the world (5 km).
     if(WeatherFog->FogCutoffDistance!=500000.f){WeatherFog->FogCutoffDistance=500000.f;WeatherFog->MarkRenderStateDirty();}

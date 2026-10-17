@@ -36,7 +36,7 @@ void SEidoversePanel::Construct(const FArguments& Args)
                     .ToolTipText(Txt(TEXT("Join the local copy at 127.0.0.1:19002. Restores all preview settings; no Discord login. The local server must be running.")))
                     .OnClicked_Lambda([this](){if(Owner.IsValid()){Destination->SetText(Txt(TEXT("commons")));Owner->JoinLocalCommons();}return FReply::Handled();})]
                 +SVerticalBox::Slot().AutoHeight().Padding(0,2,0,6)[SNew(STextBlock).Text(Txt(TEXT("Local copy · localhost:19002 · no Discord login"))).ColorAndOpacity(FLinearColor(.6f,.72f,.78f))]
-                +SVerticalBox::Slot().AutoHeight()[SAssignNew(Destination,SEditableTextBox).Text(Txt(TEXT("water"))).HintText(Txt(TEXT("World name")))]
+                +SVerticalBox::Slot().AutoHeight()[SAssignNew(Destination,SEditableTextBox).Text(Txt(TEXT("commons"))).HintText(Txt(TEXT("World name")))]
                 +SVerticalBox::Slot().AutoHeight()[SNew(SCheckBox).IsEnabled_Lambda([this](){return Owner.IsValid()&&!Owner->bJoined;})
                     .IsChecked_Lambda([this](){return Owner.IsValid()&&Owner->bRenderDynamicWorld?ECheckBoxState::Checked:ECheckBoxState::Unchecked;})
                     .OnCheckStateChanged_Lambda([this](ECheckBoxState S){if(Owner.IsValid())Owner->bRenderDynamicWorld=S==ECheckBoxState::Checked;})

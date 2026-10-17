@@ -120,14 +120,15 @@ bool AEidoverseBridge::JoinFromDoor(const FString& Server,const FString& World,c
     bRenderDynamicWorld=true;
     if(S==ProductionEndpoint)
     {
-        // Refusals go to the door's status line; LoginStatus keeps the pairing code visible.
+        // The public server admits signed-in people: not signed in yet, the door starts the Discord sign-in and
+        // enters this world once it is approved (LoginStatus keeps the pairing code visible).
         if(!HasProductionSession())
         {
-            ConnectionStatus=bAuthenticating?TEXT("Finish the Discord sign-in in your browser first (the code is shown below), then join."):TEXT("The public server needs a Discord sign-in first.");
+            if(!bAuthenticating)BeginProductionLogin();
+            PendingDoorWorld=W;
+            ConnectionStatus=FString::Printf(TEXT("Log in with Discord in your browser; you'll enter \u201c%s\u201d once you approve."),*W);
             return false;
         }
-        if(!LoginWorldScope.IsEmpty()&&LoginWorldScope!=TEXT("*")&&LoginWorldScope!=W)
-        {ConnectionStatus=TEXT("This sign-in only approved '")+LoginWorldScope+TEXT("'. Sign out, sign in again and approve all accessible worlds.");return false;}
         WorldName=W;SaveClientSettings();JoinProduction();return true;
     }
     Endpoint=S;WorldName=W;ParticipantName=N;AvatarLibraryBase=HttpBase()+TEXT("/library/");
@@ -162,9 +163,10 @@ FString AEidoverseBridge::NameRefusal(const FString& Name)
     return FString();
 }
 
-FString AEidoverseBridge::HttpBase() const
+FString AEidoverseBridge::HttpBase() const { return HttpBaseOf(Endpoint); }
+FString AEidoverseBridge::HttpBaseOf(const FString& SocketUrl)
 {
-    FString Base=Endpoint;
+    FString Base=SocketUrl.TrimStartAndEnd();
     if(Base.StartsWith(TEXT("wss://")))Base=TEXT("https://")+Base.Mid(6);
     else if(Base.StartsWith(TEXT("ws://")))Base=TEXT("http://")+Base.Mid(5);
     else return FString();

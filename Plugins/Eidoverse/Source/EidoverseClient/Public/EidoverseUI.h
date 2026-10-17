@@ -561,6 +561,16 @@ private:
     UFUNCTION() void OnBuildClicked();
     UFUNCTION() void OnBuildSearchChanged(const FText& Text);
     UFUNCTION() void OnJoinClicked();
+    // Travel (EidoverseTravel.cpp's map): the World panel's list and the door's world chips.
+    UFUNCTION() void OnTravelClicked();
+    UFUNCTION() void OnWorldsRefreshClicked();
+    UFUNCTION() void OnDoorWorldClicked();
+    UPROPERTY() TObjectPtr<UVerticalBox> WorldList;
+    UPROPERTY() TObjectPtr<UTextBlock> WorldListStatus;
+    UPROPERTY() TObjectPtr<UWrapBox> DoorWorlds;
+    int32 WorldListSerial = -1, DoorWorldsSerial = -1; FString WorldListHere, DoorWorldsServer;
+    void RefreshWorldList(double Now);
+    void RefreshDoorWorlds(double Now);
     UFUNCTION() void OnLocalCommonsClicked();
     UFUNCTION() void OnSignInClicked();
     UFUNCTION() void OnSignOutClicked();

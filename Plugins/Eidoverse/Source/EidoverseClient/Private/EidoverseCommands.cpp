@@ -325,7 +325,7 @@ bool AEidoverseBridge::HandleInteractionCommand(const FString& Text)
     else if (Name == TEXT("go"))
     {
         if (!IsWorldName(Rest)) { Narrate(TEXT("usage: /go <world>")); return true; }
-        SwitchWorld(Rest);
+        TravelTo(Rest);
     }
     else if (Name == TEXT("presence"))
     {

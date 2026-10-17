@@ -73,7 +73,7 @@ void AEidoverseBridge::BeginLogin()
             !J->TryGetNumberField(TEXT("expires_in"),Expiry)||!FMath::IsFinite(Expiry)||Expiry<1||Expiry>300)
         {B.FinishLoginAttempt(TEXT("Unexpected sign-in response. Please try again later."));return;}
         B.DeviceCode=Secret;B.PairingCode=Code;B.PairingExpires=FPlatformTime::Seconds()+Expiry;B.NextAuthPoll=FPlatformTime::Seconds()+2;
-        B.LoginStatus=TEXT("Code: ")+Code+TEXT(" — sign in with Discord in your browser and approve only this matching code. Expires in 5 minutes.");
+        B.LoginStatus=TEXT("Code: ")+Code+TEXT(" — approve this matching code in your browser (log in with Discord there if asked). Expires in 5 minutes.");
         B.OpenProductionLoginBrowser();
     });
     if(!AuthRequest->ProcessRequest())FinishLoginAttempt(TEXT("Could not start sign-in. Check the network."));
@@ -88,11 +88,12 @@ void AEidoverseBridge::FinishLoginAttempt(const FString& Message)
     ++AuthGeneration;
     if(AuthRequest){AuthRequest->OnProcessRequestComplete().Unbind();AuthRequest->CancelRequest();AuthRequest->SetContent(TArray<uint8>());AuthRequest.Reset();}
     bAuthenticating=false;DeviceCode.Empty();PairingCode.Empty();PairingExpires=NextAuthPoll=0;LoginStatus=Message;
+    if(!HasProductionSession())PendingDoorWorld.Empty();   // a failed or cancelled sign-in enters nothing
 }
 void AEidoverseBridge::TickProductionLogin(double Now)
 {
     if(!bAuthenticating)return;
-    if(Now>=PairingExpires){LogoutProduction();LoginStatus=TEXT("Sign-in expired. Click Sign in with Discord to start again.");return;}
+    if(Now>=PairingExpires){LogoutProduction();LoginStatus=TEXT("Sign-in expired. Log in with Discord to start again.");return;}
     if(AuthRequest||DeviceCode.IsEmpty()||Now<NextAuthPoll)return;
     const uint32 Attempt=AuthGeneration;TWeakObjectPtr<AEidoverseBridge> Weak(this);
     AuthRequest=Post(LoginService+TEXT("/native/poll"),TEXT("device_code"),DeviceCode);
@@ -113,8 +114,9 @@ void AEidoverseBridge::TickProductionLogin(double Now)
             !J->TryGetNumberField(TEXT("expires_in"),Expiry)||!FMath::IsFinite(Expiry)||Expiry<1||Expiry>43200)
         {B.FinishLoginAttempt(TEXT("Invalid sign-in response. Please start again."));return;}
         B.ProductionSession=Session;B.ProductionSessionExpires=FPlatformTime::Seconds()+Expiry;
-        B.LoginWorldScope=TEXT("water");J->TryGetStringField(TEXT("world_scope"),B.LoginWorldScope);
-        B.LoginName=Name.Left(64);B.SaveProductionSession();B.FinishLoginAttempt(TEXT("Signed in as ")+B.LoginName+(B.LoginWorldScope==TEXT("*")?TEXT(". All accessible worlds approved."):TEXT(". Water-only session.")));
+        B.LoginName=Name.Left(64);B.SaveProductionSession();B.FinishLoginAttempt(TEXT("Signed in as ")+B.LoginName+TEXT("."));
+        // asked for from the door: go in now, as the browser does after its login round trip
+        if(!B.PendingDoorWorld.IsEmpty()){B.WorldName=B.PendingDoorWorld;B.PendingDoorWorld.Empty();B.bRenderDynamicWorld=true;B.SaveClientSettings();B.JoinProduction();}
     });
     if(!AuthRequest->ProcessRequest()){AuthRequest.Reset();NextAuthPoll=Now+5;}
 }
@@ -127,13 +129,13 @@ void AEidoverseBridge::LogoutProduction()
     {
         auto Request=Post(LoginService+TEXT("/logout"));Request->SetHeader(TEXT("Cookie"),TEXT("ew_sess=")+ProductionSession);Request->ProcessRequest();
     }
-    ProductionSession.Empty();ProductionSessionExpires=0;LoginName.Empty();LoginWorldScope.Empty();
+    ProductionSession.Empty();ProductionSessionExpires=0;LoginName.Empty();PendingDoorWorld.Empty();
     if(!FApp::IsUnattended())EidoSecureStore::Delete(TEXT("production"));
 }
 void AEidoverseBridge::JoinProduction()
 {
     if(!HasProductionSession()||LoginService!=Production||FPlatformTime::Seconds()>=ProductionSessionExpires)
-    {LoginStatus=TEXT("Sign in before joining production.");return;}
+    {LoginStatus=TEXT("Log in with Discord before entering the public server.");return;}
     Endpoint=TEXT("wss://eidoverse.animalabs.ai/ws");ParticipantName=LoginName;
     AvatarLibraryBase=TEXT("https://eidoverse.animalabs.ai/library/");
     JoinToken.Empty();IdentityToken.Empty();SwitchWorld(WorldName);
@@ -152,7 +154,7 @@ static FAutoConsoleCommandWithWorld NativeLoginProbe(TEXT("Eidoverse.TestDiscord
 #endif
 
 // The production sign-in survives restarts in the Keychain (EidoverseSecureStore):
-// the session cookie, its expiry (Unix seconds), display name and approved worlds.
+// the session cookie, its expiry (Unix seconds) and display name.
 // Native sessions last at most 12 hours; a restored one is checked with /whoami
 // before use, and anything the server no longer accepts is deleted.
 void AEidoverseBridge::SaveProductionSession() const
@@ -162,7 +164,6 @@ void AEidoverseBridge::SaveProductionSession() const
     J->SetStringField(TEXT("session"),ProductionSession);
     J->SetNumberField(TEXT("expires"),double(FDateTime::UtcNow().ToUnixTimestamp())+(ProductionSessionExpires-FPlatformTime::Seconds()));
     J->SetStringField(TEXT("name"),LoginName);
-    J->SetStringField(TEXT("scope"),LoginWorldScope);
     FString Text;FJsonSerializer::Serialize(J,TJsonWriterFactory<TCHAR,TCondensedJsonPrintPolicy<TCHAR>>::Create(&Text));
     EidoSecureStore::Save(TEXT("production"),Text);
 }
@@ -170,28 +171,28 @@ void AEidoverseBridge::RestoreProductionSession()
 {
     if(FApp::IsUnattended()||HasProductionSession()||bAuthenticating)return;
     FString Text;if(!EidoSecureStore::Load(TEXT("production"),Text))return;
-    TSharedPtr<FJsonObject> J;FString Session,Name,Scope;double Expires=0;
+    TSharedPtr<FJsonObject> J;FString Session,Name;double Expires=0;
     if(!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text),J)||!J.IsValid()||!J->TryGetStringField(TEXT("session"),Session)||
         !ParseProductionSession(TEXT("ew_sess=")+Session,Session)||!J->TryGetNumberField(TEXT("expires"),Expires))
     {EidoSecureStore::Delete(TEXT("production"));return;}
-    J->TryGetStringField(TEXT("name"),Name);J->TryGetStringField(TEXT("scope"),Scope);
+    J->TryGetStringField(TEXT("name"),Name);
     const double Remaining=Expires-double(FDateTime::UtcNow().ToUnixTimestamp());
-    if(Remaining<60){EidoSecureStore::Delete(TEXT("production"));LoginStatus=TEXT("Your saved sign-in expired. Sign in with Discord again.");return;}
+    if(Remaining<60){EidoSecureStore::Delete(TEXT("production"));LoginStatus=TEXT("Your saved sign-in expired. Log in with Discord again.");return;}
     LoginStatus=TEXT("Checking your saved sign-in\u2026");
     auto Request=FHttpModule::Get().CreateRequest();Request->SetURL(LoginService+TEXT("/whoami"));Request->SetVerb(TEXT("GET"));
     Request->SetOption(HttpRequestOptions::EnableCookies,TEXT("false"));Request->SetTimeout(15);
     Request->SetHeader(TEXT("Cookie"),TEXT("ew_sess=")+Session);
     TWeakObjectPtr<AEidoverseBridge> Weak(this);
-    Request->OnProcessRequestComplete().BindLambda([Weak,Session,Name,Scope,Remaining](FHttpRequestPtr,FHttpResponsePtr Response,bool bOk)
+    Request->OnProcessRequestComplete().BindLambda([Weak,Session,Name,Remaining](FHttpRequestPtr,FHttpResponsePtr Response,bool bOk)
     {
         AEidoverseBridge* B=Weak.Get();if(!B||B->HasProductionSession()||B->bAuthenticating)return;
-        if(!bOk||!Response){B->LoginStatus=TEXT("Couldn't check your saved sign-in (offline?). Sign in with Discord, or try again later.");return;}
+        if(!bOk||!Response){B->LoginStatus=TEXT("Couldn't check your saved sign-in (offline?). Log in with Discord, or try again later.");return;}
         if(Response->GetResponseCode()!=200)
-        {EidoSecureStore::Delete(TEXT("production"));B->LoginStatus=TEXT("Your saved sign-in is no longer valid. Sign in with Discord again.");return;}
+        {EidoSecureStore::Delete(TEXT("production"));B->LoginStatus=TEXT("Your saved sign-in is no longer valid. Log in with Discord again.");return;}
         TSharedPtr<FJsonObject> Who;FString WhoName;
         if(ReadJSON(Response,Who))Who->TryGetStringField(TEXT("name"),WhoName);
         B->ProductionSession=Session;B->ProductionSessionExpires=FPlatformTime::Seconds()+Remaining;
-        B->LoginName=(WhoName.IsEmpty()?Name:WhoName).Left(64);B->LoginWorldScope=Scope.IsEmpty()?TEXT("water"):Scope;
+        B->LoginName=(WhoName.IsEmpty()?Name:WhoName).Left(64);
         B->LoginStatus=TEXT("Signed in as ")+B->LoginName+TEXT(" (saved sign-in).");
     });
     Request->ProcessRequest();

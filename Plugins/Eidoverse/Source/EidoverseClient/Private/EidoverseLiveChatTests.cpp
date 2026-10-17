@@ -6,7 +6,11 @@
 //   2. attention: a live mention and a whisper each reach the gate's player once; my arrival carries my
 //      page session;
 //   3. resync: a dropped connection held while 60 lines are said re-joins to a window missing most of them;
-//      the resync after the last delivered seq slots them in, in order, once each.
+//      the resync after the last delivered seq slots them in, in order, once each;
+//   4. travel: the server's map (GET /worlds) shows this world and who is in it; travelling to another world
+//      and back keeps the same signed identity, with each world's own chat.
+// Eidoverse.LivePairing: the browser-approved sign-in against the server's own pairing handler on a loopback
+// fixture (tools/native-login-fixture.ts): approved, signed in, one ordinary session, no world named.
 #include "EidoverseBridge.h"
 #include "EidoverseAttention.h"
 #include "Engine/Engine.h"
@@ -27,7 +31,7 @@ namespace
     {
         UWorld* World = nullptr;
         TWeakObjectPtr<AEidoverseBridge> Bridge;
-        FString Control;
+        FString Control, Home;
         int32 Step = 0, Chimes = 0;
         double StepAt = 0, Last = 0;
         bool bHttpBusy = false; FString HttpBody;
@@ -152,7 +156,86 @@ bool FEidoverseLiveChat::RunTest(const FString&)
             if (Missing) return In > 45 ? Fail(FString::Printf(TEXT("resync: %d of the 60 lines said while away are missing or doubled"), Missing)) : false;
             if (!Ordered(TEXT("resync"))) return Fail(TEXT("resync out of order"));
             AddInfo(FString::Printf(TEXT("resync after the drop: 60 lines slotted in, %d lines in seq order"), Positioned(B).Num()));
+            S->Home = B->WorldName; B->RefreshWorlds(); Next(); return false;
+        }
+        case 6:   // the map: this world, with the bots and me in it
+        {
+            if (B->bWorldsPending || B->KnownWorlds.IsEmpty()) return In > 10 ? Fail(TEXT("no world map: ") + B->WorldsStatus) : false;
+            const FEidoverseWorldInfo* Here = B->KnownWorlds.FindByPredicate([&](const FEidoverseWorldInfo& W) { return W.Name == S->Home; });
+            if (!Here || !Here->People.Contains(TEXT("loudbot")) || !Here->People.Contains(TEXT("quietone")) || !Here->People.Contains(TEXT("unrealtest")))
+                return Fail(TEXT("the map does not show this world's people: ") + B->WorldsStatus);
+            AddInfo(TEXT("world map: ") + B->WorldsStatus);
+            if (!B->TravelTo(S->Home + TEXT("-elsewhere"))) return Fail(TEXT("travel refused"));
+            Next(); return false;
+        }
+        case 7:   // arrived elsewhere, as the same person, with that world's (empty) chat
+            if (!B->bJoined || B->WorldName != S->Home + TEXT("-elsewhere")) return In > 15 ? Fail(TEXT("never arrived elsewhere: ") + B->ConnectionStatus) : false;
+            if (B->AssignedIdentity != TEXT("unrealtest")) return Fail(TEXT("arrived as someone else: ") + B->AssignedIdentity);
+            if (CountText(B, Quiet) != 0) return Fail(TEXT("the other world's chat came along"));
+            B->RefreshWorlds(); Next(); return false;
+        case 8:   // both on the map, me in the new one; then home
+        {
+            if (B->bWorldsPending) return In > 10 ? Fail(TEXT("no second map")) : false;
+            const FEidoverseWorldInfo* There = B->KnownWorlds.FindByPredicate([&](const FEidoverseWorldInfo& W) { return W.Name == S->Home + TEXT("-elsewhere"); });
+            const FEidoverseWorldInfo* Home = B->KnownWorlds.FindByPredicate([&](const FEidoverseWorldInfo& W) { return W.Name == S->Home; });
+            if (!There || !Home || !There->People.Contains(TEXT("unrealtest")) || Home->People.Contains(TEXT("unrealtest")))
+            { if (In < 4) return false; return Fail(TEXT("the map did not follow me: ") + B->WorldsStatus); }
+            B->TravelTo(S->Home); Next(); return false;
+        }
+        case 9:   // home again: its chat window is back
+            if (!B->bJoined || B->WorldName != S->Home || CountText(B, Quiet) != 1) return In > 15 ? Fail(TEXT("never got home")) : false;
+            AddInfo(TEXT("travel: there and back as unrealtest, each world with its own chat"));
             S->Close(); return true;
+        }
+        return true;
+    }));
+    return true;
+}
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEidoverseLivePairing, "Eidoverse.LivePairing", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FEidoverseLivePairing::RunTest(const FString&)
+{
+    if (FPlatformMisc::GetEnvironmentVariable(TEXT("EIDO_LIVE_PAIRING")) != TEXT("1"))
+    {
+        AddInfo(TEXT("live check skipped: run Tools/eidoverse/run_chat_live_test.sh (it starts the loopback pairing fixture)"));
+        return true;
+    }
+    TSharedPtr<FLiveChat> S = MakeShared<FLiveChat>();
+    S->Control = TEXT("http://127.0.0.1:18996");
+    S->World = UWorld::CreateWorld(EWorldType::Game, false, TEXT("EidoverseLivePairing"));
+    GEngine->CreateNewWorldContext(EWorldType::Game).SetCurrentWorld(S->World);
+    S->World->InitializeActorsForPlay(FURL());
+    FActorSpawnParameters P; P.ObjectFlags |= RF_Transient;
+    AEidoverseBridge* B = S->World->SpawnActor<AEidoverseBridge>(P);
+    if (!B) { AddError(TEXT("could not spawn the bridge")); S->Close(); return false; }
+    B->bShowChatUI = false;
+    if (!B->HasActorBegunPlay()) B->DispatchBeginPlay();
+    S->Bridge = B; S->StepAt = S->Last = FPlatformTime::Seconds();
+    B->BeginLocalLoginTest();   // loopback only: never opens a browser or reaches production
+    ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([this, S]() -> bool {
+        AEidoverseBridge* B = S->Bridge.Get();
+        const double Now = FPlatformTime::Seconds();
+        if (!B) { AddError(TEXT("bridge gone")); S->Close(); return true; }
+        B->Tick(float(FMath::Min(.1, Now - S->Last))); S->Last = Now;
+        const double In = Now - S->StepAt;
+        auto Fail = [&](const FString& Why) { AddError(Why); S->Close(); return true; };
+        switch (S->Step)
+        {
+        case 0:   // a pairing code to show
+            if (!B->bAuthenticating || !B->LoginStatus.StartsWith(TEXT("Code: "))) return In > 10 ? Fail(TEXT("no pairing code: ") + B->LoginStatus) : false;
+            if (B->LoginStatus.Contains(TEXT("water"), ESearchCase::IgnoreCase)) return Fail(TEXT("the code names a world: ") + B->LoginStatus);
+            S->Http(TEXT("POST"), TEXT("/fixture/approve")); ++S->Step; S->StepAt = Now; return false;
+        case 1:   // the browser's approval arrives by the next poll: signed in, as an ordinary sign-in
+            if (B->bAuthenticating || B->LoginName.IsEmpty()) return In > 12 ? Fail(TEXT("never signed in: ") + B->LoginStatus) : false;
+            TestEqual(TEXT("the browser's identity"), B->LoginName, FString(TEXT("Local Discord Fixture")));
+            TestEqual(TEXT("signed in, no world named"), B->LoginStatus, FString(TEXT("Signed in as Local Discord Fixture.")));
+            S->Http(TEXT("GET"), TEXT("/fixture/report")); ++S->Step; S->StepAt = Now; return false;
+        case 2:   // exactly one session issued
+        {
+            if (S->bHttpBusy) return In > 5 ? Fail(TEXT("no fixture report")) : false;
+            TSharedPtr<FJsonObject> R; FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(S->HttpBody), R);
+            TestTrue(TEXT("one session issued"), R.IsValid() && R->GetNumberField(TEXT("issued")) == 1);
+            AddInfo(TEXT("pairing: code shown, browser approval, signed in as the browser's person, one session"));
+            B->LogoutProduction(); S->Close(); return true;
         }
         }
         return true;

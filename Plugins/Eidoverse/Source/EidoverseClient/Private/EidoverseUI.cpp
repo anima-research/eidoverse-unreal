@@ -611,12 +611,24 @@ UWidget* UEidoverseHUD::BuildWorldHere()
     Section(TEXT("Here"));
     WorldStatus = Label(TEXT("offline"), 11);
     Column->AddChildToVerticalBox(WorldStatus);
+    Section(TEXT("Worlds"));
+    {
+        auto* Head = WidgetTree->ConstructWidget<UHorizontalBox>();
+        WorldListStatus = Label(TEXT(""), 10, FEidoverseTheme::Dim());
+        Head->AddChildToHorizontalBox(WorldListStatus)->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+        auto* Refresh = TextButton(TEXT("refresh"));
+        Refresh->OnClicked.AddDynamic(this, &UEidoverseHUD::OnWorldsRefreshClicked);
+        Head->AddChildToHorizontalBox(Refresh);
+        Column->AddChildToVerticalBox(Head);
+        WorldList = WidgetTree->ConstructWidget<UVerticalBox>();
+        Column->AddChildToVerticalBox(WorldList)->SetPadding(FMargin(0, 4, 0, 0));
+    }
     Section(TEXT("Go to a world"));
-    WorldName = Input(TEXT("world name, e.g. commons or water"));
+    WorldName = Input(TEXT("any world\u2019s name: an empty one is yours to start"));
     Column->AddChildToVerticalBox(WorldName);
     auto* Row = WidgetTree->ConstructWidget<UWrapBox>();
     Row->SetInnerSlotPadding(FVector2D(6, 6));
-    auto* Join = TextButton(TEXT("join"), true);
+    auto* Join = TextButton(TEXT("go"), true);
     Join->OnClicked.AddDynamic(this, &UEidoverseHUD::OnJoinClicked);
     Row->AddChildToWrapBox(Join);
     auto* Local = TextButton(TEXT("local commons"));
@@ -631,10 +643,10 @@ UWidget* UEidoverseHUD::BuildWorldHere()
     Column->AddChildToVerticalBox(LoginStatus);
     auto* LoginRow = WidgetTree->ConstructWidget<UWrapBox>();
     LoginRow->SetInnerSlotPadding(FVector2D(6, 6));
-    auto* SignIn = TextButton(TEXT("sign in with Discord"), true);
+    auto* SignIn = TextButton(TEXT("log in with Discord"), true);
     SignIn->OnClicked.AddDynamic(this, &UEidoverseHUD::OnSignInClicked);
     LoginRow->AddChildToWrapBox(SignIn);
-    auto* SignOut = TextButton(TEXT("sign out"));
+    auto* SignOut = TextButton(TEXT("log out"));
     SignOut->OnClicked.AddDynamic(this, &UEidoverseHUD::OnSignOutClicked);
     LoginRow->AddChildToWrapBox(SignOut);
     Column->AddChildToVerticalBox(LoginRow)->SetPadding(FMargin(0, 6, 0, 0));
@@ -947,7 +959,10 @@ UWidget* UEidoverseHUD::BuildDoor()
         return Box;
     };
     DoorName = Field(TEXT("Your name"), TEXT("how others will see you"));
-    DoorWorld = Field(TEXT("World"), TEXT("commons, water, \u2026"));
+    DoorWorld = Field(TEXT("World"), TEXT("commons, or any world\u2019s name"));
+    DoorWorlds = WidgetTree->ConstructWidget<UWrapBox>();
+    DoorWorlds->SetInnerSlotPadding(FVector2D(6, 6));
+    Column->AddChildToVerticalBox(DoorWorlds)->SetPadding(FMargin(0, 6, 0, 0));
     DoorServer = Field(TEXT("Server"), TEXT("wss://eidoverse.animalabs.ai/ws"));
     // Door key (an invite), behind a reveal unless a key was refused.
     DoorKeyReveal = TextButton(TEXT("have a door key?"));
@@ -997,10 +1012,10 @@ UWidget* UEidoverseHUD::BuildDoor()
     Column->AddChildToVerticalBox(DoorLogin);
     auto* LoginRow = WidgetTree->ConstructWidget<UWrapBox>();
     LoginRow->SetInnerSlotPadding(FVector2D(8, 8));
-    auto* SignIn = TextButton(TEXT("sign in with Discord"));
+    auto* SignIn = TextButton(TEXT("log in with Discord"));
     SignIn->OnClicked.AddDynamic(this, &UEidoverseHUD::OnSignInClicked);
     LoginRow->AddChildToWrapBox(SignIn);
-    auto* SignOut = TextButton(TEXT("sign out"));
+    auto* SignOut = TextButton(TEXT("log out"));
     SignOut->OnClicked.AddDynamic(this, &UEidoverseHUD::OnSignOutClicked);
     LoginRow->AddChildToWrapBox(SignOut);
     Column->AddChildToVerticalBox(LoginRow)->SetPadding(FMargin(0, 8, 0, 0));
@@ -1029,6 +1044,7 @@ void UEidoverseHUD::UpdateDoor()
     }
     if (!bShow) return;
     TickDoorRoster(FPlatformTime::Seconds());
+    RefreshDoorWorlds(FPlatformTime::Seconds());
     if (Bridge->bDoorKeyRefused && DoorKeyRow && !DoorKeyRow->IsVisible()) ShowDoorKey(true);
     if (DoorGo)
         if (UTextBlock* T = Cast<UTextBlock>(DoorGo->GetContent()))
@@ -1417,7 +1433,7 @@ void UEidoverseHUD::NativeTick(const FGeometry& Geometry, float Delta)
     RefreshPeople(false);
     RefreshRail();
     static double NextWorldRefresh = 0;
-    if (IsFrameOpen("world") && Now >= NextWorldRefresh) { NextWorldRefresh = Now + .2; RefreshWorldPanels(); }
+    if (IsFrameOpen("world") && Now >= NextWorldRefresh) { NextWorldRefresh = Now + .2; RefreshWorldPanels(); RefreshWorldList(Now); }
     if (TypingLine)
     {
         for (auto It = Typers.CreateIterator(); It; ++It) if (It->Value < Now) It.RemoveCurrent();
@@ -1981,8 +1997,80 @@ void UEidoverseHUD::OnJoinClicked()
     if (ProfileName && !AEidoverseBridge::NameRefusal(ProfileName->GetText().ToString()).IsEmpty()) { Toast(AEidoverseBridge::NameRefusal(ProfileName->GetText().ToString()), true); return; }
     if (ProfileName && !ProfileName->GetText().IsEmpty()) Bridge->ParticipantName = ProfileName->GetText().ToString().TrimStartAndEnd().Left(64);
     Bridge->bRenderDynamicWorld = true;
-    if (Bridge->HasProductionSession()) { Bridge->Disconnect(); Bridge->WorldName = Name; Bridge->JoinProduction(); }
+    if (Bridge->bJoined) Bridge->TravelTo(Name);   // leave this world, join that one, as the same person
+    else if (Bridge->HasProductionSession()) { Bridge->Disconnect(); Bridge->WorldName = Name; Bridge->JoinProduction(); }
     else Bridge->SwitchWorld(Name);
+}
+
+void UEidoverseHUD::RefreshWorldList(double Now)
+{
+    if (!Bridge || !WorldList || WorldTab != 0) return;
+    if (Bridge->bJoined && !Bridge->bWorldsPending && Now - Bridge->WorldsFetchedAt > 15) Bridge->RefreshWorlds();
+    if (WorldListStatus) WorldListStatus->SetText(FText::FromString(!Bridge->bJoined ? FString(TEXT("join a world to see the others on its server"))
+        : Bridge->KnownWorlds.IsEmpty() ? (Bridge->bWorldsPending ? FString(TEXT("asking the server\u2026")) : Bridge->WorldsStatus) : Bridge->WorldsStatus));
+    if (WorldListSerial == Bridge->WorldsSerial && WorldListHere == Bridge->WorldName) return;
+    WorldListSerial = Bridge->WorldsSerial; WorldListHere = Bridge->WorldName;
+    WorldList->ClearChildren();
+    int32 Shown = 0;
+    for (const FEidoverseWorldInfo& W : Bridge->KnownWorlds)
+    {
+        if (++Shown > 60) break;
+        const bool bHere = Bridge->bJoined && W.Name == Bridge->WorldName;
+        const int32 N = W.People.Num(), A = W.Agents.Num();
+        FString Detail = bHere ? FString(TEXT("you are here")) : N + A == 0 ? FString(W.bLoaded ? TEXT("empty") : TEXT("quiet")) : FString();
+        if (N) Detail += (Detail.IsEmpty() ? TEXT("") : TEXT(" \u00B7 ")) + FString::Printf(TEXT("%d %s"), N, N == 1 ? TEXT("person") : TEXT("people"));
+        if (A) Detail += (Detail.IsEmpty() ? TEXT("") : TEXT(" \u00B7 ")) + FString::Printf(TEXT("%d %s"), A, A == 1 ? TEXT("agent") : TEXT("agents"));
+        auto* Line = WidgetTree->ConstructWidget<UHorizontalBox>();
+        auto* Name = Label(W.Name, 11, bHere ? FEidoverseTheme::Brand() : FEidoverseTheme::Text(), bHere);
+        Name->SetAutoWrapText(false);
+        Line->AddChildToHorizontalBox(Name)->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+        auto* Sub = Label(Detail, 10, FEidoverseTheme::Dim()); Sub->SetAutoWrapText(false);
+        Line->AddChildToHorizontalBox(Sub)->SetPadding(FMargin(8, 1, 0, 0));
+        auto* B = WidgetTree->ConstructWidget<UButton>();
+        B->SetStyle(FlatButton(FLinearColor::Transparent, FEidoverseTheme::Hover(), 6));
+        B->SetContent(Line);
+        TArray<FString> Who = W.People; Who.Append(W.Agents);
+        B->SetToolTipText(FText::FromString(bHere ? TEXT("this world") : Who.IsEmpty() ? FString::Printf(TEXT("travel to %s"), *W.Name)
+            : FString::Printf(TEXT("travel to %s \u2014 %s"), *W.Name, *FString::Join(Who, TEXT(", ")))));
+        if (!bHere) { B->OnClicked.AddDynamic(this, &UEidoverseHUD::OnTravelClicked); ButtonIds.Add(B, FName(*(TEXT("travel:") + W.Name))); }
+        WorldList->AddChildToVerticalBox(B);
+    }
+}
+
+void UEidoverseHUD::RefreshDoorWorlds(double Now)
+{
+    if (!Bridge || !DoorWorlds || !DoorServer) return;
+    const FString Server = DoorServer->GetText().ToString().TrimStartAndEnd();
+    if (AEidoverseBridge::HttpBaseOf(Server).IsEmpty()) { if (DoorWorlds->GetChildrenCount()) DoorWorlds->ClearChildren(); DoorWorldsServer.Empty(); return; }
+    // the server the door names; asked again when it changes (after typing settles) or every 15 s
+    if (!Bridge->bWorldsPending && (Server != DoorWorldsServer ? Now - Bridge->WorldsFetchedAt > 1 : Now - Bridge->WorldsFetchedAt > 15))
+    { DoorWorldsServer = Server; Bridge->RefreshWorlds(Server); }
+    if (DoorWorldsSerial == Bridge->WorldsSerial) return;
+    DoorWorldsSerial = Bridge->WorldsSerial;
+    DoorWorlds->ClearChildren();
+    int32 Shown = 0;
+    for (const FEidoverseWorldInfo& W : Bridge->KnownWorlds)
+    {
+        if (++Shown > 24) break;
+        const int32 N = W.People.Num() + W.Agents.Num();
+        UButton* B = TextButton(N ? FString::Printf(TEXT("%s \u00B7 %d"), *W.Name, N) : W.Name);
+        B->SetToolTipText(FText::FromString(N ? FString::Printf(TEXT("%d here now"), N) : FString(TEXT("no one here now"))));
+        B->OnClicked.AddDynamic(this, &UEidoverseHUD::OnDoorWorldClicked);
+        ButtonIds.Add(B, FName(*(TEXT("doorworld:") + W.Name)));
+        DoorWorlds->AddChildToWrapBox(B);
+    }
+}
+
+void UEidoverseHUD::OnTravelClicked()
+{
+    const FString Id = ResolveClicked().ToString();
+    if (Bridge && Id.StartsWith(TEXT("travel:"))) Bridge->TravelTo(Id.Mid(7));
+}
+void UEidoverseHUD::OnWorldsRefreshClicked() { if (Bridge) Bridge->RefreshWorlds(); }
+void UEidoverseHUD::OnDoorWorldClicked()
+{
+    const FString Id = ResolveClicked().ToString();
+    if (DoorWorld && Id.StartsWith(TEXT("doorworld:"))) DoorWorld->SetText(FText::FromString(Id.Mid(10)));
 }
 void UEidoverseHUD::OnLocalCommonsClicked() { if (Bridge) Bridge->JoinLocalCommons(); }
 void UEidoverseHUD::OnSignInClicked() { if (Bridge) Bridge->BeginProductionLogin(); }

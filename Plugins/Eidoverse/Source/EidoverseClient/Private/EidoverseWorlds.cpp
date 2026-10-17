@@ -24,8 +24,6 @@ bool AEidoverseBridge::IsWorldName(const FString& Name)
 bool AEidoverseBridge::SwitchWorld(const FString& Destination)
 {
     if(!IsWorldName(Destination)){WorldRenderStatus=TEXT("Invalid world name");return false;}
-    if(Endpoint==TEXT("wss://eidoverse.animalabs.ai/ws")&&HasProductionSession()&&!LoginWorldScope.IsEmpty()&&LoginWorldScope!=TEXT("*")&&LoginWorldScope!=Destination)
-    {LoginStatus=TEXT("This session is water-only. Sign out and approve all accessible worlds in your browser.");return false;}
     SetShareSceneScreenshots(false);Disconnect();WorldName=Destination;Connect();return true;
 }
 void AEidoverseBridge::JoinLocalCommons()

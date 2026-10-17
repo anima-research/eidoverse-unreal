@@ -41,6 +41,18 @@ struct FEidoverseChatLine
     UPROPERTY(BlueprintReadOnly, Category="Eidoverse") int64 Seq=-1;
 };
 
+// One world on the server's map (GET /worlds): who is there now. Travel is leave-and-join; the list is
+// how a native client, with no URL to type into, sees where it can go.
+USTRUCT(BlueprintType)
+struct FEidoverseWorldInfo
+{
+    GENERATED_BODY()
+    UPROPERTY(BlueprintReadOnly, Category="Eidoverse") FString Name;
+    UPROPERTY(BlueprintReadOnly, Category="Eidoverse") TArray<FString> People;
+    UPROPERTY(BlueprintReadOnly, Category="Eidoverse") TArray<FString> Agents;
+    UPROPERTY(BlueprintReadOnly, Category="Eidoverse") bool bLoaded=false;
+};
+
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FEidoverseChat, const FString&, Sender, const FString&, Text);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FEidoverseRefused, const FString&, Error);
 
@@ -193,6 +205,15 @@ public:
     TSharedPtr<FJsonObject> InspectReply;
     // http(s)://host[:port] of the configured endpoint, for /defs and /library.
     UFUNCTION(BlueprintPure, Category="Eidoverse") FString HttpBase() const;
+    static FString HttpBaseOf(const FString& SocketUrl);
+    // ---- travel (EidoverseTravel.cpp): the server's world map, and going there ----
+    UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse|Travel") TArray<FEidoverseWorldInfo> KnownWorlds;
+    UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse|Travel") FString WorldsStatus;
+    int32 WorldsSerial=0; double WorldsFetchedAt=-100; FString WorldsServer; bool bWorldsPending=false;
+    /** GET <server>/worlds (the joined server, or the given ws:// / wss:// endpoint for the door). */
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|Travel") void RefreshWorlds(const FString& Server = TEXT(""));
+    /** Leave this world and join another on the same server, as the signed-in person. */
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|Travel") bool TravelTo(const FString& World);
     // Empty when Name may be typed at the door; otherwise the server's words for why not.
     UFUNCTION(BlueprintPure, Category="Eidoverse") static FString NameRefusal(const FString& Name);
     // General-purpose client (AEidoverseGameMode): show the front door while offline.
@@ -412,8 +433,10 @@ public:
 #if WITH_DEV_AUTOMATION_TESTS
     void ProbeLocalChatUI(bool bPrivate);
 #endif
-    UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse|Login") FString LoginStatus=TEXT("Sign in to join production. Approve all accessible worlds for world switching.");
-    UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse|Login") FString LoginWorldScope;
+    UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse|Login") FString LoginStatus=TEXT("Log in with Discord to enter the public server.");
+    // The door's world, entered once a sign-in it started is approved (net.js: a login-required server sends you
+    // through the login and back into the world you asked for).
+    FString PendingDoorWorld;
     UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse|Login") FString LoginName;
     UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse|Login") bool bAuthenticating=false;
     UFUNCTION(BlueprintCallable, Category="Eidoverse|Login") void BeginProductionLogin();

@@ -1,5 +1,43 @@
 # Unreal / Three.js parity
 
+## Upstream port 2026-10-17, second batch (three.js main through 6c0fe3f; login and travel)
+
+eidoverse-worlds#248 merged (round 5 is a headset-only swim binding, no twin here), #253 (CI labels, none), and
+#254, the world's water level seen from below and dived into:
+- **Diving in the level** (controller.js levelDiveWater): from the surface float, C / Ctrl takes the body under
+  into the same 3D swim the volumes use (SWIM_SPEED 0.9 x size x 1.4, the surface at the wave above you, no swell
+  of its own), only when deep enough (> 1.3 x stature) and at least half under; back at the surface and not
+  diving, the float takes over again.
+- **Underwater under the level** (watervolumes.js levelSlot): while the camera is below the wave at the camera,
+  over wet ground and not in an authored volume or a dry box, the weather fog becomes the water's: visibility by
+  kind (Koschmieder sigma = 3.9 / 8, 3.5, 15 m for still, river, sea), the world's water colour mixed half and
+  half with the kind's tint, dimmed with the sun (or moon, never below 6 %), uniform and over the sky too, so past
+  the shore and the terrain's edge the view meets deep water. UE height fog is grey extinction with coloured
+  inscattering, so the per-channel absorption [1.5, 1, 0.75] x sigma is the green channel's sigma here.
+- **The sheet from below** (water.js): M_EidoverseLevelWater's back face is Snell's window, glowing inside about
+  48.6 deg from straight up and a dark, near-opaque mirror ceiling past it (make_level_water_material.py, the
+  asset regenerated; compiles for METAL_SM6 in the cook).
+- Server-side, nothing native to change: render-scene no longer shapes the ground twice (a -4 m pit had come
+  through at -8 m), so native terrain and water now match the browser's.
+Not ported: a dry pocket under the level shows sky here and no fog (three.js keeps the water's fog and paints sky
+only through the pocket's opening); the level's sheet is not masked across a dry shaft's mouth.
+
+**Login, unified** (with eidoverse-worlds `login/native-normal-flow`): water is one world among the others, so
+native pairing issues an ordinary session for every world the account may join; the approval page has one
+Approve, no destination and no per-world choice. Natively: no world scope anywhere; "Log in" / "Log out" as the
+web says it; at the door, joining the public server while logged out starts the Discord sign-in and enters the
+chosen world once approved (as the browser goes through its login and back into the world).
+
+**Travel** (no URL to type into): the World panel's Here page lists the server's worlds from `GET /worlds`,
+busiest first, with who is in each; a click travels (leave, join, same person; each world's own chat). A name
+field goes anywhere else, `/go <world>` and the lantern's "travel to another world" do the same, and the door
+shows the worlds as chips under its World field. The ∃ menu's World row reads "world · travel".
+
+Tests: `Eidoverse.LiveChat` gains the map (this world and its three people) and a trip there and back;
+`Eidoverse.LivePairing` signs in through the server's own pairing handler on its loopback fixture (code shown,
+approval, the browser's person, one session, no world named). Server: native-login-test 66 checks,
+native-login-wire-test (joins in three worlds, no re-delegation), render-scene-test 26/26.
+
 ## Upstream port 2026-10-17 (three.js main through 05df94c + unreal/native-client through 9559bdf; local branch, not pushed)
 
 What three.js main merged after 034c41a (#184-#252) and the four review rounds on eidoverse-worlds#248, wherever a

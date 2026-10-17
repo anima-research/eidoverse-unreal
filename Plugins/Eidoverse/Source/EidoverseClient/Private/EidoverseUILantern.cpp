@@ -236,6 +236,9 @@ void UEidoverseHUD::RegisterHudActions()
     const TPair<const TCHAR*, const TCHAR*> Panels[] = {{TEXT("chat"), TEXT("chat")}, {TEXT("world"), TEXT("world")}, {TEXT("people"), TEXT("people here")},
         {TEXT("build"), TEXT("build")}, {TEXT("settings"), TEXT("settings")}};
     for (const auto& P : Panels) { const FName Id(P.Key); Reg(FString(TEXT("panel:")) + P.Key, P.Value, TEXT("panels"), Id == "build" ? TEXT("B") : Id == "people" ? TEXT("Tab") : FString(), {TEXT("window"), TEXT("panel")}, [W, Id]() { if (W.IsValid()) W->ToggleFrame(Id); }, TEXT("open or close the window")); }
+    // travel: the World panel's Here page lists this server's worlds (the browser's address bar, natively)
+    Reg(TEXT("world:travel"), TEXT("travel to another world"), TEXT("world"), FString(), {TEXT("worlds"), TEXT("go"), TEXT("join"), TEXT("map")},
+        [W]() { if (W.IsValid()) { W->ShowFrame("world", true); W->WorldAction(TEXT("wtab:0")); } }, TEXT("the worlds on this server, and who is in each"));
     Reg(TEXT("panel:help"), TEXT("help and keys"), TEXT("panels"), TEXT("H"), {TEXT("keys"), TEXT("controls"), TEXT("?")}, [W]() { if (W.IsValid()) W->ToggleHelp(); });
     Reg(TEXT("panel:emotes"), TEXT("emote bar"), TEXT("panels"), FString(), {TEXT("gestures")}, [W]() { if (W.IsValid()) W->ToggleFrame("emotes"); });
     // the body

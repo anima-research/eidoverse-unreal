@@ -34,24 +34,29 @@ All six `Underwater.` automation tests and Mac Editor/Development/Shipping build
 passed. `Underwater.Ocean.SamplingBoundaries` covers tiny negative coordinates
 that previously rounded to the field size and caused an out-of-bounds crash.
 
-The production destination is **water** at `wss://eidoverse.animalabs.ai/ws`.
-Choose **Sign in with Discord**. Unreal displays a five-minute pairing code and
-opens the Eidoverse approval page in your normal browser. Sign in through the
-usual Discord flow, verify that the code matches your own Unreal client, and
-choose **Authorize Unreal for water**. Back in Unreal, **Join water**
-connects explicitly as that verified identity. Joining shares live presence and
-may replace another embodied session for the same identity. Public chat is
-persisted by the server.
+The public server is `wss://eidoverse.animalabs.ai/ws`, with every world on it (commons, water and the rest).
+Logging in works as the browser's does, with one pairing step a native client needs: choose **Log in**
+(the ∃ menu, the door, or the World panel). Unreal shows a five-minute pairing code and opens the
+approval page in your normal browser; log in with Discord there if asked, check that the code matches your
+own Unreal client, and choose **Approve**. Unreal is then signed in as you, as the browser is, for any world
+your account may join. At the door, pressing join on the public server while logged out starts this sign-in
+and enters the chosen world once you approve. Joining shares live presence and may replace another embodied
+session for the same identity in that world. Public chat is persisted by the server.
 
-The session cookie is kept only in native memory, sent only to the exact
-production WebSocket endpoint, and is not placed in URLs or project assets.
-HTTP cookie persistence is disabled for these requests. Sign out disconnects,
-clears the credential, and requests session revocation; ending Play does the same.
-Revocation is best-effort if offline. The native session lasts at most 12 hours,
-bounded by the approving browser session's remaining lifetime. A server-side
-rejection can require earlier login. It is a separate, water-only session;
-signing out of Unreal does not sign you out of the website. Pending sign-in can
-be cancelled; **Reopen browser** restores the approval page if needed.
+Travel: the World panel's Here page lists the server's worlds (`GET /worlds`) with who is in each; a click
+travels there (leave this world, join that one, as the same person). Type any name to go to a world not on
+the list (an empty one is yours to start), or use `/go <world>` or the lantern's "travel to another world".
+The door shows the same worlds as chips under its World field.
+
+The session cookie is kept only in native memory (and the Keychain, to survive restarts), sent only to the
+exact production endpoint, and is not placed in URLs or project assets. HTTP cookie persistence is disabled
+for these requests. Log out disconnects, clears the credential, and requests session revocation; ending Play
+does the same. Revocation is best-effort if offline. The native session lasts at most 12 hours, bounded by
+the approving browser session's remaining lifetime; logging out of Unreal does not log you out of the website.
+Pending sign-in can be cancelled; **Reopen browser** restores the approval page if needed.
+
+Until 2026-10-17 native sessions were limited to the water world unless "all accessible worlds" was approved;
+the server change that makes them ordinary sign-ins is eidoverse-worlds `login/native-normal-flow`.
 
 This requires the accompanying local Eidoverse server patch (`server/native-login.ts`,
 routes/auth integration and the native-world join guard). **Deployed to production

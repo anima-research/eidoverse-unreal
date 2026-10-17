@@ -485,6 +485,7 @@ bool AEidoverseExplorer::TickSwimming(float Dt,APlayerController* PC)
     auto* Move=GetCharacterMovement();
     auto Leave=[&]()
     {
+        bLevelDiving=false;
         if(bSwimming){bSwimming=false;SwimVelocityWire=FVector::ZeroVector;Move->SetMovementMode(MOVE_Falling);}
         LocomotionMode=TEXT("walk");
         return false;
@@ -493,11 +494,35 @@ bool AEidoverseExplorer::TickSwimming(float Dt,APlayerController* PC)
     const FVector Origin=Scene->GetSceneOrigin();
     const double FeetOffset=GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
     FVector Body=AEidoverseBridge::ToWirePosition(GetActorLocation()-Origin-FVector(0,0,FeetOffset));
-    const EidoWater::FParams* Water=Scene->WaterAt(Body+FVector(0,.7,0));
-    if(!Water)return Leave();
     const bool bInput=!PC->IsMoveInputIgnored();
     const bool bRise=bInput&&PC->IsInputKeyDown(EKeys::SpaceBar);
     const bool bDive=bInput&&(PC->IsInputKeyDown(EKeys::C)||PC->IsInputKeyDown(EKeys::LeftControl)||PC->IsInputKeyDown(EKeys::RightControl));
+    // This body's size (controller.js: deskEyeY(userScale)/deskEyeY(1)): float depth and the handover follow
+    // it; the head sweep is the capsule, already sized with the body.
+    const double Stature=FMath::Clamp(double(BodyScale),.5,2.);
+    const EidoWater::FParams* Water=Scene->WaterAt(Body+FVector(0,.7,0));
+    EidoWater::FParams LevelDive;bool bStartDive=false;
+    if(!Water)
+    {
+        // The level as a swim medium while diving: its surface is the wave above the swimmer, no swell of its own,
+        // a stroke 1.4x the float's (SWIM_SPEED 0.9 m/s x size).
+        AEidoverseScene::FLevelWaterSample S;
+        if(Scene->HasLevelWater()&&Scene->LevelWaterSample(Body.X,Body.Z,S))
+        {
+            const double Top=Scene->LevelWaterLevel()+AEidoverseScene::SurfaceOffset(S,Body.X,Body.Z,Scene->LevelWaveTime());
+            // only from a swim (deep enough to float), only when asked, and only from IN the water: falling over a
+            // lake with C held must not start a swim in mid-air (afloat sits 1.1 x stature under the surface)
+            if(!bLevelDiving&&bDive&&S.Depth>1.3*Stature&&Body.Y<Top-.6*Stature){bLevelDiving=true;bStartDive=true;bLevelSwim=false;}
+            if(bLevelDiving)
+            {
+                LevelDive.Top=Top;LevelDive.Bottom=-100000;LevelDive.Center={Body.X,(Top+LevelDive.Bottom)/2,Body.Z};
+                LevelDive.Size={200000,Top-LevelDive.Bottom,200000};LevelDive.Speed=.9*BodyScale*1.4;
+                Water=&LevelDive;
+            }
+        }
+        else bLevelDiving=false;
+    }
+    if(!Water)return Leave();
     const double Time=Scene->WaterTime();
     // Wading is still walking: hand over only where the floor is deep enough.
     FHitResult FloorHit;FCollisionQueryParams Query(SCENE_QUERY_STAT(EidoverseSwimFloor),true,this);
@@ -505,12 +530,10 @@ bool AEidoverseExplorer::TickSwimming(float Dt,APlayerController* PC)
     double FloorWire=-1e9;
     if(GetWorld()->LineTraceSingleByChannel(FloorHit,Feet+FVector(0,0,50),Feet-FVector(0,0,5000),ECC_Visibility,Query))
         FloorWire=(FloorHit.ImpactPoint.Z-Origin.Z)/100;
-    // This body's size (controller.js: deskEyeY(userScale)/deskEyeY(1)): float depth and the handover follow
-    // it; the head sweep is the capsule, already sized with the body.
-    const double Stature=FMath::Clamp(double(BodyScale),.5,2.);
     if(FloorWire>=EidoWater::WaveHeight(*Water,Body.X,Body.Z,Time)-1.1*Stature&&!bRise)return Leave();
 
     if(!bSwimming){bSwimming=true;SwimVelocityWire=AEidoverseBridge::ToWirePosition(Move->Velocity);}
+    if(bStartDive)SwimVelocityWire=FVector(0,-.6,0);   // a stroke down to begin the dive
     Move->DisableMovement();
     const FRotator View=PC->GetControlRotation();
     const double Fwd=bInput?(PC->IsInputKeyDown(EKeys::W)?1:0)-(PC->IsInputKeyDown(EKeys::S)?1:0):0;
@@ -539,6 +562,8 @@ bool AEidoverseExplorer::TickSwimming(float Dt,APlayerController* PC)
         bSurface=R.bSurface&&!Hit.bBlockingHit;
     }
     Move->Velocity=AEidoverseBridge::FromWirePosition(SwimVelocityWire);
+    // back at the level's surface and not diving: the float (TickLevelWater) takes the body from here
+    if(Water==&LevelDive&&bSurface&&!bDive)bLevelDiving=false;
     LocomotionMode=bSurface?TEXT("surface"):TEXT("swim");
     return true;
 }
