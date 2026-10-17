@@ -770,6 +770,9 @@ UWidget* UEidoverseHUD::BuildSettings()
     Row(TEXT("Panel opacity"), "opacity", {{TEXT("−"), "set:opacity-"}, {TEXT("+"), "set:opacity+"}});
     Row(TEXT("Names over people"), "plates", {{TEXT("toggle"), "set:plates"}});
     Row(TEXT("Chat bubbles"), "bubbles", {{TEXT("toggle"), "set:bubbles"}});
+    Section(TEXT("This body"));
+    Row(TEXT("Size"), "bodysize", {{TEXT("−"), "set:bs-"}, {TEXT("+"), "set:bs+"}, {TEXT("reset"), "set:bs0"}});
+    Row(TEXT("Nameplate lift"), "platelift", {{TEXT("−"), "set:pl-"}, {TEXT("+"), "set:pl+"}, {TEXT("auto"), "set:pl0"}});
     Section(TEXT("Style"));
     // stylepanel.js swatches: a caption + current value, then the choices wrapping below.
     auto Swatches = [&](const TCHAR* Name, FName Key, std::initializer_list<TPair<const TCHAR*, const char*>> Choices)
@@ -851,6 +854,7 @@ void UEidoverseHUD::RefreshSettings()
     { IConsoleVariable* V = IConsoleManager::Get().FindConsoleVariable(TEXT("Eidoverse.Chat.TextSize")); Put("chatsize", V ? FString::FromInt(V->GetInt()) : FString(TEXT("11"))); }
     { IConsoleVariable* V = IConsoleManager::Get().FindConsoleVariable(TEXT("Eidoverse.Chat.Markdown")); Put("chatmd", !V || V->GetInt() ? TEXT("on") : TEXT("off")); }
     Put("tts", Bridge && Bridge->IsTtsOn() ? TEXT("on") : TEXT("off"));
+    if (Bridge) { Put("bodysize", FString::Printf(TEXT("%.0f%%"), Bridge->GetBodyScale() * 100)); Put("platelift", Bridge->GetPlateLift() == 0 ? FString(TEXT("auto")) : FString::Printf(TEXT("%+.2f m"), Bridge->GetPlateLift())); }
     {
         auto Tok = [](const TCHAR* N) { const IConsoleVariable* V = IConsoleManager::Get().FindConsoleVariable(N); return V ? V->GetString() : FString(); };
         auto Name = [](const FString& Hex, std::initializer_list<TPair<const TCHAR*, const TCHAR*>> Names, const TCHAR* Default)
@@ -917,6 +921,13 @@ void UEidoverseHUD::OnSettingClicked()
             Bridge->RebuildHUD();
             return;
         }
+    }
+    else if (Bridge && (Id.StartsWith(TEXT("set:bs")) || Id.StartsWith(TEXT("set:pl"))))
+    {
+        float U = Bridge->GetBodyScale(), Y = Bridge->GetPlateLift();
+        if (Id == TEXT("set:bs-")) U -= .05f; else if (Id == TEXT("set:bs+")) U += .05f; else if (Id == TEXT("set:bs0")) U = 1;
+        else if (Id == TEXT("set:pl-")) Y -= .05f; else if (Id == TEXT("set:pl+")) Y += .05f; else if (Id == TEXT("set:pl0")) Y = 0;
+        Bridge->SetBodyPrefs(U, Y);
     }
     else if (Id == TEXT("set:tts")) { if (Bridge) Bridge->SetTtsEnabled(!Bridge->IsTtsOn()); }
     else if (Id == TEXT("set:hear")) { if (Bridge) Bridge->SetHearVoices(!EidoSettings::HearVoices()); }
@@ -2070,6 +2081,14 @@ TSharedRef<SWidget> UEidoverseNameplate::RebuildWidget()
         StateIcon->SetColorAndOpacity(FLinearColor(FColor(180, 240, 216)));
         StateIcon->SetVisibility(ESlateVisibility::Collapsed);
         if (auto* IconSlot = PillRow->AddChildToHorizontalBox(StateIcon)) { IconSlot->SetPadding(FMargin(6, 0, 0, 0)); IconSlot->SetVerticalAlignment(VAlign_Center); }
+        // The "can't hear you" mark (nameplates 1220e6f): they are not hearing voices.
+        DeafIcon = WidgetTree->ConstructWidget<UImage>();
+        if (UTexture2D* T = FEidoverseTheme::IconTexture(TEXT("Ear"))) DeafIcon->SetBrushFromTexture(T);
+        DeafIcon->SetDesiredSizeOverride(FVector2D(14, 14));
+        DeafIcon->SetColorAndOpacity(FLinearColor(FColor(150, 150, 156)));
+        DeafIcon->SetToolTipText(FText::FromString(TEXT("headphones off — not hearing voices")));
+        DeafIcon->SetVisibility(ESlateVisibility::Collapsed);
+        if (auto* DeafSlot = PillRow->AddChildToHorizontalBox(DeafIcon)) { DeafSlot->SetPadding(FMargin(6, 0, 0, 0)); DeafSlot->SetVerticalAlignment(VAlign_Center); }
         Pill->SetContent(PillRow);
         Column->AddChildToVerticalBox(Pill)->SetHorizontalAlignment(HAlign_Center);
     }
@@ -2114,6 +2133,13 @@ void UEidoverseNameplate::ShowTyping(float Seconds)
     TakeWidget();
     TypingDots->SetVisibility(ESlateVisibility::HitTestInvisible);
     TypingUntil = FPlatformTime::Seconds() + Seconds;
+}
+
+bool UEidoverseNameplate::IsDeafShown() const { return DeafIcon && DeafIcon->IsVisible(); }
+
+void UEidoverseNameplate::SetDeaf(bool bDeaf)
+{
+    if (DeafIcon) DeafIcon->SetVisibility(bDeaf ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
 }
 
 void UEidoverseNameplate::SetDistanceFade(float Alpha)

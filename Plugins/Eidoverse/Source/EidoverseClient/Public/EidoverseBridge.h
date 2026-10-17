@@ -94,6 +94,8 @@ struct FEidoversePeer
     bool bWingsFolded=false;
     TArray<TPair<FName,FVector>> Pins;   // bodydrag nails from presence (wire positions)
     bool bDraggedLocal=false;            // my hand holds this body: my sim places it, not the stream
+    float BodyScale=1, PlateY=0;         // pose.scale / pose.plateY (presencewire.js clamps; absence = default)
+    int8 Mic=-1, Hear=-1;                // pose.mic / pose.hear: -1 unknown, never "off"
     TSharedPtr<FJsonObject> XR;   // pose.xr: VR head, grips, curls (rendered, never sent by this client)
     // Reach easing (12/s in and out), last targets for easing out, and narration state.
     TMap<FName,float> ReachWeight;
@@ -293,6 +295,14 @@ public:
     // the ragdoll joints, and a stats line.
     bool bDebugOverlay=false;
     UFUNCTION(BlueprintCallable,Category="Eidoverse") void ToggleDebugOverlay();
+    // "This body" (bodyscale.js): the worn body's chosen size and nameplate lift, saved per body name.
+    float SelfBodyScale=1, SelfPlateY=0; FString BodyPrefsFor;
+    void LoadBodyPrefs();
+    UFUNCTION(BlueprintCallable,Category="Eidoverse") void SetBodyPrefs(float Scale,float PlateLift);
+    UFUNCTION(BlueprintPure,Category="Eidoverse") float GetBodyScale() const { return SelfBodyScale; }
+    UFUNCTION(BlueprintPure,Category="Eidoverse") float GetPlateLift() const { return SelfPlateY; }
+    UFUNCTION(BlueprintPure,Category="Eidoverse") float GetPeerBodyScale(const FString& Id) const { const FEidoversePeer* P=Peers.Find(Id); return P?P->BodyScale:0.f; }
+    UFUNCTION(BlueprintPure,Category="Eidoverse") int32 GetPeerHear(const FString& Id) const { const FEidoversePeer* P=Peers.Find(Id); return P?P->Hear:-2; }
     // Rebuild the interface (new style tokens), carrying chat and DM state across.
     UFUNCTION(BlueprintCallable,Category="Eidoverse") void RebuildHUD();
     UFUNCTION(BlueprintPure,Category="Eidoverse") FString DebugStats() const;

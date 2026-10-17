@@ -346,7 +346,9 @@ private:
 public:
     UPROPERTY(Transient,BlueprintReadOnly,Category="Eidoverse") bool bLevelSwim=false;
     UPROPERTY(Transient,BlueprintReadOnly,Category="Eidoverse") float WadeFactor=1;
-    UPROPERTY(Transient,BlueprintReadWrite,Category="Eidoverse") float BodyScale=1;
+    UPROPERTY(Transient,BlueprintReadOnly,Category="Eidoverse") float BodyScale=1;
+    // bodyscale.js: the body, eyes, stride, capsule and mantle reach grow together; the feet stay put.
+    UFUNCTION(BlueprintCallable,Category="Eidoverse") void SetBodyScale(float Scale);
 private:
     void LookYaw(float Value);
     void LookPitch(float Value);

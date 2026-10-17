@@ -454,7 +454,7 @@ void AEidoverseExplorer::Tick(float Dt)
     bWantMove=Forward!=0||Right!=0;
     const bool bRun=PC->IsInputKeyDown(EKeys::LeftShift)||PC->IsInputKeyDown(EKeys::RightShift);
     const bool bCreep=PC->IsInputKeyDown(EKeys::LeftAlt)||PC->IsInputKeyDown(EKeys::RightAlt);
-    GetCharacterMovement()->MaxWalkSpeed=bRun?400:bCreep?55:155;
+    GetCharacterMovement()->MaxWalkSpeed=(bRun?400:bCreep?55:155)*BodyScale;   // stride grows with the legs
     AddMovementInput(R.Vector(),Forward);
     AddMovementInput(FRotationMatrix(R).GetUnitAxis(EAxis::Y),Right);
     TickLevelWater(Dt,bRun);
@@ -656,7 +656,7 @@ bool AEidoverseExplorer::TryMantle()
     const FVector Feet=GetActorLocation()-FVector(0,0,Half),Fwd=GetActorForwardVector().GetSafeNormal2D();
     FCollisionQueryParams Q(SCENE_QUERY_STAT(EidoverseMantle),false,this);
     FHitResult Wall;
-    const FVector Chest=Feet+FVector(0,0,100);
+    const FVector Chest=Feet+FVector(0,0,100*BodyScale);
     if(!GetWorld()->SweepSingleByChannel(Wall,Chest,Chest+Fwd*(40+Radius),FQuat::Identity,ECC_Visibility,FCollisionShape::MakeSphere(20),Q)){
         // a low ledge may sit under the chest line
         const FVector Knee=Feet+FVector(0,0,45);
@@ -665,9 +665,9 @@ bool AEidoverseExplorer::TryMantle()
     if(Wall.ImpactNormal.Z>.6)return false;   // a slope, not a ledge
     FHitResult Top;
     const FVector Probe=Wall.ImpactPoint+Fwd*30;
-    if(!GetWorld()->LineTraceSingleByChannel(Top,FVector(Probe.X,Probe.Y,Feet.Z+180),FVector(Probe.X,Probe.Y,Feet.Z+20),ECC_Visibility,Q)||Top.bStartPenetrating)return false;
+    if(!GetWorld()->LineTraceSingleByChannel(Top,FVector(Probe.X,Probe.Y,Feet.Z+180*BodyScale),FVector(Probe.X,Probe.Y,Feet.Z+20),ECC_Visibility,Q)||Top.bStartPenetrating)return false;
     const double Reach=Top.ImpactPoint.Z-Feet.Z;
-    if(Reach<=30||Reach>170)return false;
+    if(Reach<=30*BodyScale||Reach>170*BodyScale)return false;   // bodyscale.js canMantle
     // Room to stand up there?
     FHitResult Head;
     const FVector Stand=FVector(Feet.X,Feet.Y,0)+Fwd*60+FVector(0,0,Top.ImpactPoint.Z+Half+2);
@@ -820,4 +820,18 @@ void AEidoverseExplorer::TickLevelWater(float Dt,bool bRun)
     SetActorLocation(At,false,nullptr,ETeleportType::TeleportPhysics);
     Move->Velocity.Z=0;
     Posture.Empty();   // you cannot sit down in deep water
+}
+
+void AEidoverseExplorer::SetBodyScale(float Scale)
+{
+    const float U=FMath::Clamp(Scale,.5f,2.f);
+    if(U==BodyScale)return;
+    auto* Cap=GetCapsuleComponent();
+    const float OldHalf=Cap->GetUnscaledCapsuleHalfHeight();
+    BodyScale=U;
+    Cap->SetCapsuleSize(32*U,88*U,true);
+    // keep the feet where they are; the eye sits at 1.45 m x size above them
+    AddActorWorldOffset(FVector(0,0,88*U-OldHalf),false,nullptr,ETeleportType::TeleportPhysics);
+    if(Boom)Boom->SetRelativeLocation(FVector(0,0,(145-88)*U));
+    GetCharacterMovement()->MaxStepHeight=45*U;
 }

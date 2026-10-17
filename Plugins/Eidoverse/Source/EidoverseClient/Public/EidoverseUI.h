@@ -499,6 +499,8 @@ public:
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void SetName(const FString& Name);
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void ShowBubble(const FString& Text, float Seconds = 8);
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void SetDistanceFade(float Alpha);
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void SetDeaf(bool bDeaf);
+    UFUNCTION(BlueprintPure, Category="Eidoverse|UI") bool IsDeafShown() const;
     // Composing indicator after the name (web: typing dots on the pill).
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void ShowTyping(float Seconds = 4);
     // Presence glyph instead of dots (typing state: ear | think | tool | mic); empty =
@@ -511,6 +513,7 @@ private:
     UPROPERTY() TObjectPtr<UTextBlock> NameText;
     UPROPERTY() TObjectPtr<UTextBlock> TypingDots;
     UPROPERTY() TObjectPtr<class UImage> StateIcon;
+    UPROPERTY() TObjectPtr<class UImage> DeafIcon;
     double TypingUntil = 0;
     FString TypingState;
     UPROPERTY() TObjectPtr<UBorder> Bubble;

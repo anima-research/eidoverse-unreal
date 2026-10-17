@@ -1,4 +1,6 @@
 #include "EidoverseBridge.h"
+#include "EidoverseVoice.h"
+#include "Components/CapsuleComponent.h"
 #include "UnrealClient.h"
 #include "EidoverseLoadTrace.h"
 #include "EidoverseClips.h"
@@ -386,7 +388,7 @@ void AEidoverseBridge::TickAvatars(double Time)
         if(P.AvatarMesh.IsValid())
         {
             ++LoadedAvatarCount;
-            P.AvatarMesh->SetVisibility(!P.bSubmarine,true);P.AvatarMesh->SetRelativeLocation(FVector(0,0,P.bPawnAnchor?-85:0));
+            P.AvatarMesh->SetVisibility(!P.bSubmarine,true);P.AvatarMesh->SetRelativeLocation(FVector(0,0,P.bPawnAnchor?-85*P.BodyScale:0));P.AvatarMesh->SetRelativeScale3D(FVector(P.BodyScale));
             // remotes.js: animate every frame under 8 m, every 2nd under 20 m, else every 4th
             // (staggered per body); closed-form clips land at the right phase regardless.
             const double DistM=FVector::Dist(Eye,P.Actor->GetActorLocation())/100;
@@ -489,6 +491,9 @@ void AEidoverseBridge::TickSelfBody(double Time)
     }
     auto* M=SelfBody.AvatarMesh.Get();
     if(M->Avatar!=Asset)M->SetAvatar(Asset);
+    if(BodyPrefsFor!=AvatarPath)LoadBodyPrefs();
+    if(Explorer->BodyScale!=SelfBodyScale)Explorer->SetBodyScale(SelfBodyScale);
+    M->SetRelativeScale3D(FVector(SelfBodyScale));M->SetRelativeLocation(FVector(0,0,-Explorer->GetCapsuleComponent()->GetScaledCapsuleHalfHeight()));
     // Don't render the inside of your own head (controller.js updateFollowCamera).
     M->SetVisibility(!Explorer->bFirstPerson,true);
     const FVector Velocity=Explorer->BodyVelocity/100.;
@@ -557,6 +562,13 @@ void AEidoverseBridge::Pose(const FString& Id,const TSharedPtr<FJsonObject>& Dat
         Peer->ClipRate=Data->TryGetNumberField(TEXT("clipRate"),ClipRate)&&FMath::IsFinite(ClipRate)&&ClipRate>0&&ClipRate<=3.2?float(ClipRate):0.f;
     }
     {bool bFold=false;if(Data->TryGetBoolField(TEXT("wingsFolded"),bFold))Peer->bWingsFolded=bFold;}
+    {
+        // presencewire.js applyBodyWire / applyVoiceWire: clamped, absence = default (size) or unknown (voice).
+        double V;Peer->BodyScale=Data->TryGetNumberField(TEXT("scale"),V)&&FMath::IsFinite(V)?float(FMath::Clamp(V,.5,2.0)):1.f;
+        Peer->PlateY=Data->TryGetNumberField(TEXT("plateY"),V)&&FMath::IsFinite(V)?float(FMath::Clamp(V,-.3,.8)):0.f;
+        bool B;if(Data->TryGetBoolField(TEXT("mic"),B))Peer->Mic=B?1:0;
+        if(Data->TryGetBoolField(TEXT("hear"),B))Peer->Hear=B?1:0;
+    }
     if(const TSharedPtr<FJsonValue> PinsV=Data->TryGetField(TEXT("pins")))
     {
         Peer->Pins.Reset();
@@ -783,6 +795,11 @@ void AEidoverseBridge::SendPose()
     // The rest of the public body (net.js sendPose): presence, wings, held pose.
     Data->SetStringField(TEXT("presence"),CurrentPresence());
     Data->SetBoolField(TEXT("wingsFolded"),bWingsFolded);
+    // bodyWire: only when not default (1% / 1 cm steps); voiceWire: the live reading, every packet.
+    {const double Sc=FMath::RoundToDouble(FMath::Clamp(SelfBodyScale,.5f,2.f)*100)/100,Py=FMath::RoundToDouble(FMath::Clamp(SelfPlateY,-.3f,.8f)*100)/100;
+     if(Sc!=1)Data->SetNumberField(TEXT("scale"),Sc);if(Py!=0)Data->SetNumberField(TEXT("plateY"),Py);}
+    Data->SetBoolField(TEXT("mic"),Voice.IsValid()&&Voice->IsMicLive()&&!Voice->IsMuted());
+    Data->SetBoolField(TEXT("hear"),EidoSettings::HearVoices()&&!bVoiceHushed);
     if(Speed>=.05){bBodyMovedThisSession=true;if(SelfHeldPose)SetSelfHeldPose(nullptr,false);}   // walking away ends a held pose
     if(SelfHeldPose)Data->SetObjectField(TEXT("pose"),SelfHeldPose);
     else if(bSendHeldNull){Data->SetField(TEXT("pose"),MakeShared<FJsonValueNull>());bSendHeldNull=false;}
@@ -924,7 +941,7 @@ void AEidoverseBridge::Tick(float DeltaSeconds)
             // Feet-anchored avatars are not all 1.7 m tall; use the posed head,
             // not the protocol root. World-up clearance also works when diving.
             FVector Anchor;
-            if(!P.bSubmarine&&P.AvatarMesh.IsValid()&&P.AvatarMesh->HumanBonePosition(TEXT("head"),Anchor))Anchor.Z+=40;
+            if(!P.bSubmarine&&P.AvatarMesh.IsValid()&&P.AvatarMesh->HumanBonePosition(TEXT("head"),Anchor))Anchor.Z+=40*P.BodyScale+P.PlateY*100*P.BodyScale;
             else
             {
                 UPrimitiveComponent* Body=!P.bSubmarine&&P.AvatarMesh.IsValid()?static_cast<UPrimitiveComponent*>(P.AvatarMesh.Get()):P.Mesh.Get();
@@ -937,8 +954,15 @@ void AEidoverseBridge::Tick(float DeltaSeconds)
                 // Legible nearby, fading out by 70 m (screen-space pills never shrink).
                 FVector Camera;FRotator Rot;PC->GetPlayerViewPoint(Camera,Rot);
                 const float Metres=FVector::Dist(Camera,Anchor)/100;
-                Plate->SetVisibility(Metres<70&&EidoSettings::Nameplates());
-                if(auto* W=Cast<UEidoverseNameplate>(Plate->GetUserWidgetObject()))W->SetDistanceFade(FMath::GetMappedRangeValueClamped(FVector2D(40,70),FVector2D(1,0),Metres));
+                // platesize.js: full to 20 m, gone by 30 (VRChat's cut, softened); N held reveals every name to ~60.
+                const bool bReveal=PC->IsInputKeyDown(EKeys::N)&&!(HUD&&HUD->IsChatFocused());
+                const float Full=bReveal?50.f:20.f,Gone=bReveal?60.f:30.f;
+                Plate->SetVisibility(Metres<Gone&&(EidoSettings::Nameplates()||bReveal));
+                if(auto* W=Cast<UEidoverseNameplate>(Plate->GetUserWidgetObject()))
+                {
+                    W->SetDistanceFade(FMath::GetMappedRangeValueClamped(FVector2D(Full,Gone),FVector2D(1,0),Metres));
+                    W->SetDeaf(P.Hear==0);   // they are not hearing voices: what you say aloud won't reach them
+                }
             }
             if(auto* PC=UGameplayStatics::GetPlayerController(this,0))
             {FVector Camera;FRotator Rot;PC->GetPlayerViewPoint(Camera,Rot);P.Label->SetWorldRotation((Camera-Anchor).Rotation());}
@@ -969,4 +993,22 @@ namespace
         FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& A,UWorld* W){if(auto* B=Bridge(W))B->Say(FString::Join(A,TEXT(" ")));}));
     FAutoConsoleCommandWithWorldAndArgs EidoWhisper(TEXT("Eidoverse.Whisper"),TEXT("Whisper <participant> <text>. Private, not a world-log verb."),
         FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& A,UWorld* W){if(A.Num()<2)return;TArray<FString> Text=A;Text.RemoveAt(0);if(auto* B=Bridge(W))B->Whisper(A[0],FString::Join(Text,TEXT(" ")));}));
+}
+
+// ---------------------------------------------------------------- this body (bodyscale.js)
+namespace { const TCHAR* BodySection=TEXT("/Script/EidoverseClient.Bodies"); }
+void AEidoverseBridge::LoadBodyPrefs()
+{
+    BodyPrefsFor=AvatarPath;
+    FString Name=FPaths::GetBaseFilename(AvatarPath.Left(AvatarPath.Find(TEXT("?")) >= 0 ? AvatarPath.Find(TEXT("?")) : AvatarPath.Len()));
+    FString V;SelfBodyScale=1;SelfPlateY=0;
+    if(GConfig->GetString(BodySection,*Name,V,GGameUserSettingsIni)){FString A,B;if(V.Split(TEXT(","),&A,&B)){SelfBodyScale=FMath::Clamp(FCString::Atof(*A),.5f,2.f);SelfPlateY=FMath::Clamp(FCString::Atof(*B),-.3f,.8f);}}
+}
+void AEidoverseBridge::SetBodyPrefs(float Scale,float PlateLift)
+{
+    SelfBodyScale=FMath::RoundToFloat(FMath::Clamp(Scale,.5f,2.f)*100)/100;SelfPlateY=FMath::RoundToFloat(FMath::Clamp(PlateLift,-.3f,.8f)*100)/100;
+    const int32 Q=AvatarPath.Find(TEXT("?"));const FString Name=FPaths::GetBaseFilename(Q>=0?AvatarPath.Left(Q):AvatarPath);
+    if(SelfBodyScale==1&&SelfPlateY==0)GConfig->RemoveKey(BodySection,*Name,GGameUserSettingsIni);
+    else GConfig->SetString(BodySection,*Name,*FString::Printf(TEXT("%.2f,%.2f"),SelfBodyScale,SelfPlateY),GGameUserSettingsIni);
+    GConfig->Flush(false,GGameUserSettingsIni);BodyPrefsFor=AvatarPath;
 }
