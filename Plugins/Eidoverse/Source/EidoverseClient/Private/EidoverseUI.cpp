@@ -458,6 +458,7 @@ void UEidoverseHUD::Build()
     };
     Place(BuildRail(), {0, 0}, {0, 0}, {8, 8});
     Place(BuildEmoteBar(), {.5f, 0}, {.5f, 0}, {0, 10});
+    Place(BuildLantern(), {.5f, 1}, {.5f, 1}, {0, -14});
     AddFrame("chat", TEXT("Chat"), BuildChat(), {520, 300}, {0, 1}, {0, 1}, {10, -10}, true);
     AddFrame("world", TEXT("World"), BuildWorld(), {400, 470}, {1, 0}, {1, 0}, {-10, 10}, true);
     AddFrame("people", TEXT("People here"), BuildPeople(), {240, 280}, {1, .5f}, {1, .5f}, {-10, 40}, false);
@@ -1507,6 +1508,7 @@ void UEidoverseHUD::NativeTick(const FGeometry& Geometry, float Delta)
         FScreenshotRequest::RequestScreenshot(FString::Printf(TEXT("eidoverse-%s-%s.png"), Bridge ? *Bridge->WorldName : TEXT("world"), *Stamp), false, false);
         Hint(TEXT("screenshot saved"), 2);
     }
+    else if (PC->WasInputKeyJustPressed(EKeys::K) && (PC->IsInputKeyDown(EKeys::LeftControl) || PC->IsInputKeyDown(EKeys::RightControl) || PC->IsInputKeyDown(EKeys::LeftCommand) || PC->IsInputKeyDown(EKeys::RightCommand))) OpenLantern(FString());
     else if (PC->WasInputKeyJustPressed(EKeys::F3)) { if (Bridge) Bridge->ToggleDebugOverlay(); }
     else if (PC->WasInputKeyJustPressed(EKeys::M)) SetPointerMode(!bPointerMode);
     else if (PC->WasInputKeyJustPressed(EKeys::F1)) SetVisibility(GetVisibility() == ESlateVisibility::Hidden ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Hidden);
@@ -1534,6 +1536,14 @@ void UEidoverseHUD::NativeTick(const FGeometry& Geometry, float Delta)
 
 FReply UEidoverseHUD::NativeOnPreviewKeyDown(const FGeometry& Geometry, const FKeyEvent& Event)
 {
+    // Ctrl/Cmd+K opens (or closes) the lantern from anywhere, the chat line included.
+    if (Event.GetKey() == EKeys::K && (Event.IsControlDown() || Event.IsCommandDown())) { if (IsLanternOpen()) CloseLantern(); else OpenLantern(FString()); return FReply::Handled(); }
+    if (LanternInput && LanternInput->HasKeyboardFocus())
+    {
+        const FKey K = Event.GetKey();
+        if (K == EKeys::Enter || K == EKeys::Tab || K == EKeys::Up || K == EKeys::Down || K == EKeys::Escape)
+            if (LanternKey(K.ToString())) return FReply::Handled();
+    }
     if (ChatInput && ChatInput->HasKeyboardFocus())
     {
         if (AutoItems.Num())

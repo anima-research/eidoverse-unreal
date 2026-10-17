@@ -217,6 +217,31 @@ public:
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void SetChatDraft(const FString& Text);
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") bool ChatKey(const FString& KeyName);
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void SubmitChat() { SendChat(); }
+    // The lantern (lantern.js): one line for talk, /commands and actions — Ctrl/Cmd+K or the resting line.
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void OpenLantern(const FString& Text);
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void CloseLantern();
+    UFUNCTION(BlueprintPure, Category="Eidoverse|UI") bool IsLanternOpen() const;
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void LanternType(const FString& Text);
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") bool LanternKey(const FString& KeyName);   // Enter Tab Up Down Escape
+    UFUNCTION(BlueprintPure, Category="Eidoverse|UI") TArray<FString> GetLanternRows() const;
+private:
+    UPROPERTY() TObjectPtr<UWidget> LanternRoot;
+    UPROPERTY() TObjectPtr<UBorder> LanternPanel;
+    UPROPERTY() TObjectPtr<UVerticalBox> LanternList;
+    UPROPERTY() TObjectPtr<UEditableTextBox> LanternInput;
+    UPROPERTY() TObjectPtr<UButton> LanternPill;
+    struct FLanternRow { FString Kind, Id, Title, Detail, Badge; };   // Kind: say | cmd | act
+    TArray<FLanternRow> LanternRows;
+    int32 LanternSel = 0, LanternBest = -1;
+    bool bLanternMoved = false, bActionsRegistered = false;
+    UWidget* BuildLantern();
+    void RefreshLantern();
+    void RunLanternRow(int32 Index, bool bFromTab);
+    void RegisterHudActions();
+    UFUNCTION() void OnLanternChanged(const FText& Text);
+    UFUNCTION() void OnLanternPill();
+    UFUNCTION() void OnLanternRowClicked();
+public:
     // Front door (ui.js openDoor): the avatar roster with portraits, a door key.
     UFUNCTION(BlueprintPure, Category="Eidoverse|UI") int32 GetDoorRosterCount() const { return DoorRoster.Num(); }
     UFUNCTION(BlueprintPure, Category="Eidoverse|UI") int32 GetDoorPortraitCount() const { return DoorThumbs.Num(); }
