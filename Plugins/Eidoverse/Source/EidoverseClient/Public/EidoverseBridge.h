@@ -103,6 +103,13 @@ struct FEidoversePeer
     TMap<FString,FString> ReachSeen;        // limb -> "reach" | "touch"
     TMap<FString,double> ReachQuietUntil;   // limb -> time
     bool bReachBaseline=false;
+    // Nameplate anchor (plateanchor.js): the crown measured once at rest (model units, heights over the
+    // mesh origin), and the smoothed plate height over the root (cm; NaN = land on the first target).
+    struct FPlateRest { bool bValid=false,bBones=false; float Hips=0,Head=0,Crown=0,HeadSpan=0,HipsToCrown=0,RestHeadAboveFeet=0,Height=170,BoundsTop=0; };
+    FPlateRest PlateRest;
+    TWeakObjectPtr<UObject> PlateRestFor;
+    float PlateOff=NAN, PlateLie=0;
+    bool bPlateStanding=false;
 };
 
 struct FEidoverseObjectSim
@@ -183,6 +190,8 @@ public:
     TSharedPtr<FJsonObject> InspectReply;
     // http(s)://host[:port] of the configured endpoint, for /defs and /library.
     UFUNCTION(BlueprintPure, Category="Eidoverse") FString HttpBase() const;
+    // Empty when Name may be typed at the door; otherwise the server's words for why not.
+    UFUNCTION(BlueprintPure, Category="Eidoverse") static FString NameRefusal(const FString& Name);
     // General-purpose client (AEidoverseGameMode): show the front door while offline.
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Eidoverse|UI") bool bFrontDoor=false;
     static const TCHAR* ProductionEndpoint;
@@ -493,6 +502,12 @@ private:
     void Announce(const FString& Id,const FString& Avatar);
     void RequestAvatar(FEidoversePeer& Peer,const FString& Path);
     void TickAvatars(double Time);
+    // Where this peer's plate hangs this frame (world, cm), or false to fall back to the bounds.
+    bool PlaceNameplate(FEidoversePeer& P,float Dt,FVector& Anchor);
+public:
+    // Tests: the plate's state for a peer — "standing|lie|offsetCm|crownCm" or empty.
+    UFUNCTION(BlueprintPure,Category="Eidoverse") FString DescribePeerPlate(const FString& Id) const;
+private:
     void Pose(const FString& Id,const TSharedPtr<FJsonObject>& Data,double Time);
     void Receive(const FString& Message);
     void Lost(int32 Code);

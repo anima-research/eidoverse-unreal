@@ -145,6 +145,8 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Eidoverse|Animation") float AquaticBlend=0;
     void Animate(const FString& Mode,float Speed,const FVector& LocalVelocity,double Time);
     UFUNCTION(BlueprintCallable,Category="Eidoverse|Animation") bool HumanBonePosition(FName Bone,FVector& WorldPosition) const;
+    // A humanoid bone at REST (the reference pose), in component space.
+    bool HumanBoneRestPosition(FName Bone,FVector& ComponentPosition) const;
     // Two-bone reach toward a world point, blended over the animated pose by Weight.
     bool SolveReachWeighted(FName Limb,const FVector& WorldTarget,float Weight);
     bool SolveReach(FName Limb,const FVector& WorldTarget);

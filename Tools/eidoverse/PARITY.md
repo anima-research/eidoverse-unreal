@@ -1,5 +1,28 @@
 # Unreal / Three.js parity
 
+## Upstream port 2026-10-16 (three.js main through 034c41a; local only — not deployed, not pushed)
+
+Ported from the upstream merge (server side: branch `unreal/native-client`, render-scene projects the
+shaped terrain and the one world water level):
+- **Water, one level per world** (`waterParams`/waterkind): still/river/ocean cells on a level-water mesh with
+  the shared wave surface; wading slows with depth, swimming floats on the swimmer's law, peers show swim/tread.
+- **This body**: size 0.5–2 and a nameplate lift on the pose wire (`scale`, `plateY`), per-body prefs; peers'
+  `mic`/`hear` (the not-hearing ear on their plate).
+- **The lantern** (Ctrl/Cmd+K): one line for talk, /commands and named actions.
+- **The ∃ menu waterfall**: Save/Load world (listed, not offered — the upstream explanations), Panels ▸ (voice,
+  lantern, windows with pins, pointer, rail edge, lock, reset), Log in/out, Help (H), Keys, About ▸ (client
+  version + the server's /version). Closes on mouse-away (450 ms), a press in the world, Esc (flyout first);
+  it now hangs beside the rail on either edge.
+- **Nameplates** (plateanchor.js): crown measured once at rest; hung over the live hips, rigid while standing
+  (idle/walk/run/jump), blended over the head when lying, lifted along the camera's up when seen from above.
+- Quiet default (the World panel starts closed); typed names with `< > "` are refused in the server's words;
+  under a real sky clock the hour, day-speed and hour steps hide.
+
+Not ported (web-only): status chips (WebGL/GPU caveats), the lite client switch, HUD layout mode (frames here
+are always draggable unless locked). Deferred: flora local placement.
+Tests: `test_level_water.py`, `test_swim_level.py`, `test_body_size.py`, `test_lantern.py`, `test_menu.py`,
+`test_plate_anchor.py` (bots: plate-stand / plate-lie POSE_BOT_CLIP=lie / plate-sit POSE_BOT_CLIP=sit).
+
 ## Status 2026-10-06 (local only — not deployed, not pushed)
 
 The full parity backlog lives in `parity/BACKLOG.md` (specs in `parity/*.md`). Landed since

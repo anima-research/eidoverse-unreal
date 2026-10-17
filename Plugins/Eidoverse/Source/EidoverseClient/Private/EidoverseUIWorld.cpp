@@ -122,6 +122,10 @@ UWidget* UEidoverseHUD::BuildWorldSky()
     SkyPresets = Wrap();
     Section(TEXT("Time of day"));
     UWrapBox* Hours = Wrap();
+    SkyHourSteps = Hours;
+    SkyClockNote = Label(TEXT(""), 10, FEidoverseTheme::Dim());
+    SkyClockNote->SetVisibility(ESlateVisibility::Collapsed);
+    Column->AddChildToVerticalBox(SkyClockNote);
     for (const TCHAR* Step : {TEXT("-3h"), TEXT("-1h"), TEXT("+1h"), TEXT("+3h")}) Hours->AddChildToWrapBox(ActionButton(Step, FString(TEXT("sky:h")) + Step));
     Section(TEXT("Light"));
     for (const FSkySlider& S : SkySliderSpec)
@@ -340,12 +344,30 @@ void UEidoverseHUD::RefreshWorldPanels()
                 SkyClocks->AddChildToWrapBox(ActionButton(Lbl, TEXT("sky:clock:") + Tz));
             }
     }
+    // Under a real clock the world's hour IS that city's time, so time and rate do nothing: hidden (skypanel.js)
+    {
+        FString Clock, Tz;
+        const bool bReal = SkyDraft->TryGetStringField(TEXT("clock"), Clock) && Clock == TEXT("real");
+        SkyDraft->TryGetStringField(TEXT("tz"), Tz);
+        const ESlateVisibility Time = bReal ? ESlateVisibility::Collapsed : ESlateVisibility::Visible;
+        if (SkyHourSteps) SkyHourSteps->SetVisibility(Time);
+        for (const TCHAR* K : {TEXT("hours"), TEXT("rate")})
+            if (USlider* S = SkySliders.FindRef(K)) if (UWidget* Row = S->GetParent()) Row->SetVisibility(Time);
+        if (SkyClockNote)
+        {
+            SkyClockNote->SetText(FText::FromString(FString::Printf(TEXT("real clock (%s): the sun tracks that city's actual time — noon is noon. The presets set the look, not the hour."), *Tz)));
+            SkyClockNote->SetVisibility(bReal ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+        }
+        if (SkyPresets) SkyPresets->SetToolTipText(bReal ? FText::FromString(TEXT("under a real clock the presets set the look, not the hour")) : FText::GetEmpty());
+    }
     double Hours = 12;
     SkyDraft->TryGetNumberField(TEXT("hours"), Hours);
     FString CloudState = TEXT("clear"), WeatherState = TEXT("clear");
     SkyDraft->TryGetStringField(TEXT("clouds"), CloudState);
     SkyDraft->TryGetStringField(TEXT("weather"), WeatherState);
-    if (SkyState) SkyState->SetText(FText::FromString(FString::Printf(TEXT("%02d:%02d  ·  %s clouds  ·  %s%s"), int32(Hours), int32(FMath::Fmod(Hours, 1.0) * 60),
+    FString When = FString::Printf(TEXT("%02d:%02d"), int32(Hours), int32(FMath::Fmod(Hours, 1.0) * 60));
+    if (FString Clock, Tz; SkyDraft->TryGetStringField(TEXT("clock"), Clock) && Clock == TEXT("real")) { SkyDraft->TryGetStringField(TEXT("tz"), Tz); When = FString::Printf(TEXT("real clock (%s)"), *Tz); }
+    if (SkyState) SkyState->SetText(FText::FromString(FString::Printf(TEXT("%s  ·  %s clouds  ·  %s%s"), *When,
         *CloudState, *WeatherState, bSkyDirty ? TEXT("  ·  not applied") : TEXT(""))));
     if (SkyNote) SkyNote->SetText(FText::FromString(bOwner ? FString() : TEXT("Only this world's owner can change the sky. You can still preview the values here.")));
 
@@ -569,3 +591,8 @@ void UEidoverseHUD::PreviewSkyDraft(bool bOn)
 void UEidoverseHUD::OnSceneFindChanged(const FText&) { NextSceneRefresh = 0; }
 void UEidoverseHUD::SetSceneFind(const FString& Query) { if (SceneFind) SceneFind->SetText(FText::FromString(Query)); NextSceneRefresh = 0; }
 int32 UEidoverseHUD::GetSceneListCount() const { return SceneList ? SceneList->GetChildrenCount() : 0; }
+
+bool UEidoverseHUD::IsSkyTimeHidden() const
+{
+    return SkyHourSteps && SkyHourSteps->GetVisibility() == ESlateVisibility::Collapsed;
+}

@@ -162,6 +162,45 @@ private:
     void ApplyRailEdge();
     UPROPERTY() TObjectPtr<UImage> MarkIcon;
     UPROPERTY() TObjectPtr<UBorder> Menu;
+    // The ∃ waterfall (ui.js topItems): top rows, one flyout at a time beside its row (Panels ▸ / About ▸).
+    UPROPERTY() TObjectPtr<UBorder> MenuSub;
+    UPROPERTY() TObjectPtr<UWidget> MenuSubPanels;
+    UPROPERTY() TObjectPtr<UVerticalBox> MenuSubAbout;
+    UPROPERTY() TMap<FName, TObjectPtr<UButton>> MenuRows;
+    UPROPERTY() TObjectPtr<UTextBlock> MenuLoginLabel;
+    UPROPERTY() TObjectPtr<UTextBlock> MenuLoginDetail;
+    UPROPERTY() TObjectPtr<UImage> MenuLoginIcon;
+    UPROPERTY() TObjectPtr<UTextBlock> MenuSaveTag;
+    UPROPERTY() TObjectPtr<UTextBlock> MenuLoadTag;
+    UPROPERTY() TObjectPtr<UScrollBox> HelpScroll;
+    UPROPERTY() TObjectPtr<UWidget> HelpKeysHeading;
+    UPROPERTY() TMap<FName, TObjectPtr<UImage>> MenuStateIcons;
+    FVector2D MenuOpenCursor = FVector2D::ZeroVector;
+    bool bMenuLoginOut = false;
+    void RegisterMenuActions();
+    FName MenuSubFor, MenuHoverRow;
+    double MenuHoverSince = 0, MenuAwaySince = 0, MenuSubCloseAt = 0;
+    TArray<FString> AboutLines; bool bAboutAsked = false;
+    void TickMenu();
+    void PlaceMenu();
+    void CloseMenuSub();
+    void RunMenuRow(FName Id);
+    void RefreshAbout();
+    FString MenuDeadWhy(FName Id) const;   // empty = offered
+public:
+    UFUNCTION(BlueprintPure, Category="Eidoverse|UI") bool IsMenuOpen() const;
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void SetMenuOpen(bool bOpen);
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void OpenMenuSub(FName Id);
+    UFUNCTION(BlueprintPure, Category="Eidoverse|UI") FName GetMenuSub() const { return MenuSubFor; }
+    // Top rows as "id|label|tail|why" (tail: the key, the tag, or ▸; why: empty when offered), for tests.
+    UFUNCTION(BlueprintPure, Category="Eidoverse|UI") TArray<FString> GetMenuRows() const;
+    UFUNCTION(BlueprintPure, Category="Eidoverse|UI") TArray<FString> GetAboutLines() const { return AboutLines; }
+    // A press on a top row, as a click would (tests).
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void PressMenuRow(FName Id) { RunMenuRow(Id); }
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void OpenKeys();
+    // Mouse-away and press-outside close the menu (off for scripted tests: the real cursor moves).
+    UPROPERTY(BlueprintReadWrite, Category="Eidoverse|UI") bool bMenuAutoClose = true;
+private:
     UPROPERTY() TObjectPtr<UBorder> HelpOverlay;
     UPROPERTY() TObjectPtr<UVerticalBox> HelpBody;
     UPROPERTY() TObjectPtr<UVerticalBox> ToastBox;
@@ -430,6 +469,12 @@ private:
     UPROPERTY() TObjectPtr<UTextBlock> SkyState;
     UPROPERTY() TObjectPtr<UTextBlock> SkyNote;
     UPROPERTY() TObjectPtr<UWrapBox> SkyPresets;
+    UPROPERTY() TObjectPtr<UWrapBox> SkyHourSteps;
+    UPROPERTY() TObjectPtr<UTextBlock> SkyClockNote;
+public:
+    // skypanel.js: under a real clock the hour IS that city's time — hour, day speed and the steps hide.
+    UFUNCTION(BlueprintPure, Category="Eidoverse|UI") bool IsSkyTimeHidden() const;
+private:
     // skypanel.js sliders: field -> slider, and the value last shown (user moves differ).
     UPROPERTY() TMap<FString, TObjectPtr<class USlider>> SkySliders;
     TMap<FString, float> SkySliderShown;

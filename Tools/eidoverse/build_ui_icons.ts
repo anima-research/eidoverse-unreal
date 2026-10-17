@@ -25,6 +25,10 @@ const ICONS: Record<string, [string, string]> = {
   Mic: ['line', 'mic'], Ear: ['line', 'ear'], Hand: ['line', 'hand'], Seat: ['line', 'armchair'],
   Stand: ['line', 'personStanding'], Lie: ['line', 'bed'],
   Think: ['line', 'think'], Wrench: ['line', 'wrench'],
+  Save: ['fill', 'floppy-disk'], Load: ['fill', 'folder-open'], Layout: ['fill', 'layout'],
+  SignIn: ['fill', 'sign-in'], SignOut: ['fill', 'sign-out'], Help: ['fill', 'question'],
+  Keys: ['fill', 'keyboard'], Info: ['fill', 'info'], Caret: ['fill', 'caret-right'],
+  Move: ['fill', 'arrows-out-cardinal'],
 };
 
 const browser = await chromium.launch({ headless: true, channel: 'chrome' });

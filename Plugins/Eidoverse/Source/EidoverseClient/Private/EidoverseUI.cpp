@@ -460,13 +460,14 @@ void UEidoverseHUD::Build()
     Place(BuildEmoteBar(), {.5f, 0}, {.5f, 0}, {0, 10});
     Place(BuildLantern(), {.5f, 1}, {.5f, 1}, {0, -14});
     AddFrame("chat", TEXT("Chat"), BuildChat(), {520, 300}, {0, 1}, {0, 1}, {10, -10}, true);
-    AddFrame("world", TEXT("World"), BuildWorld(), {400, 470}, {1, 0}, {1, 0}, {-10, 10}, true);
+    AddFrame("world", TEXT("World"), BuildWorld(), {400, 470}, {1, 0}, {1, 0}, {-10, 10}, false);   // quiet default: the world panel waits to be asked
     AddFrame("people", TEXT("People here"), BuildPeople(), {240, 280}, {1, .5f}, {1, .5f}, {-10, 40}, false);
     AddFrame("profile", TEXT("Profile"), BuildProfile(), {300, 170}, {0, 0}, {0, 0}, {62, 60}, false);
     AddFrame("settings", TEXT("Settings"), BuildSettings(), {320, 390}, {0, 0}, {0, 0}, {62, 280}, false);
     AddFrame("build", TEXT("Build"), BuildBuild(), {360, 470}, {0, 0}, {0, 0}, {400, 60}, false);
     Menu = Cast<UBorder>(BuildMenu());
     Place(Menu, {0, 0}, {0, 0}, {62, 8});
+    Place(MenuSub, {0, 0}, {0, 0}, {280, 8});
     ToastBox = WidgetTree->ConstructWidget<UVerticalBox>();
     Place(ToastBox, {1, 1}, {1, 1}, {-10, -10});
     HintChip = WidgetTree->ConstructWidget<UBorder>();
@@ -573,66 +574,6 @@ UWidget* UEidoverseHUD::BuildRail()
         {"profile", TEXT("Profile")}, {"chat", TEXT("Chat")}, {"world", TEXT("World")},
         {"emotes", TEXT("Emotes")}, {"people", TEXT("People")}, {"build", TEXT("Build")}, {"settings", TEXT("Settings")}, {"help", TEXT("Search")}};
     for (const auto& E : Entries) Column->AddChildToVerticalBox(IconButton(E.Value, 20, E.Key));
-    return Panel;
-}
-
-UWidget* UEidoverseHUD::BuildMenu()
-{
-    auto* Panel = WidgetTree->ConstructWidget<UBorder>();
-    Panel->SetBrush(FEidoverseTheme::Rounded(FEidoverseTheme::Panel(), 10, FEidoverseTheme::Edge(), 1));
-    Panel->SetPadding(FMargin(8));
-    PanelBorders.Add(Panel);
-    auto* Width = WidgetTree->ConstructWidget<USizeBox>();
-    Width->SetWidthOverride(210);
-    auto* Column = WidgetTree->ConstructWidget<UVerticalBox>();
-    Width->SetContent(Column);
-    Panel->SetContent(Width);
-    Column->AddChildToVerticalBox(Label(TEXT("MENU"), 9, FEidoverseTheme::Dim(), true))->SetPadding(FMargin(8, 0, 8, 6));
-    struct FEntry { FName Id; const TCHAR* Icon; const TCHAR* Text; };
-    const FEntry Entries[] = {
-        {"profile", TEXT("Profile"), TEXT("profile")}, {"chat", TEXT("Chat"), TEXT("chat")},
-        {"world", TEXT("World"), TEXT("world")}, {"emotes", TEXT("Emotes"), TEXT("emotes")},
-        {"people", TEXT("People"), TEXT("people here  \u00B7  Tab")}, {"build", TEXT("Build"), TEXT("build  \u00B7  B")}, {"settings", TEXT("Settings"), TEXT("settings")}, {"help", TEXT("Search"), TEXT("help  \u00B7  ?")},
-        {"pointer", TEXT("Eye"), TEXT("pointer / mouselook  \u00B7  M")}, {"railedge", TEXT("Menu"), TEXT("rail on the other side")},
-        {"lock", TEXT("Lock"), TEXT("layout unlocked")}, {"reset", TEXT("Reset"), TEXT("reset layout")}};
-    for (const FEntry& E : Entries)
-    {
-        auto* B = WidgetTree->ConstructWidget<UButton>();
-        B->SetStyle(FlatButton(FLinearColor::Transparent, FEidoverseTheme::Hover(), 6));
-        auto* Row = WidgetTree->ConstructWidget<UHorizontalBox>();
-        auto* Img = WidgetTree->ConstructWidget<UImage>();
-        if (UTexture2D* T = FEidoverseTheme::IconTexture(E.Icon)) Img->SetBrushFromTexture(T);
-        Img->SetDesiredSizeOverride(FVector2D(15));
-        Img->SetColorAndOpacity(FEidoverseTheme::Icon());
-        Row->AddChildToHorizontalBox(Img)->SetVerticalAlignment(VAlign_Center);
-        auto* Text = Label(E.Text, 11);
-        Text->SetAutoWrapText(false);
-        if (E.Id == "lock") LockLabel = Text;
-        Row->AddChildToHorizontalBox(Text)->SetPadding(FMargin(10, 0, 0, 0));
-        auto* Pad = WidgetTree->ConstructWidget<UBorder>();
-        Pad->SetBrushColor(FLinearColor::Transparent);
-        Pad->SetPadding(FMargin(8, 5));
-        Pad->SetContent(Row);
-        B->SetContent(Pad);
-        if (auto* ContentSlot = Cast<UButtonSlot>(B->GetContentSlot())) ContentSlot->SetHorizontalAlignment(HAlign_Fill);
-        B->OnClicked.AddDynamic(this, &UEidoverseHUD::OnMenuEntry);
-        ButtonIds.Add(B, E.Id);
-        // Windows get a pin beside them: pinned icons stay on the rail when closed.
-        const bool bWindow = E.Id != "pointer" && E.Id != "lock" && E.Id != "reset" && E.Id != "railedge";
-        if (!bWindow) { Column->AddChildToVerticalBox(B); continue; }
-        auto* Line = WidgetTree->ConstructWidget<UHorizontalBox>();
-        Line->AddChildToHorizontalBox(B)->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
-        auto* Pin = WidgetTree->ConstructWidget<UButton>();
-        Pin->SetStyle(FlatButton(FLinearColor::Transparent, FEidoverseTheme::Hover(), 6));
-        auto* PinText = Label(TEXT("pinned"), 9, FEidoverseTheme::Dim()); PinText->SetAutoWrapText(false);
-        Pin->SetContent(PinText); Pin->SetToolTipText(FText::FromString(TEXT("keep on the rail when closed")));
-        Pin->OnClicked.AddDynamic(this, &UEidoverseHUD::OnMenuEntry);
-        ButtonIds.Add(Pin, FName(*(TEXT("pin:") + E.Id.ToString())));
-        MenuPinLabels.Add(E.Id, PinText);
-        Line->AddChildToHorizontalBox(Pin)->SetVerticalAlignment(VAlign_Center);
-        Column->AddChildToVerticalBox(Line);
-    }
-    Panel->SetVisibility(ESlateVisibility::Collapsed);
     return Panel;
 }
 
@@ -1121,6 +1062,7 @@ UWidget* UEidoverseHUD::BuildHelp()
     Panel->SetBrush(FEidoverseTheme::Rounded(FEidoverseTheme::Panel().CopyWithNewOpacity(.94f), 12, FEidoverseTheme::Edge(), 1));
     Panel->SetPadding(FMargin(22, 18));
     auto* Scroll = WidgetTree->ConstructWidget<UScrollBox>();
+    HelpScroll = Scroll;
     HelpBody = WidgetTree->ConstructWidget<UVerticalBox>();
     Scroll->AddChild(HelpBody);
     Panel->SetContent(Scroll);
@@ -1230,7 +1172,8 @@ void UEidoverseHUD::RefreshHelp()
             }
         }
     };
-    HelpBody->AddChildToVerticalBox(Label(TEXT("KEYS"), 9, FEidoverseTheme::Dim(), true))->SetPadding(FMargin(0, 0, 0, 6));
+    HelpKeysHeading = Label(TEXT("KEYS"), 9, FEidoverseTheme::Dim(), true);
+    HelpBody->AddChildToVerticalBox(HelpKeysHeading)->SetPadding(FMargin(0, 0, 0, 6));
     // The key table is the native client's own (the server's describes the web
     // client's controls); the world's title, welcome and prose still come from /defs.
     const TArray<TPair<FString, FString>> Keys = {
@@ -1426,6 +1369,7 @@ void UEidoverseHUD::RefreshPeople(bool bForce)
 void UEidoverseHUD::NativeTick(const FGeometry& Geometry, float Delta)
 {
     Super::NativeTick(Geometry, Delta);
+    TickMenu();
     if (!Bridge) return;
     const double Now = FPlatformTime::Seconds();
     // People rows repaint every 2 s (distances and presence move without the roster changing).
@@ -1515,7 +1459,9 @@ void UEidoverseHUD::NativeTick(const FGeometry& Geometry, float Delta)
     else if (PC->WasInputKeyJustPressed(EKeys::Slash) && (PC->IsInputKeyDown(EKeys::LeftShift) || PC->IsInputKeyDown(EKeys::RightShift))) ToggleHelp();
     else if (PC->WasInputKeyJustPressed(EKeys::Escape))
     {
-        if (auto* X = Cast<AEidoverseExplorer>(PC->GetPawn()); X && X->bPhoto) X->SetPhotoMode(false);
+        // the deepest level first: the flyout, then the menu
+        if (IsMenuOpen()) { if (MenuSubFor != NAME_None) CloseMenuSub(); else SetMenuOpen(false); }
+        else if (auto* X = Cast<AEidoverseExplorer>(PC->GetPawn()); X && X->bPhoto) X->SetPhotoMode(false);
         else if (HelpOverlay && HelpOverlay->GetVisibility() != ESlateVisibility::Collapsed) ToggleHelp();
         else if (CancelGhost()) Hint(TEXT("placement cancelled"), 1.5f);
         else SetPointerMode(true);
@@ -1821,10 +1767,7 @@ void UEidoverseHUD::ToggleHelp()
     if (bShow) SetPointerMode(true);
 }
 
-void UEidoverseHUD::ToggleMenu()
-{
-    if (Menu) Menu->SetVisibility(Menu->GetVisibility() == ESlateVisibility::Collapsed ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
-}
+void UEidoverseHUD::ToggleMenu() { SetMenuOpen(!IsMenuOpen()); }
 
 void UEidoverseHUD::Emote(int32 Index)
 {
@@ -1893,12 +1836,18 @@ void UEidoverseHUD::OnMenuEntry()
 {
     const FName Id = ResolveClicked();
     const FString IdS = Id.ToString();
-    if (IdS.StartsWith(TEXT("pin:"))) { const FName W(*IdS.Mid(4)); SetRailPinned(W, !RailPins.Contains(W)); return; }   // the menu stays open
-    if (Id == "railedge") { SetRailRight(!bRailRight); ToggleMenu(); return; }
-    if (Id == "lock") SetLayoutLocked(!bLayoutLocked);
+    // ui.js: a row never dismisses the menu unless it takes you to another window.
+    if (IdS.StartsWith(TEXT("pin:"))) { const FName W(*IdS.Mid(4)); SetRailPinned(W, !RailPins.Contains(W)); return; }
+    if (IdS.StartsWith(TEXT("top:"))) { RunMenuRow(FName(*IdS.Mid(4))); return; }
+    if (Id == "railedge") SetRailRight(!bRailRight);
+    else if (Id == "lock") SetLayoutLocked(!bLayoutLocked);
     else if (Id == "reset") ResetLayout();
+    else if (Id == "pointer") SetPointerMode(!bPointerMode);
+    else if (Id == "mic") { if (Bridge) Bridge->SetMicOn(!Bridge->IsMicOn()); }
+    else if (Id == "ear") { if (Bridge) Bridge->SetHearVoices(!EidoSettings::HearVoices()); }
+    else if (Id == "lantern") { if (IsLanternOpen()) CloseLantern(); else OpenLantern(FString()); }
+    else if (Id == "help") { ToggleHelp(); SetMenuOpen(false); }
     else if (Id != NAME_None) ToggleFrame(Id);
-    ToggleMenu();
 }
 void UEidoverseHUD::OnEmoteClicked()
 {
@@ -1921,6 +1870,7 @@ void UEidoverseHUD::OnJoinClicked()
     if (!Bridge || !WorldName) return;
     const FString Name = WorldName->GetText().ToString().TrimStartAndEnd();
     if (!AEidoverseBridge::IsWorldName(Name)) { Toast(TEXT("World names are letters, numbers, - and _."), true); return; }
+    if (ProfileName && !AEidoverseBridge::NameRefusal(ProfileName->GetText().ToString()).IsEmpty()) { Toast(AEidoverseBridge::NameRefusal(ProfileName->GetText().ToString()), true); return; }
     if (ProfileName && !ProfileName->GetText().IsEmpty()) Bridge->ParticipantName = ProfileName->GetText().ToString().TrimStartAndEnd().Left(64);
     Bridge->bRenderDynamicWorld = true;
     if (Bridge->HasProductionSession()) { Bridge->Disconnect(); Bridge->WorldName = Name; Bridge->JoinProduction(); }
@@ -2270,6 +2220,7 @@ void UEidoverseHUD::ApplyRailEdge()
         S->SetAlignment(FVector2D(bRailRight ? 1.f : 0.f, 0.f));
         S->SetPosition(FVector2D(bRailRight ? -8.f : 8.f, 8.f));
     }
+    PlaceMenu();
 }
 
 void UEidoverseHUD::SetRailPinned(FName Id, bool bPinned)

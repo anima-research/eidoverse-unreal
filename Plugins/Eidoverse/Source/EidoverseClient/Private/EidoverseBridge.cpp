@@ -105,6 +105,7 @@ bool AEidoverseBridge::JoinFromDoor(const FString& Server,const FString& World,c
     const FString S=Server.TrimStartAndEnd(),W=World.TrimStartAndEnd(),N=Name.TrimStartAndEnd().Left(64);
     if(!IsWorldName(W)){ConnectionStatus=TEXT("World names are letters, numbers, - and _.");return false;}
     if(N.IsEmpty()&&S!=ProductionEndpoint){ConnectionStatus=TEXT("Choose a name first.");return false;}
+    if(!NameRefusal(N).IsEmpty()){ConnectionStatus=NameRefusal(N);return false;}
     Disconnect();
     bRenderDynamicWorld=true;
     if(S==ProductionEndpoint)
@@ -144,6 +145,13 @@ bool AEidoverseBridge::SendTyping(const FString& To)
     if(!To.IsEmpty()&&To.Len()<=64)J->SetStringField(TEXT("to"),To);
     Send(J);return true;
 }
+// server/names.ts nameAtDoor: a TYPED name with markup characters is refused in words.
+FString AEidoverseBridge::NameRefusal(const FString& Name)
+{
+    for(TCHAR C:Name)if(C=='<'||C=='>'||C=='"')return TEXT("that name has < > or \" in it — those can't be part of a name here; pick one without them");
+    return FString();
+}
+
 FString AEidoverseBridge::HttpBase() const
 {
     FString Base=Endpoint;
@@ -941,7 +949,7 @@ void AEidoverseBridge::Tick(float DeltaSeconds)
             // Feet-anchored avatars are not all 1.7 m tall; use the posed head,
             // not the protocol root. World-up clearance also works when diving.
             FVector Anchor;
-            if(!P.bSubmarine&&P.AvatarMesh.IsValid()&&P.AvatarMesh->HumanBonePosition(TEXT("head"),Anchor))Anchor.Z+=40*P.BodyScale+P.PlateY*100*P.BodyScale;
+            if(PlaceNameplate(P,GetWorld()?GetWorld()->GetDeltaSeconds():1/60.f,Anchor)){}
             else
             {
                 UPrimitiveComponent* Body=!P.bSubmarine&&P.AvatarMesh.IsValid()?static_cast<UPrimitiveComponent*>(P.AvatarMesh.Get()):P.Mesh.Get();

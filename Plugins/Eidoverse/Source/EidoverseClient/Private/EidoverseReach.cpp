@@ -38,6 +38,14 @@ bool UEidoverseAvatarMesh::HumanBonePosition(FName Human,FVector& World) const
     for(I=Ref.GetParentIndex(I);I>=0;I=Ref.GetParentIndex(I))T=T*BoneSpaceTransforms[I];
     World=GetComponentTransform().TransformPosition(T.GetLocation());return !World.ContainsNaN();
 }
+bool UEidoverseAvatarMesh::HumanBoneRestPosition(FName Human,FVector& Out) const
+{
+    if(!Avatar||!Avatar->Mesh)return false;const auto* Name=Avatar->Humanoid.Find(Human);if(!Name)return false;
+    const auto& Ref=Avatar->Mesh->GetRefSkeleton();int I=Ref.FindBoneIndex(*Name);if(I==INDEX_NONE)return false;
+    const TArray<FTransform>& Pose=Ref.GetRefBonePose();FTransform T=Pose[I];
+    for(I=Ref.GetParentIndex(I);I>=0;I=Ref.GetParentIndex(I))T=T*Pose[I];
+    Out=T.GetLocation();return !Out.ContainsNaN();
+}
 bool UEidoverseAvatarMesh::SolveReach(FName Limb,const FVector& WorldTarget)
 {
     if(!Avatar||!Avatar->Mesh||WorldTarget.ContainsNaN())return false;

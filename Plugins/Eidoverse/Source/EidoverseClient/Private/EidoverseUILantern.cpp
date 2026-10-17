@@ -31,7 +31,7 @@ namespace
         S.SetNormalPadding(FMargin(0)); S.SetPressedPadding(FMargin(0));
         return S;
     }
-    const FString Chord = PLATFORM_MAC ? TEXT("⌘K") : TEXT("Ctrl K");
+    const FString Chord = PLATFORM_MAC ? TEXT("Cmd K") : TEXT("Ctrl K");
 }
 
 UWidget* UEidoverseHUD::BuildLantern()
@@ -226,6 +226,7 @@ bool UEidoverseHUD::LanternKey(const FString& KeyName)
 void UEidoverseHUD::RegisterHudActions()
 {
     bActionsRegistered = true;
+    RegisterMenuActions();
     TWeakObjectPtr<UEidoverseHUD> W(this);
     auto Reg = [](const FString& Id, const FString& Title, const FString& Group, const FString& Key, TArray<FString> Keywords, TFunction<void()> Run, const FString& Detail = FString())
     { FEidoAction A; A.Id = Id; A.Title = Title; A.Group = Group; A.Key = Key; A.Keywords = MoveTemp(Keywords); A.Run = MoveTemp(Run); A.Detail = Detail; EidoActions::Register(A); };
