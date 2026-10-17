@@ -102,16 +102,22 @@ public:
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void Hint(const FString& Text, float Seconds = 4);
     // Mouselook vs pointer: the web client's M toggle; Esc frees the pointer.
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void SetPointerMode(bool bPointer);
+    // P (and the lantern's "photo mode"): refused while piloting, as the browser does.
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void TogglePhotoMode();
     UFUNCTION(BlueprintPure, Category="Eidoverse|UI") bool IsPointerMode() const { return bPointerMode; }
-    void NotifyChatLine(const FString& Sender, const FString& Text, bool bPrivate);
+    void NotifyChatLine(const FString& Sender, const FString& Text, bool bPrivate, int64 Seq = -1);
     // A spoken utterance's continuation (same author, same utt): one paragraph (chat.js).
-    void AppendToLastChatLine(const FString& Sender, const FString& Text);
+    void AppendToLastChatLine(const FString& Sender, const FString& Text, int64 Seq = -1);
     void NoteTyping(const FString& Id);
     // Open chat with text appended to the draft (e.g. "@name ", "/w name ").
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void InsertIntoChat(const FString& Text, bool bReplace = false);
     void SystemLine(const FString& Text) { AddSystemLine(Text); }
     // Older lines from history paging, oldest first; keeps the reader's place.
-    void PrependChatLines(const TArray<TPair<FString, FString>>& Older, const FString& Note);
+    // Paged-in history (chat.js insertHistorical): each line straight after the last row older than it,
+    // the reader's first visible row held still, a reader following the end kept following.
+    struct FHistoricalLine { FString Sender, Text; int64 Seq = -1; double Ts = 0; };
+    void InsertHistoricalLines(const TArray<FHistoricalLine>& Fresh);
+    void AddTopNote(const FString& Note);
     void ClearChat();
     void RefreshPanelOpacity() { ApplyPanelOpacity(); }
     // World frame: select a section (0 here, 1 avatar, 2 sky, 3 ground, 4 scene) and run
@@ -342,7 +348,21 @@ private:
     UFUNCTION() void OnDoorKeyReveal();
 public:
 private:
-    struct FLine { FString Sender, Text; bool bPrivate = false, bSystem = false, bMention = false; FDateTime At = FDateTime::Now(); FString Peer; };
+    struct FLine
+    {
+        FString Sender, Text; bool bPrivate = false, bSystem = false, bMention = false; FDateTime At = FDateTime::Now(); FString Peer;
+        TArray<int64> Seqs;   // the log positions this row shows: one, or several for a merged spoken utterance
+        uint64 Id = 0;        // stable across inserts, to hold the reader's place
+    };
+    uint64 NextLineId = 1;
+    TArray<uint64> RowLineIds;   // ChatLog's children, in order: which line each row draws
+    // Keep the log to 400 rows, dropping from the top; a trimmed row's seqs are history again (the bridge).
+    void TrimLines();
+    bool ChatAnchor(uint64& OutId, float& OutDelta) const;
+    void ScrollToChatAnchor(uint64 Id, float Delta);
+    // New rows measure their wrapped height only once laid out, so a held place is re-applied for two ticks.
+    uint64 PendingAnchorId = 0; float PendingAnchorDelta = 0; int32 PendingAnchorTicks = 0; bool bPendingFollow = false;
+    void HoldChatPlace(bool bFollowing, bool bAnchored, uint64 Id, float Delta);
     // chat.js polish: name colours (FNV-1a over a 12-colour palette, collisions step),
     // grouping within 90 s, HH:MM, links, the unread jump, persisted recall.
     TMap<FString, int32> NameColours;

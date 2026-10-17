@@ -1,6 +1,7 @@
 #pragma once
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "EidoverseAttention.h"
 #include "EidoverseBridge.generated.h"
 
 class IWebSocket;
@@ -36,6 +37,8 @@ struct FEidoverseChatLine
     UPROPERTY(BlueprintReadOnly, Category="Eidoverse") FString Sender;
     UPROPERTY(BlueprintReadOnly, Category="Eidoverse") FString Text;
     UPROPERTY(BlueprintReadOnly, Category="Eidoverse") bool bPrivate=false;
+    // the log position this line shows (-1: not from the log); paged-in history slots in by it
+    UPROPERTY(BlueprintReadOnly, Category="Eidoverse") int64 Seq=-1;
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FEidoverseChat, const FString&, Sender, const FString&, Text);
@@ -206,7 +209,7 @@ public:
     UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse|Capture") bool bShareSceneScreenshots=false;
     UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse|Capture") FString CaptureStatus=TEXT("Scene sharing off");
     UFUNCTION(BlueprintCallable, Category="Eidoverse|Capture") void SetShareSceneScreenshots(bool bEnabled);
-    void AddChatLine(const FString& Sender,const FString& Text,bool bPrivate=false,const FString& Utt=FString(),bool bSpoken=false);
+    void AddChatLine(const FString& Sender,const FString& Text,bool bPrivate=false,const FString& Utt=FString(),bool bSpoken=false,int64 Seq=-1);
     // Live speech (caption): bubble + mouth paced to the voice; the later spoken say only logs.
     void PerformSpeech(const FString& Actor,const FString& Text);
     FString LastSpokenUtt,LastSpokenSender;
@@ -239,12 +242,36 @@ public:
     UFUNCTION(BlueprintCallable, Category="Eidoverse") void SetPresence(const FString& Value);
     void NoteLocalInput() { LastLocalInputAt=FPlatformTime::Seconds(); }
     FString MySub,LastWhisperFrom,SimId,ManualPresence;
+    // Private attention (attention.js): a tone for a live mention of me or a whisper to me, gated here.
+    EidoAttention::FGate AttentionGate;
+    FString AttentionStatus=TEXT("Mentions and whispers stay highlighted when sound is off.");
+    bool PlayAttention();
+    UFUNCTION(BlueprintCallable, Category="Eidoverse") void SetAttentionSound(bool bOn);
+    /** The settings' Preview: a local sample, even while the sound is off (attention.js preview). */
+    UFUNCTION(BlueprintCallable, Category="Eidoverse") void PreviewAttention();
+    UFUNCTION(BlueprintPure, Category="Eidoverse") FString GetAttentionStatus() const { return AttentionStatus; }
     TSet<int64> RenderedChatSeqs;
-    int64 OldestChatSeq=-1;
+    // chat.js scrollback. The arrival window is NOT a contiguous slice of history (shared/fold.js
+    // trimRecentChat drops the loudest speaker's oldest lines), so paging from the oldest line SHOWN jumps
+    // over the trimmed talk. The cursor comes only from what paging itself has walked (-1: from now); lines
+    // already on screen are skipped and the missing ones slot in by seq. bHistoryDone: the walk reached the
+    // beginning. ChatTrimmedThrough: the highest seq the 400-line trim has removed.
+    int64 ChatPageCursor=-1,ChatPageFrom=-1,ChatTrimmedThrough=-1;
+    int32 ChatSkipPages=0;
     bool bHistoryPending=false,bHistoryDone=false;
     double HistoryRequestedAt=0;
     int32 HistoryRequests=0,DebugRequests=0;
     FString HistoryReqId,DebugReqId;
+    // A reconnect hands over a NEW arrival window, trimmed the same fair way, so what was said while the
+    // socket was down can be missing near the bottom: fetched after the last seq the old socket delivered.
+    int64 ChatResyncAfter=-1,ChatResyncBefore=-1,ChatResyncFloor=-1;
+    int32 ChatResyncPages=0;
+    FString ChatResyncReqId;
+    void SendHistoryPage();
+    void SendResyncPage();
+    int32 InsertChatHistory(const TArray<TSharedPtr<FJsonValue>>& Entries);
+    /** The HUD's 400-line trim dropped these seqs off the top: they are history again, not "already shown". */
+    void NoteChatTrimmed(const TArray<int64>& Seqs);
     TMap<FString,TSharedPtr<FJsonObject>> RemoteMounts;     // folded mounts: rider -> {to, slot?, offset?, yaw?}
     TSharedPtr<FJsonObject> PendingRestore;
     bool bBodyMovedThisSession=false,bEmptyWorldNoticePending=false,bWingsFolded=false,bSendHeldNull=false;
@@ -261,6 +288,8 @@ public:
     FString ClimbHintKey;
     struct FHelm { FString Id; bool bPending=false; bool bActive=false; FVector Vel=FVector::ZeroVector; double YawWire=0; double SentAt=0; };
     FHelm Helm;
+    // vehicles.js piloting(): the helm owns the keys and the camera while held
+    UFUNCTION(BlueprintPure, Category="Eidoverse") bool IsPiloting() const { return Helm.bActive; }
     FString LocoMode, LocoClip; float LocoSpeed=0;   // overrides the pose's locomotion while climbing/piloting/flying
     UFUNCTION(BlueprintCallable, Category="Eidoverse") bool HandleUseKey();
     UFUNCTION(BlueprintPure, Category="Eidoverse") FString GetLocoMode() const { return LocoMode; }
@@ -374,7 +403,8 @@ public:
     float FlightEffort() const;
     FString FlightDiagnostic();
     void TickBodyPhysics(class AEidoverseExplorer* Explorer,float Dt);
-    void EndHelm(bool bRelease);
+    // vehicles.js end(release, exit): bExit steps off at the vessel's exit point (E at the helm); a knockdown lets go where it is.
+    void EndHelm(bool bRelease, bool bExit = true);
     double LastReachTick=0;
     const FEidoversePeer& GetSelfBody() const { return SelfBody; }
     const FEidoversePeer* FindPeer(const FString& Id) const { return Peers.Find(Id); }
@@ -419,6 +449,9 @@ public:
     UPROPERTY(BlueprintAssignable, Category="Eidoverse") FEidoverseChat OnChat;
     UFUNCTION(BlueprintCallable, Category="Eidoverse") void Connect();
     UFUNCTION(BlueprintCallable, Category="Eidoverse") void Disconnect();
+    /** Tests only (Eidoverse.LiveChat): drop the socket as a network failure would, the chat kept, and hold the
+     *  automatic retry for HoldSeconds so the world can move on meanwhile. */
+    void TestDropConnection(double HoldSeconds);
     UFUNCTION(BlueprintCallable, Category="Eidoverse") bool Say(const FString& Text);
     UFUNCTION(BlueprintCallable, Category="Eidoverse") bool Whisper(const FString& To, const FString& Text);
     UFUNCTION(BlueprintCallable, Category="Eidoverse|Interaction") bool UseEntity(const FString& Id,const FString& Action);

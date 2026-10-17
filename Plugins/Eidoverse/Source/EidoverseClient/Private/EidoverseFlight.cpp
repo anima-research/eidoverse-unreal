@@ -631,8 +631,16 @@ FState FoldDown(const FConfig&, const FState& State)
     FState S = State;
     S.Events.Reset();
     auto Refuse = [&S](const FString& Why) { FFlightEvent E = Ev(S.T, TEXT("fold.refused")); E.Strings.Add(TEXT("reason"), Why); S.Events.Add(MoveTemp(E)); return S; };
-    if (S.Phase != EPhase::Ground && S.Phase != EPhase::Landed) return Refuse(FString::Printf(TEXT("airborne (%s)"), PhaseName(S.Phase)));
-    if (S.Wings == EWings::Limp) return Refuse(TEXT("wings limp"));
+    if (S.Phase != EPhase::Ground && S.Phase != EPhase::Landed)
+    {
+        // Limp wings are a body down (LEAF, RAGDOLL, RECOVER), whether in the air
+        // or on the ground; open ones are a body flying.
+        const FString Phase = FString(PhaseName(S.Phase)).ToLower();
+        return Refuse(S.Wings == EWings::Limp
+            ? FString::Printf(TEXT("you're not on your feet (%s); you can fold them once you're standing again"), *Phase)
+            : FString::Printf(TEXT("airborne (%s); wings fold only on the ground, so land first"), *Phase));
+    }
+    if (S.Wings == EWings::Limp) return Refuse(TEXT("your wings are limp; you can fold them once you're standing again"));
     if (S.Wings == EWings::Folded) return Refuse(TEXT("already folded"));
     S.Wings = EWings::Folded;
     S.Events.Add(Ev(S.T, TEXT("wings.folded")));
@@ -646,7 +654,9 @@ FState Unfold(const FConfig&, const FState& State)
     if (S.Wings != EWings::Folded)
     {
         FFlightEvent E = Ev(S.T, TEXT("unfold.refused"));
-        E.Strings.Add(TEXT("reason"), FString::Printf(TEXT("wings are %s"), WingsName(S.Wings)));
+        E.Strings.Add(TEXT("reason"), S.Wings == EWings::Limp
+            ? FString(TEXT("they're limp, not folded; they open again once you've recovered"))
+            : FString(TEXT("already open")));
         S.Events.Add(MoveTemp(E));
         return S;
     }
@@ -662,9 +672,10 @@ FState TakeOff(const FConfig& Cfg, const FState& State, const FTakeOffOptions& O
     // The config's boost unless a caller overrides it.
     const double Boost = Opts.Boost.IsSet() ? Opts.Boost.GetValue() : Cfg.Pilot.LaunchBoost;
     auto Refuse = [&S](const FString& Why) { FFlightEvent E = Ev(S.T, TEXT("takeoff.refused")); E.Strings.Add(TEXT("reason"), Why); S.Events.Add(MoveTemp(E)); return S; };
-    if (S.Wings == EWings::Folded) return Refuse(TEXT("wings folded"));
-    if (S.Wings == EWings::Limp) return Refuse(TEXT("wings limp"));
-    if (S.Phase != EPhase::Ground && S.Phase != EPhase::Landed) return Refuse(FString::Printf(TEXT("already %s"), PhaseName(S.Phase)));
+    if (S.Wings == EWings::Folded) return Refuse(TEXT("your wings are folded; unfold them first"));
+    if (S.Wings == EWings::Limp) return Refuse(TEXT("your wings are limp; they open again once you've recovered"));
+    if (S.Phase != EPhase::Ground && S.Phase != EPhase::Landed)
+        return Refuse(FString::Printf(TEXT("already airborne (%s)"), *FString(PhaseName(S.Phase)).ToLower()));
     S.Phase = EPhase::Pilot; S.Mode = EMode::Live;
     S.Airspeed = Opts.LaunchSpeed.IsSet() ? Opts.LaunchSpeed.GetValue() : BestGlide(Cfg).Speed;
     // Clear the GROUND, not the world origin: the caller passes the height under her feet.
@@ -836,14 +847,45 @@ FVerdict ResolveFlight(TOptional<bool> RightsFly, const TArray<FString>* BoneNam
 {
     FVerdict V;
     // A MISSING RIGHTS OBJECT IS A NO: "nobody has said you may" is the same answer as "no".
-    if (!RightsFly.IsSet()) { V.Reason = TEXT("no world rights yet — not joined"); return V; }
-    if (!RightsFly.GetValue()) { V.Reason = TEXT("this world has not granted you flight (owner: /grant <you> +fly)"); return V; }
-    if (!BoneNames) { V.Reason = TEXT("no bone list available for this avatar"); return V; }
+    if (!RightsFly.IsSet())
+    {
+        V.Reason = TEXT("your rights in this world haven't arrived, which counts as no: if you're still joining, try again once you've joined; "
+            "if they never arrive, this server may not send them (an older version), so ask whoever runs it");
+        return V;
+    }
+    if (!RightsFly.GetValue())
+    {
+        V.Reason = TEXT("this world hasn't granted you flight; its owner grants it, to themselves too, by sending "
+            "grant {id: <your id>, fly: true} (in the browser, /grant <your name> +fly)");
+        return V;
+    }
+    if (!BoneNames)
+    {
+        // flightcap.js BONES_UNKNOWN
+        V.Reason = TEXT("this body's bones aren't known (its model hasn't loaded or couldn't be read, or no bone list was given), "
+            "so whether it can fly can't be checked");
+        return V;
+    }
     // rigProfile: WINGS ARE REQUIRED FOR A CAPABILITY even though the physics does not need
     // them -- "could this body be integrated?" and "may this body take off?" differ.
     const FBodyReport R = InspectBody(*BoneNames);
-    if (!R.bCanFly) { V.Reason = TEXT("not flight-capable: ") + DescribeBody(R); return V; }
-    if (!R.bCanAnimateWings) { V.Reason = TEXT("no flight rig: ") + DescribeBody(R); return V; }
+    if (!R.bCanFly)
+    {
+        // rigProfile names the core bones in the words a wearer knows
+        TArray<FString> Missing;
+        for (const FString& B : R.Missing) Missing.Add(B == TEXT("hip") ? TEXT("hips") : B == TEXT("spine02") ? TEXT("spine") : B);
+        V.Reason = FString::Printf(TEXT("this body can't fly: its skeleton lacks a flier's core bones (missing: %s); wear a body with hips, a spine and a head"),
+            *FString::Join(Missing, TEXT(", ")));
+        return V;
+    }
+    if (!R.bCanAnimateWings)
+    {
+        V.Reason = R.WingCount == 0
+            ? FString(TEXT("this body has no wing bones, so it has no wings to fly with; wear a winged body to fly"))
+            : FString::Printf(TEXT("this body's wings have %d bone(s) in %d chain(s), and flying needs at least two chains and four bones; wear a body with fully rigged wings to fly"),
+                R.WingCount, R.Chains.Num());
+        return V;
+    }
     static const TSet<FString> CoreAny = {TEXT("hip"), TEXT("hips"), TEXT("spine"), TEXT("spine01"), TEXT("spine02"),
         TEXT("chest"), TEXT("upperchest"), TEXT("head"), TEXT("neck"), TEXT("necktwist01")};
     TArray<FString> Wings, CoreBones;

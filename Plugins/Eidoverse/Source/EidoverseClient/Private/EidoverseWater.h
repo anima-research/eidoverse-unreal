@@ -42,6 +42,8 @@ namespace EidoWater
     {
         FVec3 Direction;
         bool bFast = false, bDive = false, bRise = false;
+        // this body's size (input.stature, default 1): the root floats 1.1 m x stature under the surface
+        double Stature = 1;
     };
     struct FSwimResult
     {

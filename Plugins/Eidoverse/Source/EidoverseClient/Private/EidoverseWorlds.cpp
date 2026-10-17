@@ -126,7 +126,17 @@ void AEidoverseBridge::ReceiveDynamicScene(const TSharedPtr<FJsonObject>& Messag
             DynamicScene->SetSkyArgs(WorldSky);
         }
     }DynamicScene->Apply(Message,OriginCentimeters,AvatarLibraryBase);
-    if(Message->HasField(TEXT("error"))){bSceneMoving=false;return;}
+    if(Message->HasField(TEXT("error")))
+    {
+        // A refusal stops polling, except terrain_pending (render-scene.ts): that one says moving:true and an
+        // interval, and the scene arrives once the grid loads. The explorer stays parked until then.
+        if(Message->GetStringField(TEXT("error"))==TEXT("terrain_pending"))
+        {
+            double Interval=300;if(Message->TryGetNumberField(TEXT("updateIntervalMs"),Interval)&&FMath::IsFinite(Interval))SceneRequestInterval=FMath::Clamp(Interval/1000.,.066,2.);
+        }
+        else bSceneMoving=false;
+        return;
+    }
     if(bEmptyWorldNoticePending)
     {
         bEmptyWorldNoticePending=false;

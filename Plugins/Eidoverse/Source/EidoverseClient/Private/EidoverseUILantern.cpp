@@ -246,7 +246,7 @@ void UEidoverseHUD::RegisterHudActions()
     Reg(TEXT("body:limp"), TEXT("go limp / get up"), TEXT("body"), TEXT("R"), {TEXT("ragdoll"), TEXT("fall"), TEXT("collapse")}, [B]() { if (auto* Br = B()) { if (Br->IsDowned()) Br->GetUp(); else Br->GoLimp(); } });
     Reg(TEXT("body:climb"), TEXT("climb"), TEXT("body"), TEXT("E"), {TEXT("ladder"), TEXT("use"), TEXT("helm")}, [B]() { if (auto* Br = B()) Br->HandleUseKey(); });
     // the view
-    Reg(TEXT("view:photo"), TEXT("photo mode"), TEXT("view"), TEXT("P"), {TEXT("camera"), TEXT("free")}, [Explorer]() { if (auto* X = Explorer()) X->SetPhotoMode(!X->bPhoto); });
+    Reg(TEXT("view:photo"), TEXT("photo mode"), TEXT("view"), TEXT("P"), {TEXT("camera"), TEXT("free")}, [W]() { if (W.IsValid()) W->TogglePhotoMode(); });
     Reg(TEXT("view:shot"), TEXT("screenshot"), TEXT("view"), TEXT("F2"), {TEXT("picture"), TEXT("capture")}, []() { FScreenshotRequest::RequestScreenshot(TEXT("eidoverse-shot.png"), false, false); });
     Reg(TEXT("view:debug"), TEXT("debug overlay"), TEXT("view"), TEXT("F3"), {TEXT("colliders"), TEXT("physics")}, [B]() { if (auto* Br = B()) Br->ToggleDebugOverlay(); });
     Reg(TEXT("view:pointer"), TEXT("pointer / mouselook"), TEXT("view"), TEXT("M"), {TEXT("cursor"), TEXT("mouse")}, [W]() { if (W.IsValid()) W->SetPointerMode(!W->IsPointerMode()); });

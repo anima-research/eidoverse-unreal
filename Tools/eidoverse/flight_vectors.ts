@@ -1,5 +1,6 @@
 // flight_vectors -- reference trajectories of the shared flight law
-// (eidoverse-worlds-native/shared/flight.js + flightpilot.js + flightcap.js)
+// ($EIDOVERSE_REPO/shared/flight.js + flightpilot.js + flightcap.js; default
+// ~/connectome-local/eidoverse-worlds-native, the unreal/native-client checkout)
 // for the C++ port in Plugins/Eidoverse (EidoFlight, Eidoverse.FlightConformance).
 //
 //   BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun Tools/eidoverse/flight_vectors.ts
@@ -17,18 +18,23 @@
 //   raw   bare step() with pilotInput, never ending -- for the ground-side
 //         state machine (ragdoll, sit-up, fold/unfold, refusals).
 
-import {
+import { writeFileSync, mkdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { homedir } from 'node:os';
+
+// The server checkout to read the shared law from (as ragdoll_vectors.ts), and the
+// vectors land beside this project's plugin, wherever the project is cloned.
+const REPO = process.env.EIDOVERSE_REPO ?? join(homedir(), 'connectome-local/eidoverse-worlds-native');
+const {
   DEFAULT_CONFIG, LEAF_PRESETS, makeConfig, sinkRate, bestGlide, glideRatio, glideRange, airspeedAfter,
   leafAt, leafLateralSwing, beatRemaining, initialState, bodyDown, bodyRecovered, step,
   foldDown, unfold, takeOff,
-} from '/Users/olena/connectome-local/eidoverse-worlds-native/shared/flight.js';
-import { pilotInput } from '/Users/olena/connectome-local/eidoverse-worlds-native/shared/flightpilot.js';
-import { worldFlightProvider, resolveFlight } from '/Users/olena/connectome-local/eidoverse-worlds-native/shared/flightcap.js';
-import { inspectBody } from '/Users/olena/connectome-local/eidoverse-worlds-native/shared/flightbody.js';
-import { writeFileSync, mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+} = await import(join(REPO, 'shared/flight.js'));
+const { pilotInput } = await import(join(REPO, 'shared/flightpilot.js'));
+const { worldFlightProvider, resolveFlight } = await import(join(REPO, 'shared/flightcap.js'));
+const { inspectBody } = await import(join(REPO, 'shared/flightbody.js'));
 
-const OUT = '/Users/olena/Documents/Unreal Projects/Test1/Plugins/Eidoverse/Resources/Conformance/flight.json';
+const OUT = join(import.meta.dir, '../../Plugins/Eidoverse/Resources/Conformance/flight.json');
 const DT = 1 / 60;
 const SAMPLE_EVERY = 30;   // 0.5 s
 

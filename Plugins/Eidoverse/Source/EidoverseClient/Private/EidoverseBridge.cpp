@@ -62,7 +62,17 @@ AEidoverseBridge::AEidoverseBridge()
     static ConstructorHelpers::FObjectFinder<UStaticMesh> Sub(TEXT("/Game/Underwater/Vessels/Meshes/SM_Submarine_Shell.SM_Submarine_Shell"));
     SubmarineProxyMesh=Sub.Object;
 }
-void AEidoverseBridge::BeginPlay(){Super::BeginPlay();if(bAutoConnect)Connect();}
+void AEidoverseBridge::BeginPlay()
+{
+    Super::BeginPlay();
+    // attention.js initAttention: me and scope are read live, so a rename or a new world resets the gate.
+    AttentionGate.Me=[this](){return AssignedIdentity;};
+    AttentionGate.Scope=[this](){return WorldName;};
+    AttentionGate.MentionsMe=[this](const FString& Text){return EidoAttention::Mentions(Text,AssignedIdentity);};
+    AttentionGate.NowMs=[](){return FPlatformTime::Seconds()*1000;};
+    AttentionGate.Play=[this](){return PlayAttention();};
+    if(bAutoConnect)Connect();
+}
 void AEidoverseBridge::EndPlay(const EEndPlayReason::Type Reason)
 {
     CloseChat();
@@ -164,25 +174,43 @@ FString AEidoverseBridge::HttpBase() const
 #if WITH_DEV_AUTOMATION_TESTS
 void AEidoverseBridge::ProbeLocalChatUI(bool bPrivate){if(ChatPanel)ChatPanel->ProbeLocalUI(bPrivate);}
 #endif
-void AEidoverseBridge::AddChatLine(const FString& Sender,const FString& Text,bool bPrivate,const FString& Utt,bool bSpoken)
+void AEidoverseBridge::AddChatLine(const FString& Sender,const FString& Text,bool bPrivate,const FString& Utt,bool bSpoken,int64 Seq)
 {
     // The continuation of one spoken utterance (spoken:true, same author + utt) is one line.
     if(!Utt.IsEmpty()&&Utt==LastSpokenUtt&&Sender==LastSpokenSender&&!ChatHistory.IsEmpty()&&ChatHistory.Last().Sender==Sender.Left(64))
     {
         ChatHistory.Last().Text=(ChatHistory.Last().Text+TEXT(" ")+Text).Left(8000);
         if(ChatPanel)ChatPanel->RefreshHistory();
-        if(HUD)HUD->AppendToLastChatLine(Sender.Left(64),Text.Left(4000));
+        if(HUD)HUD->AppendToLastChatLine(Sender.Left(64),Text.Left(4000),Seq);
         OnChat.Broadcast(Sender,Text);
         return;
     }
     LastSpokenUtt=Utt;LastSpokenSender=Utt.IsEmpty()?FString():Sender;
-    FEidoverseChatLine Line;Line.Sender=Sender.Left(64);Line.Text=Text.Left(4000);Line.bPrivate=bPrivate;
+    FEidoverseChatLine Line;Line.Sender=Sender.Left(64);Line.Text=Text.Left(4000);Line.bPrivate=bPrivate;Line.Seq=Seq;
     ChatHistory.Add(MoveTemp(Line));if(ChatHistory.Num()>150)ChatHistory.RemoveAt(0,ChatHistory.Num()-150);
     if(ChatPanel){ChatPanel->NotifyChatLine(Sender,Text,bPrivate);ChatPanel->RefreshHistory();}
-    if(HUD)HUD->NotifyChatLine(Line.Sender.IsEmpty()?Sender:Sender.Left(64),Text.Left(4000),bPrivate);
+    if(HUD)HUD->NotifyChatLine(Line.Sender.IsEmpty()?Sender:Sender.Left(64),Text.Left(4000),bPrivate,Seq);
     if(!bPrivate&&!bSpoken&&EidoSettings::Bubbles())if(auto* Peer=Peers.Find(Sender))if(auto* Plate=Peer->Plate.Get())
         if(auto* W=Cast<UEidoverseNameplate>(Plate->GetUserWidgetObject()))W->ShowBubble(Text,FMath::Clamp(2.5f+Text.Len()*.045f,5.f,22.f));
     OnChat.Broadcast(Sender,Text);
+}
+bool AEidoverseBridge::PlayAttention()
+{
+    if(!EidoSettings::AttentionSound()||EidoSettings::AttentionVolume()<=0)return false;
+    if(EidoAttention::PlayTone(GetWorld(),EidoSettings::AttentionTone(),EidoSettings::AttentionVolume()))return true;
+    AttentionStatus=TEXT("Attention audio unavailable; mentions and whispers stay highlighted.");
+    return false;
+}
+void AEidoverseBridge::SetAttentionSound(bool bOn)
+{
+    EidoSettings::Set(TEXT("Eidoverse.Audio.Attention"),bOn?TEXT("1"):TEXT("0"));
+    AttentionStatus=bOn?TEXT("Private live mentions and whispers; click Preview to test sound."):TEXT("Attention sound off; mentions and whispers stay highlighted.");
+}
+void AEidoverseBridge::PreviewAttention()
+{
+    if(EidoSettings::AttentionVolume()>0&&EidoAttention::PlayTone(GetWorld(),EidoSettings::AttentionTone(),EidoSettings::AttentionVolume()))
+        AttentionStatus=TEXT("Preview played locally. Mentions and whispers stay highlighted.");
+    else AttentionStatus=TEXT("Sound is muted; chat highlights remain on.");
 }
 void AEidoverseBridge::Status(const FString& Value)
 {
@@ -212,7 +240,8 @@ void AEidoverseBridge::Connect()
     if(!bRetrying)
     {
         ChatHistory.Empty();if(ChatPanel)ChatPanel->RefreshHistory();
-        RenderedChatSeqs.Reset();OldestChatSeq=-1;bHistoryDone=false;bHistoryPending=false;LastWhisperFrom.Empty();
+        RenderedChatSeqs.Reset();ChatPageCursor=ChatPageFrom=ChatTrimmedThrough=-1;bHistoryDone=false;bHistoryPending=false;LastWhisperFrom.Empty();
+        ChatResyncFloor=-1;
         bBodyMovedThisSession=false;PendingRestore.Reset();SelfHeldPose.Reset();RetryDelay=1.2;
     }
     RemoteMounts.Reset();
@@ -226,6 +255,8 @@ void AEidoverseBridge::Connect()
     bLocalCommonsPreset=bLocalCommonsPreset&&Endpoint==TEXT("ws://127.0.0.1:19002/ws");
     if(!ProductionLogin&&!bLocalCommonsPreset&&JoinToken.IsEmpty())JoinToken=FPlatformMisc::GetEnvironmentVariable(TEXT("EIDOVERSE_JOIN_TOKEN"));
     if(!ProductionLogin&&!bLocalCommonsPreset&&IdentityToken.IsEmpty())IdentityToken=FPlatformMisc::GetEnvironmentVariable(TEXT("EIDOVERSE_IDENTITY_TOKEN"));
+    // a retry keeps the chat: remember the last entry the old socket delivered, for the re-join's resync
+    if(bRetrying)ChatResyncFloor=FMath::Max(ChatResyncFloor,LastLogSequence);
     bWanted=true;OpenedAt=FPlatformTime::Seconds();AssignedIdentity.Empty();LastFrameTime=-1;LastLogSequence=-1;
     TMap<FString,FString> Headers;if(ProductionLogin)Headers.Add(TEXT("Cookie"),TEXT("ew_sess=")+ProductionSession);
     Socket=FWebSocketsModule::Get().CreateWebSocket(Endpoint,TEXT(""),Headers);
@@ -243,6 +274,8 @@ void AEidoverseBridge::SendJoin()
 {
     auto J=MakeShared<FJsonObject>();J->SetStringField(TEXT("type"),TEXT("join"));J->SetStringField(TEXT("world"),WorldName);
     J->SetStringField(TEXT("id"),ParticipantName);J->SetStringField(TEXT("avatar"),AvatarPath);J->SetBoolField(TEXT("spectate"),bSpectator);
+    // this run's presence session (net.js PAGE_SESSION): listeners scope my utterance counter by it
+    J->SetStringField(TEXT("session"),EidoAttention::PageSession());
     if(!HasProductionSession()||Endpoint!=ProductionEndpoint)
     {
         if(!JoinToken.IsEmpty())J->SetStringField(TEXT("token"),JoinToken);
@@ -278,6 +311,13 @@ bool AEidoverseBridge::SendVerbJson(const FString& Verb,const FString& ArgsJson)
     TSharedPtr<FJsonObject> Args;
     if(!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(ArgsJson),Args)||!Args)return false;
     return SendVerb(Verb,Args.ToSharedRef());
+}
+void AEidoverseBridge::TestDropConnection(double HoldSeconds)
+{
+    if(!Socket)return;
+    ++Generation;Socket->Close();   // the old socket's callbacks are stale from here
+    Lost(1006);
+    if(RetryAt>0)RetryAt=FPlatformTime::Seconds()+FMath::Max(0.,HoldSeconds);
 }
 void AEidoverseBridge::Lost(int32 Code)
 {
@@ -663,12 +703,20 @@ void AEidoverseBridge::Receive(const FString& Message)
         const TSharedPtr<FJsonObject>* Sim=nullptr;const TSharedPtr<FJsonObject>* Epoch=nullptr;
         bDeterministicScenePhysics=J->TryGetObjectField(TEXT("sim"),Sim)&&(*Sim)->TryGetObjectField(TEXT("epoch"),Epoch);
         AdvertiseCapture();
+        // A RE-join (a retry, or the same socket joining again): what was said after the last entry delivered
+        // may be trimmed out of this snapshot's chat window. Fetch it before the sequence moves on; a first
+        // join has rendered nothing and is a no-op (chat.js resyncChatAfter).
+        const int64 DeliveredBefore=FMath::Max(LastLogSequence,ChatResyncFloor);ChatResyncFloor=-1;
+        if(DeliveredBefore>=0&&RenderedChatSeqs.Num()>0){ChatResyncAfter=DeliveredBefore;ChatResyncBefore=-1;ChatResyncPages=0;SendResyncPage();}
         double Seq;if(J->TryGetNumberField(TEXT("throughSeq"),Seq))LastLogSequence=int64(Seq);
         const TArray<TSharedPtr<FJsonValue>>* History=nullptr;
         if(J->TryGetArrayField(TEXT("entries"),History))for(auto& V:*History){const TSharedPtr<FJsonObject>* E=nullptr;double S;if(V->TryGetObject(E)&&(*E)->TryGetNumberField(TEXT("seq"),S))LastLogSequence=FMath::Max(LastLogSequence,int64(S));}
         const TArray<TSharedPtr<FJsonValue>>* Present=nullptr;
+        TArray<TPair<FString,TOptional<FString>>> Sessions;
         if(J->TryGetArrayField(TEXT("present"),Present))for(auto& V:*Present)
-        {const TSharedPtr<FJsonObject>* Person=nullptr;if(!V->TryGetObject(Person))continue;const FString Id=Eido::String(*Person,TEXT("id"));Announce(Id,Eido::String(*Person,TEXT("avatar")));const TSharedPtr<FJsonObject>* P=nullptr;if((*Person)->TryGetObjectField(TEXT("pose"),P))Pose(Id,*P,Now);}
+        {const TSharedPtr<FJsonObject>* Person=nullptr;if(!V->TryGetObject(Person))continue;const FString Id=Eido::String(*Person,TEXT("id"));Announce(Id,Eido::String(*Person,TEXT("avatar")));const TSharedPtr<FJsonObject>* P=nullptr;if((*Person)->TryGetObjectField(TEXT("pose"),P))Pose(Id,*P,Now);
+         FString Session;Sessions.Add({Id,(*Person)->TryGetStringField(TEXT("session"),Session)?TOptional<FString>(Session):TOptional<FString>()});}
+        AttentionGate.Roster(Sessions);
         // The roster normally names my body; fall back to what I asked to wear.
         if(!SelfBody.AvatarAsset.IsValid()&&!AvatarPath.IsEmpty()&&SelfBody.AvatarPath!=AvatarPath)RequestAvatar(SelfBody,AvatarPath);
         Status(TEXT("joined ")+WorldName+TEXT(" as ")+AssignedIdentity);
@@ -682,6 +730,7 @@ void AEidoverseBridge::Receive(const FString& Message)
     else if(Type==TEXT("arrive")&&bJoined)
     {
         const FString Id=Eido::String(J,TEXT("id"));
+        {FString Session;AttentionGate.Participant(Id,J->TryGetStringField(TEXT("session"),Session)?TOptional<FString>(Session):TOptional<FString>(),true);}
         if(!Peers.Contains(Id)&&Id!=AssignedIdentity)Narrate(Id.Left(64)+TEXT(" arrived"));
         Announce(Id,Eido::String(J,TEXT("avatar")));
     }
@@ -711,6 +760,7 @@ void AEidoverseBridge::Receive(const FString& Message)
         const TSharedPtr<FJsonObject>* Entry=nullptr;if(!J->TryGetObjectField(TEXT("entry"),Entry))return;
         double Seq;if(!(*Entry)->TryGetNumberField(TEXT("seq"),Seq)||Seq<=LastLogSequence)return;LastLogSequence=int64(Seq);
         bSceneDirty=true;
+        AttentionGate.Say(EidoAttention::ReadSay(*Entry));   // only the live path: history and the join window never chime
         ReceiveInteraction(*Entry);
         NarrateLogEntry(*Entry);
         {
@@ -721,8 +771,10 @@ void AEidoverseBridge::Receive(const FString& Message)
         const TSharedPtr<FJsonObject>* Args=nullptr;if(!(*Entry)->TryGetObjectField(TEXT("args"),Args))return;
         FString Sender=Eido::String(*Entry,TEXT("actor")),Text=Eido::String(*Args,TEXT("text")).Left(4000);FString Utt;double UttN;bool bSpoken=false;(*Args)->TryGetBoolField(TEXT("spoken"),bSpoken);
         if(bSpoken&&(*Args)->TryGetNumberField(TEXT("utt"),UttN))Utt=FString::Printf(TEXT("%.0f"),UttN);else if(bSpoken)(*Args)->TryGetStringField(TEXT("utt"),Utt);
-        if(RenderedChatSeqs.Contains(int64(Seq)))return;RenderedChatSeqs.Add(int64(Seq));if(OldestChatSeq<0)OldestChatSeq=int64(Seq);
-        AddChatLine(Sender,Text,false,Utt.Left(64),bSpoken);
+        // ...or trimmed off the top: a re-join's window can replay such a line, and appending it would put it
+        // under hours of newer talk. Paging slots it back where it belongs.
+        if(RenderedChatSeqs.Contains(int64(Seq))||int64(Seq)<=ChatTrimmedThrough)return;RenderedChatSeqs.Add(int64(Seq));
+        AddChatLine(Sender,Text,false,Utt.Left(64),bSpoken,int64(Seq));
         if(!bSpoken)NoteSpeaker(Sender,Text);   // spoken says were performed live by their captions
     }
     else if(Type==TEXT("your-rights")&&bJoined)
@@ -750,6 +802,12 @@ void AEidoverseBridge::Receive(const FString& Message)
         // The server echoes my own whispers (echo:true) so every tab of mine sees them.
         const FString From=Eido::String(J,TEXT("from")).Left(64),To=Eido::String(J,TEXT("to")).Left(64),Text=Eido::String(J,TEXT("text")).Left(4000);
         bool bEcho=false;J->TryGetBoolField(TEXT("echo"),bEcho);
+        {
+            // replay:true marks a held whisper delivered as I join: shown, never chimed
+            EidoAttention::FWhisper W;W.From=From;W.To=To;W.Text=Text;W.bEcho=bEcho;J->TryGetBoolField(TEXT("replay"),W.bReplay);
+            const TSharedPtr<FJsonValue> TextValue=J->TryGetField(TEXT("text"));W.bTextIsString=TextValue.IsValid()&&TextValue->Type==EJson::String;
+            AttentionGate.Whisper(W);
+        }
         if(bEcho)AddChatLine(TEXT("to ")+To,Text,true);
         else{LastWhisperFrom=From;AddChatLine(From,Text,true);if(HUD)HUD->Toast(From+TEXT(" whispered you"));}
     }

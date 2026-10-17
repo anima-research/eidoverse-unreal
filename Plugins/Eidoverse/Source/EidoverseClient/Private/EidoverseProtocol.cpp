@@ -73,8 +73,9 @@ void AEidoverseBridge::ReceiveSnapshotExtras(const TSharedPtr<FJsonObject>& J, d
         {
             const TSharedPtr<FJsonObject> M = V->AsObject(); if (!M) continue;
             const int64 Seq = int64(PNum(M, TEXT("seq"), -1));
-            if (Seq >= 0) { if (RenderedChatSeqs.Contains(Seq)) continue; RenderedChatSeqs.Add(Seq); OldestChatSeq = OldestChatSeq < 0 ? Seq : FMath::Min(OldestChatSeq, Seq); }
-            AddChatLine(PStr(M, TEXT("actor")), PStr(M, TEXT("text")).Left(4000), false, FString(), true);
+            // Synthetic entries from a folded snapshot carry a negative seq: not positions in history.
+            if (Seq >= 0) { if (RenderedChatSeqs.Contains(Seq) || Seq <= ChatTrimmedThrough) continue; RenderedChatSeqs.Add(Seq); }
+            AddChatLine(PStr(M, TEXT("actor")), PStr(M, TEXT("text")).Left(4000), false, FString(), true, Seq);
         }
     }
     else if (Total == 0) bHistoryDone = true;
@@ -146,27 +147,50 @@ bool AEidoverseBridge::ReceiveProtocol(const FString& Type, const TSharedPtr<FJs
     if (!bJoined) return false;
     if (Type == TEXT("history"))
     {
-        if (PStr(J, TEXT("reqId")) != HistoryReqId) return true;
-        bHistoryPending = false;
+        const FString ReqId = PStr(J, TEXT("reqId"));
         const auto& Entries = PArr(J, TEXT("entries"));
-        TArray<TPair<FString, FString>> Older;
-        for (const auto& V : Entries)
-        {
-            const TSharedPtr<FJsonObject> E = V->AsObject(); if (!E || PStr(E, TEXT("verb")) != TEXT("say")) continue;
-            const int64 Seq = int64(PNum(E, TEXT("seq"), -1));
-            if (Seq >= 0) { if (RenderedChatSeqs.Contains(Seq)) continue; RenderedChatSeqs.Add(Seq); OldestChatSeq = OldestChatSeq < 0 ? Seq : FMath::Min(OldestChatSeq, Seq); }
-            Older.Add({PStr(E, TEXT("actor")), PStr(PObj(E, TEXT("args")), TEXT("text")).Left(4000)});
-        }
         const double Oldest = PNum(J, TEXT("oldestSeq"), -1);
-        if (Oldest >= 0) OldestChatSeq = OldestChatSeq < 0 ? int64(Oldest) : FMath::Min(OldestChatSeq, int64(Oldest));
-        bool bMore = true; J->TryGetBoolField(TEXT("hasMore"), bMore);
-        if (Older.IsEmpty() || !bMore) bHistoryDone = true;
-        TArray<FEidoverseChatLine> Head;
-        if (bHistoryDone) { FEidoverseChatLine N; N.Sender = TEXT("*"); N.Text = TEXT("\u2014 the beginning of this world \u2014"); Head.Add(N); }
-        for (const auto& P : Older) { FEidoverseChatLine L; L.Sender = P.Key; L.Text = P.Value; Head.Add(L); }
-        ChatHistory.Insert(Head, 0);
-        if (ChatPanel) ChatPanel->RefreshHistory();
-        if (HUD) HUD->PrependChatLines(Older, bHistoryDone ? TEXT("\u2014 the beginning of this world \u2014") : FString());
+        auto OldestOf = [&]() -> int64
+        {
+            if (Oldest >= 0) return int64(Oldest);
+            const TSharedPtr<FJsonObject> First = Entries.Num() ? Entries[0]->AsObject() : nullptr;
+            return First ? int64(PNum(First, TEXT("seq"), -1)) : -1;
+        };
+        if (!ChatResyncReqId.IsEmpty() && ReqId == ChatResyncReqId)
+        {
+            // The resync after a re-join: newest first, pages of 40, until a short page.
+            ChatResyncReqId.Empty();
+            if (Entries.IsEmpty()) return true;
+            InsertChatHistory(Entries);
+            if (Entries.Num() < 40 || ++ChatResyncPages >= 25) return true;
+            ChatResyncBefore = OldestOf();
+            if (ChatResyncBefore > ChatResyncAfter) SendResyncPage();
+            return true;
+        }
+        if (ReqId != HistoryReqId) return true;
+        // A trim that passed the cursor while this page was in flight has restarted the walk (NoteChatTrimmed
+        // is the only other writer of the cursor). The page's lines still slot in, but where the walk stands,
+        // and whether it has reached the beginning, now come from the restart.
+        if (ChatPageCursor == ChatPageFrom)
+        {
+            if (Entries.Num()) ChatPageCursor = OldestOf();
+            bool bMore = true; J->TryGetBoolField(TEXT("hasMore"), bMore);
+            if (Entries.IsEmpty() || !bMore) bHistoryDone = true;
+        }
+        const int32 Added = InsertChatHistory(Entries);
+        // Nothing new on this page (every line already on screen): walk on, up to 25 pages per scroll.
+        if (!Added && !bHistoryDone && ++ChatSkipPages < 25) { SendHistoryPage(); return true; }
+        bHistoryPending = false;
+        if (bHistoryDone)
+        {
+            const FString Beginning = TEXT("\u2014 the beginning of this world \u2014");
+            if (ChatHistory.IsEmpty() || ChatHistory[0].Text != Beginning)
+            {
+                FEidoverseChatLine N; N.Sender = TEXT("*"); N.Text = Beginning; ChatHistory.Insert(N, 0);
+                if (ChatPanel) ChatPanel->RefreshHistory();
+                if (HUD) HUD->AddTopNote(Beginning);
+            }
+        }
         return true;
     }
     if (Type == TEXT("world-reset"))
@@ -264,15 +288,77 @@ bool AEidoverseBridge::RequestEarlierChat()
 {
     const double Now = FPlatformTime::Seconds();
     if (!bJoined || bHistoryDone || (bHistoryPending && Now - HistoryRequestedAt < 8) || !Socket || !Socket->IsConnected()) return false;
-    bHistoryPending = true; HistoryRequestedAt = Now;
+    bHistoryPending = true; ChatSkipPages = 0;
+    SendHistoryPage();
+    return true;
+}
+
+void AEidoverseBridge::SendHistoryPage()
+{
+    // The next page is everything below the cursor; from now when the walk has not begun (or restarted).
+    HistoryRequestedAt = FPlatformTime::Seconds();
     HistoryReqId = FString::Printf(TEXT("h%d"), ++HistoryRequests);
+    ChatPageFrom = ChatPageCursor;
     auto J = MakeShared<FJsonObject>();
     J->SetStringField(TEXT("type"), TEXT("history")); J->SetStringField(TEXT("reqId"), HistoryReqId);
-    if (OldestChatSeq >= 0) J->SetNumberField(TEXT("before"), double(OldestChatSeq));
+    if (ChatPageCursor >= 0) J->SetNumberField(TEXT("before"), double(ChatPageCursor));
     J->SetNumberField(TEXT("limit"), 40);
     J->SetArrayField(TEXT("verbs"), {MakeShared<FJsonValueString>(TEXT("say"))});
     Send(J);
-    return true;
+}
+
+void AEidoverseBridge::SendResyncPage()
+{
+    if (!bJoined || !Socket || !Socket->IsConnected() || ChatResyncAfter < 0) return;
+    ChatResyncReqId = FString::Printf(TEXT("r%d"), ++HistoryRequests);
+    auto J = MakeShared<FJsonObject>();
+    J->SetStringField(TEXT("type"), TEXT("history")); J->SetStringField(TEXT("reqId"), ChatResyncReqId);
+    J->SetNumberField(TEXT("after"), double(ChatResyncAfter));
+    if (ChatResyncBefore >= 0) J->SetNumberField(TEXT("before"), double(ChatResyncBefore));
+    J->SetNumberField(TEXT("limit"), 40);
+    J->SetArrayField(TEXT("verbs"), {MakeShared<FJsonValueString>(TEXT("say"))});
+    Send(J);
+}
+
+int32 AEidoverseBridge::InsertChatHistory(const TArray<TSharedPtr<FJsonValue>>& Entries)
+{
+    // Slot one page into the log where each line belongs (by seq), skipping lines already on screen.
+    TArray<UEidoverseHUD::FHistoricalLine> Fresh;
+    for (const auto& V : Entries)
+    {
+        const TSharedPtr<FJsonObject> E = V.IsValid() ? V->AsObject() : nullptr;
+        if (!E || PStr(E, TEXT("verb")) != TEXT("say")) continue;
+        const int64 Seq = int64(PNum(E, TEXT("seq"), -1));
+        if (Seq < 0 || RenderedChatSeqs.Contains(Seq)) continue;
+        RenderedChatSeqs.Add(Seq);
+        UEidoverseHUD::FHistoricalLine L;
+        L.Sender = PStr(E, TEXT("actor")).Left(64); L.Text = PStr(PObj(E, TEXT("args")), TEXT("text")).Left(4000);
+        L.Seq = Seq; L.Ts = PNum(E, TEXT("ts"), 0);
+        Fresh.Add(MoveTemp(L));
+        // the legacy panel's list, in seq order too
+        FEidoverseChatLine C; C.Sender = Fresh.Last().Sender; C.Text = Fresh.Last().Text; C.Seq = Seq;
+        int32 At = 0;
+        for (int32 I = 0; I < ChatHistory.Num(); ++I) if (ChatHistory[I].Seq >= 0 && ChatHistory[I].Seq < Seq) At = I + 1;
+        ChatHistory.Insert(MoveTemp(C), At);
+    }
+    if (Fresh.IsEmpty()) return 0;
+    if (ChatPanel) ChatPanel->RefreshHistory();
+    if (HUD) HUD->InsertHistoricalLines(Fresh);
+    return Fresh.Num();
+}
+
+void AEidoverseBridge::NoteChatTrimmed(const TArray<int64>& Seqs)
+{
+    for (const int64 Seq : Seqs)
+    {
+        if (Seq < 0) continue;
+        RenderedChatSeqs.Remove(Seq);
+        ChatTrimmedThrough = FMath::Max(ChatTrimmedThrough, Seq);
+        // If the backward walk had already passed it, start over from the present (skipping what is still on
+        // screen) instead of stepping over the new hole. A walk that ended at the present has passed everything.
+        const bool bPassed = ChatPageCursor < 0 ? bHistoryDone : Seq >= ChatPageCursor;
+        if (bPassed) { ChatPageCursor = -1; bHistoryDone = false; }
+    }
 }
 
 bool AEidoverseBridge::SendRaw(const FString& Type, const TSharedRef<FJsonObject>& Fields)

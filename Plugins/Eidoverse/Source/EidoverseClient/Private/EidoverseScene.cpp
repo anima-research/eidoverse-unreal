@@ -115,7 +115,14 @@ void AEidoverseScene::ApplyEnvironment(const TSharedPtr<FJsonObject>& Env,const 
 }
 void AEidoverseScene::Apply(const TSharedPtr<FJsonObject>& Message,const FVector& Origin,const FString& Library)
 {
-    if(Message->HasField(TEXT("error"))){Diagnostic=Str(Message,TEXT("error"));return;}
+    if(Message->HasField(TEXT("error")))
+    {
+        // terrain_pending: a saved heightmap's grid is still loading on the server, which refuses rather than
+        // project the noise fallback as the ground. Nothing is applied; the bridge keeps polling.
+        const FString Error=Str(Message,TEXT("error"));
+        Diagnostic=Error==TEXT("terrain_pending")?TEXT("Waiting for the world's terrain (its heightmap is still loading on the server)"):Error;
+        return;
+    }
     SceneOrigin=Origin;LibraryBase=Library;
     if(double ServerMs;Message->TryGetNumberField(TEXT("time"),ServerMs)&&FMath::IsFinite(ServerMs))ObserveServerTime(ServerMs);
     ApplyWeather(Obj(Message,TEXT("atmosphere")));
@@ -498,7 +505,10 @@ bool AEidoverseExplorer::TickSwimming(float Dt,APlayerController* PC)
     double FloorWire=-1e9;
     if(GetWorld()->LineTraceSingleByChannel(FloorHit,Feet+FVector(0,0,50),Feet-FVector(0,0,5000),ECC_Visibility,Query))
         FloorWire=(FloorHit.ImpactPoint.Z-Origin.Z)/100;
-    if(FloorWire>=EidoWater::WaveHeight(*Water,Body.X,Body.Z,Time)-1.1&&!bRise)return Leave();
+    // This body's size (controller.js: deskEyeY(userScale)/deskEyeY(1)): float depth and the handover follow
+    // it; the head sweep is the capsule, already sized with the body.
+    const double Stature=FMath::Clamp(double(BodyScale),.5,2.);
+    if(FloorWire>=EidoWater::WaveHeight(*Water,Body.X,Body.Z,Time)-1.1*Stature&&!bRise)return Leave();
 
     if(!bSwimming){bSwimming=true;SwimVelocityWire=AEidoverseBridge::ToWirePosition(Move->Velocity);}
     Move->DisableMovement();
@@ -511,7 +521,7 @@ bool AEidoverseExplorer::TickSwimming(float Dt,APlayerController* PC)
     // UE pitch is positive looking up: swimming forward follows the view.
     const double Pitch=FMath::DegreesToRadians(FMath::Clamp(FRotator::NormalizeAxis(View.Pitch),-80.f,80.f));
     Input.Direction={Horizontal.X,double(bRise)-double(bDive)+Fwd*FMath::Sin(Pitch),Horizontal.Z};
-    Input.bRise=bRise;Input.bDive=bDive;
+    Input.bRise=bRise;Input.bDive=bDive;Input.Stature=Stature;
     Input.bFast=bInput&&(PC->IsInputKeyDown(EKeys::LeftShift)||PC->IsInputKeyDown(EKeys::RightShift));
 
     bool bSurface=false;

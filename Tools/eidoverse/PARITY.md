@@ -1,5 +1,53 @@
 # Unreal / Three.js parity
 
+## Upstream port 2026-10-17 (three.js main through 05df94c + unreal/native-client through 9559bdf; local branch, not pushed)
+
+What three.js main merged after 034c41a (#184-#252) and the four review rounds on eidoverse-worlds#248, wherever a
+native client has a twin:
+- **Snap framing** (#226, snapshots `frame`): a `snap` may carry `frame {dist?, height?, pitch?}`, normalised as
+  shared/snapframe.js does (numbers or numeric strings only, clamped to [0.5,30] / [0,30] / [-85,85]). Third and
+  selfie now use net_snap.js's cameras for a body, framed or not (3.4 m behind / 2.1 m up, aimed 1.2 m up and a
+  distance-scaled look-ahead; 2.6 m in front / 1.6 m up at the chest); first keeps its eye and heading and takes an
+  asked-for pitch. Vessels keep their own scale unless a distance or height is asked for. `EidoverseSnapFrame.h`.
+- **Attention chimes** (#217): a short local tone for a LIVE public say that mentions me and for a whisper to me,
+  never for history, the join window or a held (`replay`) whisper. The gate is attention-policy.js: seq dedup,
+  (sender, utt) dedup scoped by the sender's page session, 3 s leading-edge cooldown, a world/name change resets it;
+  a silent notice consumes its identity, not the cooldown. Tones soft / chime / tap, volume x 0.15. Settings >
+  Chat: Attention sound (default off), tone + preview, volume (own, default 20%), status line. Every join now sends
+  `session` (one id per run, `EidoAttention::PageSession`), and arrivals/snapshot records feed theirs to the gate.
+- **Chat scrollback fills the trimmed hole** (#243): the arrival window is fair, not contiguous, so paging from the
+  oldest line shown jumped over trimmed talk. The walk now starts at the present and skips what is on screen (up to
+  25 pages per scroll); paged lines slot in by seq after the last older row, with their own timestamps; the reader's
+  first visible row is held (or the end, if following). The 400-row trim releases its seqs (a merged spoken row
+  releases all of them), restarting the walk when it had passed them, and never lets a trimmed line be re-appended
+  live. A re-join (retry or same socket) fetches what was said after the last delivered seq, newest first.
+- **Refusal wording** (#245): the flight port's fold / unfold / take-off reasons and the capability reasons
+  (rights not arrived, not granted, bones unknown, missing core bones, wingless, under-rigged) say what's wrong and
+  what to do, verbatim from shared/flight.js and flightcap.js. `flight.json` regenerated (reasons only; every
+  trajectory unchanged); `flight_vectors.ts` now reads `$EIDOVERSE_REPO` and writes beside the plugin.
+- **Swimming scales with this body** (native-client round 1): `swimStep` floats the root 1.1 m x stature under the
+  surface, and the wading-to-swimming handover uses the same depth (the head sweep is the body-sized capsule).
+- **terrain_pending** (round 3): while a saved heightmap's grid is still loading the server refuses the scene with
+  `moving:true`; the client keeps polling at the given interval, keeps the explorer parked, and says why.
+- **The helm** (rounds 1 and 3): photo mode is refused while piloting ("leave the helm first (E)") and taking the
+  helm leaves it; a granted helm stops my own sim of that hull under the same lease (yieldSim); knocked down at the
+  helm lets go where I am, without the exit step, so the fall runs.
+
+Already native or server-side, no client change: renderer/spectator name prefixes (#221; Unreal joins without
+one), part-socket chains and carrier scale (render-scene composes them; LocalTransform already rides chains),
+lease-carried cargo, VRM stature (#229, the roster's height), terrain `layers` compatibility (#250; render-scene
+already requires an array), mention display names (#184; mcpl only), agent navigation/collision (#235-#241).
+Not ported: the rain's splash ground (#252) — Unreal's rain has streaks but no splashes yet; a water environment's
+`sky` (sun/ambient) is not applied natively at all, so round 3's ordering fix has no twin; web-only (WebGL/TSL
+portability, headset swimming bindings, chat gear placement CSS).
+
+Tests: `Eidoverse.SnapFrame` (snapframe-test.ts's normaliser cases + the camera geometry), `Eidoverse.Attention`
+(attention-test.ts's pure gate cases, tones, page session), stature cases in `Eidoverse.WaterConformance`,
+`Eidoverse.FlightConformance` on the regenerated vectors. `sh Tools/eidoverse/run_chat_live_test.sh` runs
+`Eidoverse.LiveChat` headless: a loopback scratch sequencer from `$EIDOVERSE_REPO`, two bots (chat_live_bot.ts) and
+the real bridge in a transient world - the window's hole filled in seq order, a live mention and a whisper each
+reaching the gate once, my arrival's session, and a held drop whose 60 missed lines come back by resync.
+
 ## Upstream port 2026-10-16 (three.js main through 034c41a; local only — not deployed, not pushed)
 
 Ported from the upstream merge (server side: branch `unreal/native-client`, render-scene projects the

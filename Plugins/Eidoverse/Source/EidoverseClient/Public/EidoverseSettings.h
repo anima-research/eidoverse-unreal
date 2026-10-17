@@ -20,6 +20,11 @@ namespace EidoSettings
     EIDOVERSECLIENT_API float MicFloor();          // Eidoverse.Audio.MicFloor, 0..0.2 (web micFloor, default .12 = -24 dBFS)
     EIDOVERSECLIENT_API bool PushToTalk();         // Eidoverse.Audio.PushToTalk (default off): V held opens the mic
     EIDOVERSECLIENT_API bool VoiceProcessing();    // Eidoverse.Audio.VoiceProcessing: OS echo cancellation (default on)
+    // Attention (attention.js): a short local tone for a live mention or a whisper to me. Default off; its own
+    // volume (default 20%), independent of world and voice volume; soft | chime | tap.
+    EIDOVERSECLIENT_API bool AttentionSound();     // Eidoverse.Audio.Attention
+    EIDOVERSECLIENT_API float AttentionVolume();   // Eidoverse.Audio.AttentionVolume, 0..1
+    EIDOVERSECLIENT_API FString AttentionTone();   // Eidoverse.Audio.AttentionTone
     // Video (videopanel.js / governor.js): render scale auto|1|.85|.7, shadows off or
     // 1024|2048|4096, particle tier auto|med|low (count x1|.5|.25), avatar detail
     // auto|full|half|low (far-body animation rate x1|1|2|4).

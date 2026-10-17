@@ -74,6 +74,7 @@ bool FEidoverseWaterConformance::RunTest(const FString&)
         In->TryGetBoolField(TEXT("fast"), Input.bFast);
         In->TryGetBoolField(TEXT("dive"), Input.bDive);
         In->TryGetBoolField(TEXT("rise"), Input.bRise);
+        In->TryGetNumberField(TEXT("stature"), Input.Stature);
         EidoWater::FVec3 Pos = Vec(C, TEXT("start")), Vel;
         double Time = C->GetNumberField(TEXT("t0"));
         int32 Step = 0;
@@ -89,6 +90,23 @@ bool FEidoverseWaterConformance::RunTest(const FString&)
                 Vec(C, TEXT("start")).X, Vec(C, TEXT("start")).Y, Vec(C, TEXT("start")).Z, Step, R.Pos.X, R.Pos.Y, R.Pos.Z));
             // Continue from the reference so one divergence reports once, not forty times.
             Pos = Vec(Want, TEXT("pos")); Vel = Vec(Want, TEXT("velocity")); ++Step;
+        }
+    }
+    // A half-size body floats half as deep, so its eyes clear the surface (tools/water/math-test.ts, review #248);
+    // a missing or nonsense stature is a 100% body.
+    {
+        const auto W = EidoWater::ReadParams(WorldData);
+        for (const double Stature : {1.0, .5, 2.0, 0.0, -1.0})
+        {
+            EidoWater::FSwimInput Input;
+            Input.Direction = {0, 1, 0}; Input.bRise = true; Input.Stature = Stature;
+            const double X = W.Center.X, Z = W.Center.Z;
+            EidoWater::FVec3 Pos{X, W.Top - 4, Z}, Vel{0, 0, 0};
+            EidoWater::FSwimResult R;
+            double Time = 0;
+            for (int32 I = 0; I < 300; ++I) { R = EidoWater::SwimStep(Pos, Vel, Input, W, 1. / 60, Time); Pos = R.Pos; Vel = R.Velocity; Time += 1. / 60; }
+            const double Expect = EidoWater::WaveHeight(W, Pos.X, Pos.Z, Time - 1. / 60) - 1.1 * (Stature > 0 ? Stature : 1);
+            Check(R.bSurface && Near(Pos.Y, Expect, 1e-8), FString::Printf(TEXT("stature %g floats at %.9g, want %.9g"), Stature, Pos.Y, Expect));
         }
     }
     UE_LOG(LogTemp, Display, TEXT("EIDOVERSE_WATER_CONFORMANCE checked=%d failed=%d"), Checked, Failed);

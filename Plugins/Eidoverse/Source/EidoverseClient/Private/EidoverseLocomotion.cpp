@@ -85,6 +85,9 @@ bool AEidoverseBridge::ReceiveHelmLease(const FString& Op, const FString& Id, co
     if (Op == TEXT("granted") && Helm.bPending)
     {
         Helm.bPending = false; Helm.bActive = true; Helm.Vel = FVector::ZeroVector;
+        // The same holder may already be simulating it (a kicked hull, no sim epoch): one controller only. The
+        // sim stops where it is and the helm moves and streams it from there, under the same lease (physobj.js yieldSim).
+        ObjectSims.Remove(Id); PendingPunts.Remove(Id); PendingPuntExpiry.Remove(Id);
         if (AActor* A = DynamicScene ? DynamicScene->EntityActor(Id) : nullptr) Helm.YawWire = -FMath::DegreesToRadians(A->GetActorRotation().Yaw);
         if (DynamicScene) DynamicScene->HoldTransform(Id, true);
         if (HUD) HUD->Hint(TEXT("piloting — W/S thrust, A/D steer, Space rise, C dive, E exit"), 5);
@@ -95,7 +98,7 @@ bool AEidoverseBridge::ReceiveHelmLease(const FString& Op, const FString& Id, co
     return false;
 }
 
-void AEidoverseBridge::EndHelm(bool bRelease)
+void AEidoverseBridge::EndHelm(bool bRelease, bool bExit)
 {
     auto* Explorer = Cast<AEidoverseExplorer>(UGameplayStatics::GetPlayerPawn(this, 0));
     AActor* A = DynamicScene && !Helm.Id.IsEmpty() ? DynamicScene->EntityActor(Helm.Id) : nullptr;
@@ -108,7 +111,7 @@ void AEidoverseBridge::EndHelm(bool bRelease)
         J->SetArrayField(TEXT("p"), {MakeShared<FJsonValueNumber>(P.X), MakeShared<FJsonValueNumber>(P.Y), MakeShared<FJsonValueNumber>(P.Z)});
         J->SetNumberField(TEXT("yaw"), Helm.YawWire);
         SendRaw(TEXT("lease"), J);
-        if (Explorer)
+        if (Explorer && bExit)
         {
             const FEidoverseSceneItem* E = DynamicScene->GetItems().Find(Helm.Id); FVector Exit;
             const double Half = Explorer->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
@@ -158,6 +161,10 @@ void AEidoverseBridge::TickLocomotion(AEidoverseExplorer* Explorer, float Dt)
         AActor* A = DynamicScene->EntityActor(Helm.Id);
         const FEidoverseSceneItem* E = DynamicScene->GetItems().Find(Helm.Id);
         if (!A || !E || !E->Vehicle || !PC) { EndHelm(false); return; }
+        // Knocked down at the helm (a push, a force): let go, so the fall runs and nothing steers from a limp body.
+        if (bDowned) { EndHelm(true, false); if (HUD) HUD->Hint(TEXT("knocked from the helm"), 3); return; }
+        // The helm owns the keys and the camera: never both it and photo mode (main.js me-drive).
+        if (Explorer->bPhoto) Explorer->SetPhotoMode(false);
         const float Step = FMath::Min(Dt, .1f);
         auto Key = [PC](const FKey& K) { return PC->IsInputKeyDown(K) ? 1.f : 0.f; };
         const double Speed = FMath::Clamp(LNum(E->Vehicle, TEXT("speed"), 4), .1, 15.), Turn = FMath::Clamp(LNum(E->Vehicle, TEXT("turnRate"), .45), .1, 2.);

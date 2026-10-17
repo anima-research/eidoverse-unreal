@@ -19,6 +19,9 @@ namespace
     TAutoConsoleVariable<int32> CVarHearVoices(TEXT("Eidoverse.Audio.HearVoices"), 0, TEXT("1: connect to other people's voices (receive consent; web recvVoice, default off)."));
     TAutoConsoleVariable<float> CVarMicFloor(TEXT("Eidoverse.Audio.MicFloor"), .12f, TEXT("Voice-activation sensitivity, 0..0.2 (threshold dB = -60 + floor/0.2*60)."));
     TAutoConsoleVariable<int32> CVarPtt(TEXT("Eidoverse.Audio.PushToTalk"), 0, TEXT("1: the mic opens only while V is held."));
+    TAutoConsoleVariable<int32> CVarAttention(TEXT("Eidoverse.Audio.Attention"), 0, TEXT("1: a short tone for a live mention or a whisper to me (default off)."));
+    TAutoConsoleVariable<float> CVarAttentionVolume(TEXT("Eidoverse.Audio.AttentionVolume"), .2f, TEXT("Attention tone volume, 0..1 (default 0.2), independent of world and voice volume."));
+    TAutoConsoleVariable<FString> CVarAttentionTone(TEXT("Eidoverse.Audio.AttentionTone"), TEXT("soft"), TEXT("Attention tone: soft | chime | tap."));
     TAutoConsoleVariable<int32> CVarVpio(TEXT("Eidoverse.Audio.VoiceProcessing"), 1, TEXT("1: OS echo cancellation / noise suppression on the mic (next mic start)."));
     TAutoConsoleVariable<float> CVarRenderScale(TEXT("Eidoverse.Video.RenderScale"), 0.f, TEXT("Render scale: 0 auto, else 1 / 0.85 / 0.7."));
     TAutoConsoleVariable<int32> CVarShadows(TEXT("Eidoverse.Video.Shadows"), 2048, TEXT("Sun shadows: 0 off, else 1024 / 2048 / 4096."));
@@ -30,7 +33,7 @@ namespace
     const TCHAR* Names[] = {TEXT("Eidoverse.Look.Sensitivity"), TEXT("Eidoverse.Look.InvertY"), TEXT("Eidoverse.UI.Nameplates"),
                             TEXT("Eidoverse.UI.Bubbles"), TEXT("Eidoverse.UI.PanelOpacity"), TEXT("Eidoverse.UI.Scale"), TEXT("Eidoverse.World.Lumen"),
                             TEXT("Eidoverse.Consent.Posable"), TEXT("Eidoverse.Consent.Pushable"), TEXT("Eidoverse.Audio.World"), TEXT("Eidoverse.Audio.Voices"),
-                            TEXT("Eidoverse.Audio.HearVoices"), TEXT("Eidoverse.Audio.MicFloor"), TEXT("Eidoverse.Audio.PushToTalk"), TEXT("Eidoverse.Audio.VoiceProcessing"), TEXT("Eidoverse.Audio.Tts"), TEXT("Eidoverse.Audio.TtsEndpoint"), TEXT("Eidoverse.Audio.TtsVolume"), TEXT("Eidoverse.Audio.SttConsent"), TEXT("Eidoverse.UI.Style.Accent"), TEXT("Eidoverse.UI.Style.Attention"), TEXT("Eidoverse.UI.Style.Text"), TEXT("Eidoverse.UI.Style.Panel"),
+                            TEXT("Eidoverse.Audio.HearVoices"), TEXT("Eidoverse.Audio.MicFloor"), TEXT("Eidoverse.Audio.PushToTalk"), TEXT("Eidoverse.Audio.VoiceProcessing"), TEXT("Eidoverse.Audio.Attention"), TEXT("Eidoverse.Audio.AttentionVolume"), TEXT("Eidoverse.Audio.AttentionTone"), TEXT("Eidoverse.Audio.Tts"), TEXT("Eidoverse.Audio.TtsEndpoint"), TEXT("Eidoverse.Audio.TtsVolume"), TEXT("Eidoverse.Audio.SttConsent"), TEXT("Eidoverse.UI.Style.Accent"), TEXT("Eidoverse.UI.Style.Attention"), TEXT("Eidoverse.UI.Style.Text"), TEXT("Eidoverse.UI.Style.Panel"),
                             TEXT("Eidoverse.Video.RenderScale"), TEXT("Eidoverse.Video.Shadows"), TEXT("Eidoverse.Video.Particles"), TEXT("Eidoverse.Video.AvatarDetail")};
 }
 
@@ -50,6 +53,9 @@ bool HearVoices() { return CVarHearVoices.GetValueOnGameThread() != 0; }
 float MicFloor() { return FMath::Clamp(CVarMicFloor.GetValueOnGameThread(), 0.f, .2f); }
 bool PushToTalk() { return CVarPtt.GetValueOnGameThread() != 0; }
 bool VoiceProcessing() { return CVarVpio.GetValueOnGameThread() != 0; }
+bool AttentionSound() { return CVarAttention.GetValueOnGameThread() != 0; }
+float AttentionVolume() { const float V = CVarAttentionVolume.GetValueOnGameThread(); return FMath::IsFinite(V) ? FMath::Clamp(V, 0.f, 1.f) : .2f; }
+FString AttentionTone() { const FString T = CVarAttentionTone.GetValueOnGameThread(); return T == TEXT("chime") || T == TEXT("tap") ? T : FString(TEXT("soft")); }
 float RenderScale() { const float V = CVarRenderScale.GetValueOnGameThread(); return V <= 0 ? 0.f : FMath::Clamp(V, .5f, 1.f); }
 int32 ShadowRes() { const int32 V = CVarShadows.GetValueOnGameThread(); return V <= 0 ? 0 : V <= 1024 ? 1024 : V <= 2048 ? 2048 : 4096; }
 int32 ParticleTier() { return FMath::Clamp(CVarParticles.GetValueOnGameThread(), 0, 2); }

@@ -1,4 +1,5 @@
 #include "EidoverseUI.h"
+#include "EidoverseAttention.h"
 #include "UnrealClient.h"
 #include "EidoverseScene.h"
 #include "EidoverseBridge.h"
@@ -17,6 +18,7 @@
 #include "Components/Overlay.h"
 #include "Components/OverlaySlot.h"
 #include "Components/ScrollBox.h"
+#include "Components/ScrollBoxSlot.h"
 #include "Components/SizeBox.h"
 #include "Components/Spacer.h"
 #include "Components/TextBlock.h"
@@ -133,23 +135,8 @@ namespace
         return Runs;
     }
 
-    // Web chat semantics: @name or the bare whole-word name (mcpl/agent.ts).
-    bool Mentions(const FString& Text, const FString& Me)
-    {
-        if (Me.IsEmpty()) return false;
-        const FString Lower = Text.ToLower(), Name = Me.ToLower();
-        int32 From = 0;
-        while (true)
-        {
-            const int32 At = Lower.Find(Name, ESearchCase::CaseSensitive, ESearchDir::FromStart, From);
-            if (At == INDEX_NONE) return false;
-            const bool bStart = At == 0 || !FChar::IsAlnum(Lower[At - 1]);
-            const int32 End = At + Name.Len();
-            const bool bEnd = End >= Lower.Len() || !FChar::IsAlnum(Lower[End]);
-            if (bStart && bEnd) return true;
-            From = At + 1;
-        }
-    }
+    // chat.js mentionRx: @name or the bare whole-word name (shared with the attention gate).
+    bool Mentions(const FString& Text, const FString& Me) { return EidoAttention::Mentions(Text, Me); }
 }
 
 FButtonStyle FEidoverseTheme::Button(const FLinearColor& Normal, const FLinearColor& Hovered, float Radius, const FLinearColor& Outline)
@@ -738,6 +725,16 @@ UWidget* UEidoverseHUD::BuildSettings()
     Section(TEXT("Chat"));
     Row(TEXT("Chat text size"), "chatsize", {{TEXT("−"), "set:cs-"}, {TEXT("+"), "set:cs+"}});
     Row(TEXT("Markdown (**bold**, *italic*, `code`)"), "chatmd", {{TEXT("toggle"), "set:md"}});
+    // attention.js controls: default off, its own volume, a local preview, and what the sound is doing.
+    Row(TEXT("Attention sound (live mentions, whispers)"), "attn", {{TEXT("toggle"), "set:attn"}});
+    Row(TEXT("Attention tone"), "attntone", {{TEXT("soft"), "set:attn:soft"}, {TEXT("chime"), "set:attn:chime"}, {TEXT("tap"), "set:attn:tap"}, {TEXT("preview"), "set:attnprev"}});
+    Row(TEXT("Attention volume"), "attnvol", {{TEXT("\u2212"), "set:attnv-"}, {TEXT("+"), "set:attnv+"}});
+    {
+        auto* Note = Label(TEXT(""), 10, FEidoverseTheme::Dim());
+        Note->SetAutoWrapText(true);
+        SettingValues.Add("attnstatus", Note);
+        Column->AddChildToVerticalBox(Note)->SetPadding(FMargin(0, 0, 0, 4));
+    }
     Section(TEXT("Voice"));
     Row(TEXT("Microphone (V)"), "mic", {{TEXT("toggle"), "set:mic"}});
     Row(TEXT("Push-to-talk (hold V)"), "ptt", {{TEXT("toggle"), "set:ptt"}});
@@ -793,6 +790,10 @@ void UEidoverseHUD::RefreshSettings()
     Put("volvoice", FString::Printf(TEXT("%.0f%%"), EidoSettings::VoiceVolume() * 100));
     Put("volworld", FString::Printf(TEXT("%.0f%%"), EidoSettings::WorldVolume() * 100));
     Put("vpio", EidoSettings::VoiceProcessing() ? TEXT("on") : TEXT("off"));
+    Put("attn", EidoSettings::AttentionSound() ? TEXT("on") : TEXT("off"));
+    Put("attntone", EidoSettings::AttentionTone());
+    Put("attnvol", FString::Printf(TEXT("%.0f%%"), EidoSettings::AttentionVolume() * 100));
+    if (Bridge) Put("attnstatus", Bridge->GetAttentionStatus());
     { IConsoleVariable* V = IConsoleManager::Get().FindConsoleVariable(TEXT("Eidoverse.Chat.TextSize")); Put("chatsize", V ? FString::FromInt(V->GetInt()) : FString(TEXT("11"))); }
     { IConsoleVariable* V = IConsoleManager::Get().FindConsoleVariable(TEXT("Eidoverse.Chat.Markdown")); Put("chatmd", !V || V->GetInt() ? TEXT("on") : TEXT("off")); }
     Put("tts", Bridge && Bridge->IsTtsOn() ? TEXT("on") : TEXT("off"));
@@ -845,6 +846,11 @@ void UEidoverseHUD::OnSettingClicked()
     else if (Id.StartsWith(TEXT("set:sh"))) { EidoSettings::Set(TEXT("Eidoverse.Video.Shadows"), Id.Mid(6)); EidoSettings::ApplyVideo(); }
     else if (Id.StartsWith(TEXT("set:pt"))) { EidoSettings::Set(TEXT("Eidoverse.Video.Particles"), Id.Mid(6)); Toast(TEXT("particles: applies to effects from now on (yours only)")); }
     else if (Id.StartsWith(TEXT("set:ad"))) EidoSettings::Set(TEXT("Eidoverse.Video.AvatarDetail"), Id.Mid(6));
+    else if (Id == TEXT("set:attn")) { if (Bridge) Bridge->SetAttentionSound(!EidoSettings::AttentionSound()); }
+    else if (Id.StartsWith(TEXT("set:attn:"))) EidoSettings::Set(TEXT("Eidoverse.Audio.AttentionTone"), Id.Mid(9));
+    else if (Id == TEXT("set:attnprev")) { if (Bridge) Bridge->PreviewAttention(); }
+    else if (Id == TEXT("set:attnv-") || Id == TEXT("set:attnv+"))
+        Step(TEXT("Eidoverse.Audio.AttentionVolume"), EidoSettings::AttentionVolume(), Id.EndsWith(TEXT("+")) ? .05f : -.05f, 0.f, 1.f);
     else if (Id == TEXT("set:mic")) { if (Bridge) Bridge->SetMicOn(!Bridge->IsMicOn()); }
     else if (Id == TEXT("set:stt")) { IConsoleVariable* V = IConsoleManager::Get().FindConsoleVariable(TEXT("Eidoverse.Audio.SttConsent")); if (Bridge) Bridge->SetSttConsent(!(V && V->GetInt() == 1)); }
     else if (Id == TEXT("set:cs-") || Id == TEXT("set:cs+"))
@@ -1228,6 +1234,7 @@ void UEidoverseHUD::RefreshChat()
     // Reading back through the log: keep the place and count what arrives (chat.js unread).
     const bool bWasAtBottom = ChatLog->GetScrollOffsetOfEnd() - ChatLog->GetScrollOffset() <= 48;
     ChatLog->ClearChildren();
+    RowLineIds.Reset();
     for (auto It = ButtonIds.CreateIterator(); It; ++It) if (!It->Key.IsValid()) It.RemoveCurrent();
     static IConsoleVariable* Size = IConsoleManager::Get().RegisterConsoleVariable(TEXT("Eidoverse.Chat.TextSize"), 11, TEXT("Chat text size, 9..20."), ECVF_Default);
     const int32 Pt = FMath::Clamp(Size->GetInt(), 9, 20);
@@ -1272,6 +1279,7 @@ void UEidoverseHUD::RefreshChat()
             Row->AddChildToHorizontalBox(Open)->SetPadding(FMargin(4, 0, 0, 0));
         }
         ChatLog->AddChild(Row);
+        RowLineIds.Add(L.Id);
     }
     if (!bWasAtBottom && !bKeepChatScroll && Lines.Num())
     {
@@ -1370,6 +1378,11 @@ void UEidoverseHUD::NativeTick(const FGeometry& Geometry, float Delta)
 {
     Super::NativeTick(Geometry, Delta);
     TickMenu();
+    if (PendingAnchorTicks > 0 && ChatLog)
+    {
+        --PendingAnchorTicks;
+        if (bPendingFollow) ChatLog->ScrollToEnd(); else ScrollToChatAnchor(PendingAnchorId, PendingAnchorDelta);
+    }
     if (!Bridge) return;
     const double Now = FPlatformTime::Seconds();
     // People rows repaint every 2 s (distances and presence move without the roster changing).
@@ -1444,7 +1457,7 @@ void UEidoverseHUD::NativeTick(const FGeometry& Geometry, float Delta)
     if (PC->WasInputKeyJustPressed(EKeys::Enter)) FocusChat();
     else if (PC->WasInputKeyJustPressed(EKeys::Tab)) ShowFrame("people", true);   // Tab only opens it (main.js)
     else if (PC->WasInputKeyJustPressed(EKeys::H)) ToggleHelp();
-    else if (PC->WasInputKeyJustPressed(EKeys::P) && !(Bridge && !Bridge->GetHeldBody().IsEmpty())) { if (auto* X = Cast<AEidoverseExplorer>(PC->GetPawn())) { X->SetPhotoMode(!X->bPhoto); Hint(X->bPhoto ? TEXT("photo mode \u2014 WASD fly, E/Q up/down, Shift fast, Alt fine, [ ] zoom, F2 save, P or Esc to leave") : TEXT("photo mode off"), 4); } }
+    else if (PC->WasInputKeyJustPressed(EKeys::P) && !(Bridge && !Bridge->GetHeldBody().IsEmpty())) TogglePhotoMode();
     else if (PC->WasInputKeyJustPressed(EKeys::F2) || PC->WasInputKeyJustPressed(EKeys::F12))
     {
         // handlers.js saveScreenshot: eidoverse-<world>-<iso>.png, without the interface.
@@ -1523,6 +1536,16 @@ FReply UEidoverseHUD::NativeOnPreviewKeyDown(const FGeometry& Geometry, const FK
     return Super::NativeOnPreviewKeyDown(Geometry, Event);
 }
 
+void UEidoverseHUD::TogglePhotoMode()
+{
+    auto* X = Cast<AEidoverseExplorer>(GetOwningPlayerPawn());
+    if (!X) return;
+    // main.js KeyP: photo mode needs the controls, which the helm holds while piloting.
+    if (!X->bPhoto && Bridge && Bridge->IsPiloting()) { Hint(TEXT("photo mode needs the controls — leave the helm first (E)"), 4); return; }
+    X->SetPhotoMode(!X->bPhoto);
+    Hint(X->bPhoto ? TEXT("photo mode — WASD fly, E/Q up/down, Shift fast, Alt fine, [ ] zoom, F2 save, P or Esc to leave") : TEXT("photo mode off"), 4);
+}
+
 void UEidoverseHUD::SetPointerMode(bool bPointer)
 {
     auto* PC = GetOwningPlayer();
@@ -1594,9 +1617,11 @@ void UEidoverseHUD::SendChat()
     bChatFromMouselook = false;
 }
 
-void UEidoverseHUD::NotifyChatLine(const FString& Sender, const FString& Text, bool bPrivate)
+void UEidoverseHUD::NotifyChatLine(const FString& Sender, const FString& Text, bool bPrivate, int64 Seq)
 {
     FLine L{Sender, Text, bPrivate, false, false};
+    L.Id = NextLineId++;
+    if (Seq >= 0) L.Seqs.Add(Seq);   // where paged-in history slots in around this row
     L.bMention = Bridge && Sender != Bridge->AssignedIdentity && Mentions(Text, Bridge->AssignedIdentity);
     if (bPrivate)
     {
@@ -1608,45 +1633,126 @@ void UEidoverseHUD::NotifyChatLine(const FString& Sender, const FString& Text, b
         RebuildDmTabs();
     }
     Lines.Add(L);
-    if (Lines.Num() > 400) Lines.RemoveAt(0, Lines.Num() - 400);
+    TrimLines();
     if (L.bMention) Toast(Sender + TEXT(" mentioned you"), true);
     RefreshChat();
 }
 
-void UEidoverseHUD::PrependChatLines(const TArray<TPair<FString, FString>>& Older, const FString& Note)
+void UEidoverseHUD::TrimLines()
 {
-    TArray<FLine> Head;
-    if (!Note.IsEmpty()) Head.Add({TEXT(""), Note, false, true, false});
-    for (const auto& P : Older) Head.Add({P.Key, P.Value, false, false, false});
-    if (Head.IsEmpty()) return;
-    const float Before = ChatLog ? ChatLog->GetScrollOffset() : 0;
-    const float EndBefore = ChatLog ? ChatLog->GetScrollOffsetOfEnd() : 0;
-    Lines.Insert(Head, 0);
-    if (Lines.Num() > 400) Lines.SetNum(400);
+    if (Lines.Num() <= 400) return;
+    TArray<int64> Released;
+    const int32 Drop = Lines.Num() - 400;
+    for (int32 I = 0; I < Drop; ++I) Released.Append(Lines[I].Seqs);
+    Lines.RemoveAt(0, Drop);
+    if (Bridge && Released.Num()) Bridge->NoteChatTrimmed(Released);
+}
+
+namespace
+{
+    float ChatRowHeight(UWidget* Row)
+    {
+        float H = Row ? Row->GetDesiredSize().Y : 0;
+        if (const UScrollBoxSlot* S = Row ? Cast<UScrollBoxSlot>(Row->Slot) : nullptr) H += S->GetPadding().Top + S->GetPadding().Bottom;
+        return H;
+    }
+}
+
+bool UEidoverseHUD::ChatAnchor(uint64& OutId, float& OutDelta) const
+{
+    // The first row the reader can see, and how far into it the view starts (chat.js pinView).
+    if (!ChatLog) return false;
+    const float Offset = ChatLog->GetScrollOffset();
+    float Top = 0;
+    for (int32 I = 0; I < ChatLog->GetChildrenCount() && I < RowLineIds.Num(); ++I)
+    {
+        const float H = ChatRowHeight(ChatLog->GetChildAt(I));
+        if (H > 0 && Top + H > Offset) { OutId = RowLineIds[I]; OutDelta = Offset - Top; return true; }
+        Top += H;
+    }
+    return false;
+}
+
+void UEidoverseHUD::ScrollToChatAnchor(uint64 Id, float Delta)
+{
+    if (!ChatLog) return;
+    float Top = 0;
+    for (int32 I = 0; I < ChatLog->GetChildrenCount() && I < RowLineIds.Num(); ++I)
+    {
+        if (RowLineIds[I] == Id) { ChatLog->SetScrollOffset(Top + Delta); return; }
+        Top += ChatRowHeight(ChatLog->GetChildAt(I));
+    }
+}
+
+void UEidoverseHUD::InsertHistoricalLines(const TArray<FHistoricalLine>& Fresh)
+{
+    if (Fresh.IsEmpty()) return;
+    // A re-join's fill can land below the reader's row; one following the end must still be.
+    const bool bFollowing = ChatLog && ChatLog->GetScrollOffsetOfEnd() - ChatLog->GetScrollOffset() < 48;
+    uint64 AnchorId = 0; float AnchorDelta = 0;
+    const bool bAnchored = !bFollowing && ChatAnchor(AnchorId, AnchorDelta);
+    const FTimespan ToLocal = FDateTime::Now() - FDateTime::UtcNow();
+    for (const FHistoricalLine& H : Fresh)
+    {
+        FLine L{H.Sender, H.Text, false, false, false};
+        L.Id = NextLineId++;
+        L.Seqs.Add(H.Seq);
+        L.bMention = Bridge && H.Sender != Bridge->AssignedIdentity && Mentions(H.Text, Bridge->AssignedIdentity);
+        if (H.Ts > 0) L.At = FDateTime::FromUnixTimestamp(int64(H.Ts / 1000)) + ToLocal;
+        // Straight after the last row that is older, NOT before the first newer one: a merged spoken row can
+        // sit above lower seqs, and anchoring on it would land later talk above earlier talk. Nothing older on
+        // screen: it goes on top.
+        int32 At = 0;
+        for (int32 I = 0; I < Lines.Num(); ++I) if (Lines[I].Seqs.Num() && Lines[I].Seqs[0] < H.Seq) At = I + 1;
+        Lines.Insert(MoveTemp(L), At);
+    }
     bKeepChatScroll = true;
     RefreshChat();
     bKeepChatScroll = false;
-    // Keep the reader's place: after layout, offset by what was added above.
-    if (ChatLog) { ChatLog->ForceLayoutPrepass(); ChatLog->SetScrollOffset(Before + FMath::Max(0.f, ChatLog->GetScrollOffsetOfEnd() - EndBefore)); }
+    HoldChatPlace(bFollowing, bAnchored, AnchorId, AnchorDelta);
+}
+
+void UEidoverseHUD::HoldChatPlace(bool bFollowing, bool bAnchored, uint64 Id, float Delta)
+{
+    if (!ChatLog || (!bFollowing && !bAnchored)) return;
+    ChatLog->ForceLayoutPrepass();
+    if (bFollowing) ChatLog->ScrollToEnd(); else ScrollToChatAnchor(Id, Delta);
+    PendingAnchorId = Id; PendingAnchorDelta = Delta; bPendingFollow = bFollowing; PendingAnchorTicks = 2;
+}
+
+void UEidoverseHUD::AddTopNote(const FString& Note)
+{
+    if (Note.IsEmpty()) return;
+    uint64 AnchorId = 0; float AnchorDelta = 0;
+    const bool bAnchored = ChatAnchor(AnchorId, AnchorDelta);
+    FLine L{TEXT(""), Note, false, true, false};
+    L.Id = NextLineId++;
+    Lines.Insert(MoveTemp(L), 0);
+    bKeepChatScroll = true;
+    RefreshChat();
+    bKeepChatScroll = false;
+    HoldChatPlace(false, bAnchored, AnchorId, AnchorDelta);
 }
 
 void UEidoverseHUD::ClearChat()
 {
-    Lines.Reset();
+    Lines.Reset(); RowLineIds.Reset();
     RefreshChat();
 }
 
-void UEidoverseHUD::AppendToLastChatLine(const FString& Sender, const FString& Text)
+void UEidoverseHUD::AppendToLastChatLine(const FString& Sender, const FString& Text, int64 Seq)
 {
     for (int32 I = Lines.Num() - 1; I >= 0; --I)
         if (!Lines[I].bSystem)
         {
             if (Lines[I].Sender != Sender) break;
             Lines[I].Text += TEXT(" ") + Text;
+            // the row now shows this say too: a trim must release its seq with the row's own
+            if (Seq >= 0) Lines[I].Seqs.Add(Seq);
             RefreshChat();
             return;
         }
-    NotifyChatLine(Sender, Text, false);
+    NotifyChatLine(Sender, Text, false, Seq);
 }
 
 bool UEidoverseHUD::IsChatFocused() const { return ChatInput && ChatInput->HasKeyboardFocus(); }
@@ -1697,6 +1803,8 @@ void UEidoverseHUD::OnNameClicked()
 void UEidoverseHUD::AddSystemLine(const FString& Text)
 {
     Lines.Add({TEXT(""), Text, false, true, false});
+    Lines.Last().Id = NextLineId++;
+    TrimLines();
     RefreshChat();
 }
 

@@ -109,7 +109,10 @@ FSwimResult SwimStep(const FVec3& Pos, const FVec3& Velocity, const FSwimInput& 
     FSwimResult R;
     R.Velocity = {Velocity.X + (Target.X - Velocity.X) * Blend, Velocity.Y + (Target.Y - Velocity.Y) * Blend, Velocity.Z + (Target.Z - Velocity.Z) * Blend};
     R.Pos = {Pos.X + R.Velocity.X * Dt, Pos.Y + R.Velocity.Y * Dt, Pos.Z + R.Velocity.Z * Dt};
-    const double Surface = WaveHeight(W, R.Pos.X, R.Pos.Z, Time) - 1.1;
+    // The root floats a body-length fraction under the surface: 1.1 m for a 100% body, scaled with its size
+    // so a small body's eyes still clear the water (shared/water.js swimStep, input.stature).
+    const double Stature = FMath::IsFinite(Input.Stature) && Input.Stature > 0 ? Input.Stature : 1.0;
+    const double Surface = WaveHeight(W, R.Pos.X, R.Pos.Z, Time) - 1.1 * Stature;
     if (!Input.bDive && R.Pos.Y >= Surface - .12)
     {
         R.Pos.Y = Surface;

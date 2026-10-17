@@ -586,7 +586,7 @@
     "Hair_01"
    ],
    "enabled": false,
-   "reason": "no world rights yet — not joined",
+   "reason": "your rights in this world haven't arrived, which counts as no: if you're still joining, try again once you've joined; if they never arrive, this server may not send them (an older version), so ask whoever runs it",
    "wingCount": null,
    "digest": null,
    "canAnimateWings": true,
@@ -618,7 +618,7 @@
     "Hair_01"
    ],
    "enabled": false,
-   "reason": "this world has not granted you flight (owner: /grant <you> +fly)",
+   "reason": "this world hasn't granted you flight; its owner grants it, to themselves too, by sending grant {id: <your id>, fly: true} (in the browser, /grant <your name> +fly)",
    "wingCount": null,
    "digest": null,
    "canAnimateWings": true,
@@ -634,7 +634,7 @@
    },
    "bones": null,
    "enabled": false,
-   "reason": "no bone list available for this avatar",
+   "reason": "this body's bones aren't known (its model hasn't loaded or couldn't be read, or no bone list was given), so whether it can fly can't be checked",
    "wingCount": null,
    "digest": null,
    "canAnimateWings": false,
@@ -655,7 +655,7 @@
     "Head"
    ],
    "enabled": false,
-   "reason": "no flight rig: flight-capable, no animatable wings -- no [LR]_Wing_* bones: physics will fly, wings will not animate",
+   "reason": "this body has no wing bones, so it has no wings to fly with; wear a winged body to fly",
    "wingCount": null,
    "digest": null,
    "canAnimateWings": false,
@@ -679,7 +679,7 @@
     "L_Wing_Upper_3"
    ],
    "enabled": false,
-   "reason": "no flight rig: flight-capable, no animatable wings -- only 4 wing bone(s) in 1 chain(s); expected 4 chains (L/R x Upper/Lower)",
+   "reason": "this body's wings have 4 bone(s) in 1 chain(s), and flying needs at least two chains and four bones; wear a body with fully rigged wings to fly",
    "wingCount": null,
    "digest": null,
    "canAnimateWings": false,
@@ -710,7 +710,7 @@
     "Hair_01"
    ],
    "enabled": false,
-   "reason": "not flight-capable: NOT FLIGHT-CAPABLE: head absent",
+   "reason": "this body can't fly: its skeleton lacks a flier's core bones (missing: head); wear a body with hips, a spine and a head",
    "wingCount": null,
    "digest": null,
    "canAnimateWings": true,
