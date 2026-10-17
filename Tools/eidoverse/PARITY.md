@@ -1,5 +1,21 @@
 # Unreal / Three.js parity
 
+## Build mode keys, 2026-10-17 (a report: "rotating, moving up and down, nothing")
+
+The keys themselves were wired as build.js has them; what failed was getting to "something selected":
+- **B left you in mouselook.** The web's edit mode exits pointer lock (controller.js `edit-mode`); here the Build
+  frame opened with the cursor hidden, a click picked nothing (picking needs the pointer), and every editing key
+  then had nothing to act on. Opening Build now frees the pointer.
+- **A click in the world straight from a text field** (chat, the library search) was treated as "back to looking
+  around" and dropped to mouselook, losing the pick. With Build open it is a pick and keeps the pointer.
+- **Arrows (and Tab) died after any click on a panel**: Slate's keyboard navigation gives a focused button the
+  arrows and eats them. The web has none; it is off while the HUD is up (restored after, for the editor).
+- An editing key with nothing selected says how to select, instead of nothing.
+`Eidoverse.LiveBuildKeys` (`sh Tools/eidoverse/run_build_keys_test.sh`) plays it through the real input path in an
+offscreen game session against a scratch sequencer: arrive in mouselook, B, click the pallet (also straight from
+typing in chat), then Q/E/R/F/,/./Up with focus on the world and on a panel button. Without the first fix B leaves
+the pointer off; without the second the click from chat drops to mouselook and selects nothing.
+
 ## Upstream port 2026-10-17, second batch (three.js main through 6c0fe3f; login and travel)
 
 eidoverse-worlds#248 merged (round 5 is a headset-only swim binding, no twin here), #253 (CI labels, none), and

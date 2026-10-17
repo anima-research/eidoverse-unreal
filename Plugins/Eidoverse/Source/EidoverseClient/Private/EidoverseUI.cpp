@@ -1,5 +1,6 @@
 #include "EidoverseUI.h"
 #include "EidoverseAttention.h"
+#include "Framework/Application/NavigationConfig.h"
 #include "UnrealClient.h"
 #include "EidoverseScene.h"
 #include "EidoverseBridge.h"
@@ -422,6 +423,23 @@ UEidoverseFrame* UEidoverseHUD::AddFrame(FName Id, const FString& Title, UWidget
 }
 
 // ---------------------------------------------------------------- build
+
+void UEidoverseHUD::NativeConstruct()
+{
+    Super::NativeConstruct();
+    if (!FSlateApplication::IsInitialized() || PreviousNavigation.IsValid()) return;
+    PreviousNavigation = FSlateApplication::Get().GetNavigationConfig();
+    TSharedRef<FNavigationConfig> Off = MakeShared<FNavigationConfig>();
+    Off->bKeyNavigation = false; Off->bTabNavigation = false; Off->bAnalogNavigation = false;
+    FSlateApplication::Get().SetNavigationConfig(Off);
+}
+
+void UEidoverseHUD::NativeDestruct()
+{
+    if (FSlateApplication::IsInitialized() && PreviousNavigation.IsValid()) FSlateApplication::Get().SetNavigationConfig(PreviousNavigation.ToSharedRef());
+    PreviousNavigation.Reset();
+    Super::NativeDestruct();
+}
 
 TSharedRef<SWidget> UEidoverseHUD::RebuildWidget()
 {
@@ -1460,7 +1478,8 @@ void UEidoverseHUD::NativeTick(const FGeometry& Geometry, float Delta)
     // click that returns to looking around, so look input is not left ignored.
     {
         const TSharedPtr<SViewport> GameViewport = FSlateApplication::Get().GetGameViewport();
-        if (bWasTyping && !bTyping && Focused.IsValid() && GameViewport.IsValid() && Focused == StaticCastSharedPtr<SWidget>(GameViewport)) LeaveChat(true);
+        // In build mode that click is a pick (TickBuild sees it this frame): keep the pointer.
+        if (bWasTyping && !bTyping && Focused.IsValid() && GameViewport.IsValid() && Focused == StaticCastSharedPtr<SWidget>(GameViewport)) LeaveChat(!IsFrameOpen("build"));
         bWasTyping = bTyping;
     }
     if (!PC || bTyping) { if (!bTyping) return; TickBuild(Now); return; }
@@ -1873,6 +1892,9 @@ void UEidoverseHUD::ShowFrame(FName Id, bool bShow)
     if (Id == "pointer") { SetPointerMode(!bPointerMode); return; }
     if (UEidoverseFrame* F = Frames.FindRef(Id).Get()) F->SetVisibility(bShow ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
     if (Id == "people") RefreshPeople(true);
+    // Edit mode frees the pointer (controller.js: edit-mode exits pointer lock): things are chosen by clicking them,
+    // which mouselook cannot do.
+    if (Id == "build" && bShow && !bPointerMode) SetPointerMode(true);
     if (!bDoorShown) SaveLayout();
 }
 

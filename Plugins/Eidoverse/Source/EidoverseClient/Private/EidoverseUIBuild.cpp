@@ -496,7 +496,14 @@ void UEidoverseHUD::TickBuild(double Now)
     if (Drag.bActive) return;
     const bool bCtrl = PC->IsInputKeyDown(EKeys::LeftControl) || PC->IsInputKeyDown(EKeys::RightControl) || PC->IsInputKeyDown(EKeys::LeftCommand);
     if (bCtrl && PC->WasInputKeyJustPressed(EKeys::Z)) { BuildAction(TEXT("build:undo")); return; }
-    if (GetSelectedEntity().IsEmpty()) return;
+    if (GetSelectedEntity().IsEmpty())
+    {
+        // An editing key with nothing chosen says so, rather than doing nothing (E and F stay use and fly then).
+        if (PC->WasInputKeyJustPressed(EKeys::Q) || PC->WasInputKeyJustPressed(EKeys::R) || PC->WasInputKeyJustPressed(EKeys::Comma) || PC->WasInputKeyJustPressed(EKeys::Period))
+            Hint(bPointerMode ? TEXT("click a thing in the world to select it, then Q/E turn \u00B7 R/F raise \u00B7 , . size \u00B7 arrows move")
+                : TEXT("press M (or Esc) for the pointer, then click a thing to select it"), 4);
+        return;
+    }
     // Web build.js keys (Q/E only steer while something is selected).
     if (PC->WasInputKeyJustPressed(EKeys::Q)) BuildAction(bShift ? TEXT("build:turn:1.15") : TEXT("build:turn:15"));
     if (PC->WasInputKeyJustPressed(EKeys::E)) BuildAction(bShift ? TEXT("build:turn:-1.15") : TEXT("build:turn:-15"));

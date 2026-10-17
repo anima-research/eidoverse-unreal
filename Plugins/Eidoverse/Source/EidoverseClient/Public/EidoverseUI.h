@@ -151,6 +151,12 @@ protected:
     virtual TSharedRef<SWidget> RebuildWidget() override;
     virtual void NativeTick(const FGeometry& Geometry, float Delta) override;
     virtual FReply NativeOnPreviewKeyDown(const FGeometry& Geometry, const FKeyEvent& Event) override;
+    // Slate's keyboard navigation hands a focused button the arrows and Tab and eats them, so after any click on a
+    // panel the build nudges (and Tab for People) never reached the world. The web has no such navigation: off
+    // while the HUD is up, the previous config back after.
+    virtual void NativeConstruct() override;
+    virtual void NativeDestruct() override;
+    TSharedPtr<class FNavigationConfig> PreviousNavigation;
 
 private:
     // Layout
