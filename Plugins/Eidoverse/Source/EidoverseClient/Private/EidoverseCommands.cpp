@@ -41,7 +41,10 @@ namespace
             {TEXT("who"), {}, TEXT("list everyone present"), true, false},
             {TEXT("panels"), {}, TEXT("/panels <0.3–1> — panel opacity"), true, false},
             {TEXT("role"), {}, TEXT("what you may do here (or /role <name>)"), true, false},
-            {TEXT("grant"), {}, TEXT("/grant <name> owner|builder|visitor [+gen|-gen] [+fly|-fly] — owner only"), true, false},
+            {TEXT("grant"), {}, TEXT("/grant <name> owner|builder|visitor|spectator|none [+gen|-gen] [+fly|-fly] [for 2h|forever] \u2014 owner only"), true, false},
+            {TEXT("revoke"), {}, TEXT("/revoke <name> \u2014 take back a grant; they get this world's default again (owner)"), true, false},
+            {TEXT("access"), {}, TEXT("/access members|watch|visitors|open \u2014 who may come into this world (owner); /access alone shows it. The World panel's access tab does it with buttons"), true, false},
+            {TEXT("members"), {}, TEXT("who can come into this world, and until when"), true, false},
             {TEXT("ban"), {}, TEXT("/ban <name> [reason] — ban someone from this world (owner)"), true, false},
             {TEXT("unban"), {}, TEXT("/unban <name> — lift a ban here (owner)"), true, false},
             {TEXT("bans"), {}, TEXT("who is banned from this world"), true, false},
@@ -268,25 +271,63 @@ bool AEidoverseBridge::HandleInteractionCommand(const FString& Text)
         if (Who == AssignedIdentity)
         {
             if (bWorldOpen) Narrate(TEXT("this world is open — everyone here can build"));
+            else if (WorldRole == TEXT("spectator")) Narrate(FString::Printf(TEXT("%s may watch here, not come in (spectator)"), *Who));
             else Narrate(WorldRole.IsEmpty() || WorldRole == TEXT("visitor") ? FString::Printf(TEXT("%s holds no role here (visitor)"), *Who) : FString::Printf(TEXT("%s: %s%s"), *Who, *WorldRole, bCanGenerate ? TEXT(" +gen") : TEXT("")));
         }
         else Narrate(FString::Printf(TEXT("%s's role isn't known to this client — ask an owner, or /role for your own"), *Who));
     }
     else if (Name == TEXT("grant"))
     {
-        FString Role, Gen, Fly;
+        // handlers.js: a role on the ladder (spectator and none are its bottom rungs), gen/fly, and an end:
+        // "for 30m|2h|1d|1w" ends the grant, "forever" clears an end
+        FString Role, Gen, Fly, For; bool bForever = false; int32 ForAt = INDEX_NONE;
         for (int32 I = 1; I < Args.Num(); ++I)
         {
             const FString L = Args[I].ToLower();
-            if (L == TEXT("owner") || L == TEXT("builder") || L == TEXT("visitor")) Role = L;
+            if (L == TEXT("owner") || L == TEXT("builder") || L == TEXT("visitor") || L == TEXT("spectator") || L == TEXT("none")) Role = L;
             else if (L == TEXT("+gen") || L == TEXT("-gen")) Gen = L;
             else if (L == TEXT("+fly") || L == TEXT("-fly")) Fly = L;
+            else if (L == TEXT("for") && ForAt == INDEX_NONE) ForAt = I;
+            else if (L == TEXT("forever") || L == TEXT("permanent") || L == TEXT("permanently")) bForever = true;
         }
-        if (Args.IsEmpty() || (Role.IsEmpty() && Gen.IsEmpty() && Fly.IsEmpty())) { Usage(); return true; }
+        if (ForAt != INDEX_NONE)
+        {
+            // "2h", or "2 h": a number then a unit
+            FString D = ForAt + 1 < Args.Num() ? Args[ForAt + 1] : FString();
+            if (ForAt + 2 < Args.Num() && !D.IsEmpty() && D.IsNumeric()) D += Args[ForAt + 2];
+            int32 Digits = 0; while (Digits < D.Len() && FChar::IsDigit(D[Digits])) ++Digits;
+            int32 Letters = Digits; while (Letters < D.Len() && FChar::IsAlpha(D[Letters])) ++Letters;
+            if (Digits == 0 || Letters == Digits) { Narrate(TEXT("for wants a duration: 30m, 2h, 1d or 1w")); return true; }
+            For = D.Left(Letters);
+        }
+        if (Args.IsEmpty() || (Role.IsEmpty() && Gen.IsEmpty() && Fly.IsEmpty() && For.IsEmpty() && !bForever)) { Usage(); return true; }
         auto Arg = Obj(); Arg->SetStringField(TEXT("id"), Args[0]);
         if (!Role.IsEmpty()) Arg->SetStringField(TEXT("role"), Role);
         if (!Gen.IsEmpty()) Arg->SetBoolField(TEXT("gen"), Gen == TEXT("+gen"));
         if (!Fly.IsEmpty()) Arg->SetBoolField(TEXT("fly"), Fly == TEXT("+fly"));
+        if (!For.IsEmpty()) Arg->SetStringField(TEXT("for"), For);
+        else if (bForever) Arg->SetField(TEXT("until"), MakeShared<FJsonValueNull>());
+        Verb(TEXT("grant"), Arg);
+    }
+    else if (Name == TEXT("revoke"))
+    {
+        // take back someone's grant: they get this world's default (in a members-only world, no entry)
+        if (Rest.IsEmpty()) { Usage(); return true; }
+        auto Arg = Obj(); Arg->SetStringField(TEXT("id"), Rest); Arg->SetBoolField(TEXT("revoke"), true);
+        Verb(TEXT("grant"), Arg);
+    }
+    else if (Name == TEXT("members")) SendRaw(TEXT("world-access"), Obj());
+    else if (Name == TEXT("access"))
+    {
+        // the door: the wildcard's rung. No argument shows who may come in.
+        const FString Mode = Rest.ToLower();
+        if (Mode.IsEmpty()) { SendRaw(TEXT("world-access"), Obj()); return true; }
+        static const TMap<FString, FString> Rungs = {{TEXT("members"), TEXT("none")}, {TEXT("private"), TEXT("none")}, {TEXT("closed"), TEXT("none")},
+            {TEXT("watch"), TEXT("spectator")}, {TEXT("spectators"), TEXT("spectator")}, {TEXT("visitors"), TEXT("visitor")}, {TEXT("visitor"), TEXT("visitor")},
+            {TEXT("open"), TEXT("builder")}, {TEXT("builders"), TEXT("builder")}};
+        const FString* Rung = Rungs.Find(Mode);
+        if (!Rung) { Narrate(TEXT("usage: /access members|watch|visitors|open \u2014 or /access to see who can come in")); return true; }
+        auto Arg = Obj(); Arg->SetStringField(TEXT("id"), TEXT("*")); Arg->SetStringField(TEXT("role"), *Rung);
         Verb(TEXT("grant"), Arg);
     }
     else if (Name == TEXT("epoch"))

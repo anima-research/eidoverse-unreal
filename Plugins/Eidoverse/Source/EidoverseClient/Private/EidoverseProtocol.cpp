@@ -139,7 +139,7 @@ bool AEidoverseBridge::ReceiveProtocol(const FString& Type, const TSharedPtr<FJs
     {
         // Verbatim, every time (web net.js): a refusal is information.
         const FString Text = PStr(J, TEXT("error")).Left(300);
-        LastErrorText = Text; LastErrorAt = Now;
+        LastErrorText = Text; LastErrorAt = Now; AccessError = Text;
         if (!Text.IsEmpty()) { ToastText(Text, true); Narrate(Text); InteractionStatus = Text; }
         OnVerbRefused.Broadcast(Text);
         return true;
@@ -206,6 +206,30 @@ bool AEidoverseBridge::ReceiveProtocol(const FString& Type, const TSharedPtr<FJs
         const FString From = PStr(J, TEXT("from")), To = PStr(J, TEXT("to"));
         Narrate(FString::Printf(TEXT("world copied — “%s” → “%s” — visit with /go %s"), *From, *To, *To));
         ToastText(FString::Printf(TEXT("world copied to “%s”"), *To));
+        return true;
+    }
+    if (Type == TEXT("access-state"))
+    {
+        // the World panel's access tab (accesspanel.js): structure, re-asked whenever a grant lands
+        if (PStr(J, TEXT("world")) != WorldName) return true;
+        AccessState = J; ++AccessSerial;
+        return true;
+    }
+    if (Type == TEXT("access-directory"))
+    {
+        if (PStr(J, TEXT("q")) != AccessQuery) return true;   // an answer to an older keystroke
+        AccessResults.Reset();
+        for (const auto& V : PArr(J, TEXT("results"))) if (const TSharedPtr<FJsonObject> R = V->AsObject()) if (AccessResults.Num() < 40) AccessResults.Add(R);
+        const FString Err = PStr(J, TEXT("error")); if (!Err.IsEmpty()) AccessError = Err;
+        ++AccessResultsSerial;
+        return true;
+    }
+    if (Type == TEXT("notice"))
+    {
+        // the world telling me something that is not a refusal (today: my access here ends soon) — it matters now,
+        // and it stays in chat for when I look
+        const FString Text = PStr(J, TEXT("text")).Left(400);
+        if (!Text.IsEmpty()) { ToastText(Text, true); Narrate(Text); }
         return true;
     }
     if (Type == TEXT("mod"))
@@ -282,6 +306,14 @@ void AEidoverseBridge::NarrateLogEntry(const TSharedPtr<FJsonObject>& Entry)
     else if (Verb == TEXT("kick")) Narrate(FString::Printf(TEXT("%s removed %s%s"), *Who, *Id, *Tail));
     else if (Verb == TEXT("asset")) ToastText(FString::Printf(TEXT("%s joined the world's palette"), *PStr(A, TEXT("name"))));
     else if (Verb == TEXT("force")) ReceiveForce(A);
+}
+
+void AEidoverseBridge::RequestAccessDirectory(const FString& Query)
+{
+    AccessQuery = Query.Left(64);
+    if (AccessQuery.TrimStartAndEnd().IsEmpty()) { AccessResults.Reset(); ++AccessResultsSerial; return; }
+    auto J = MakeShared<FJsonObject>(); J->SetStringField(TEXT("q"), AccessQuery);
+    SendRaw(TEXT("access-directory"), J);
 }
 
 bool AEidoverseBridge::RequestEarlierChat()
@@ -387,6 +419,10 @@ FString AEidoverseBridge::CloseReason(int32 Code, bool& bRetry) const
     case 4006: return TEXT("you were removed from this world") + (Recent.IsEmpty() ? FString() : TEXT(" — ") + Recent);
     case 4005: return FString::Printf(TEXT("“%s” is not a valid world name"), *WorldName);
     case 4003: return HasProductionSession() ? TEXT("your sign-in was refused — sign in again") : TEXT("that door key was refused");
+    // 4010: this world is not open to you (members only, watch only), or your access just ended or changed. The
+    // server said why just before closing; the door won't open on its own (net.js), so no retry.
+    case 4010: return FString::Printf(TEXT("you're not in \u201c%s\u201d%s \u2014 choose another world, or come back if your access changes"),
+        *WorldName, Recent.IsEmpty() ? TEXT("") : *(TEXT(": ") + Recent));
     default: break;
     }
     if (Code >= 4000 && Code < 4100) return FString::Printf(TEXT("connection refused (%d)%s"), Code, Recent.IsEmpty() ? TEXT("") : *(TEXT(" — ") + Recent));

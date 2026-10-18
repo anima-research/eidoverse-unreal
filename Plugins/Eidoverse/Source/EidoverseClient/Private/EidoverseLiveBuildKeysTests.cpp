@@ -1,5 +1,5 @@
 // Eidoverse.LiveBuildKeys: build mode's keys, through the real input path. Runs only in a game session (-game,
-// a game viewport and the HUD) with Tools/eidoverse/run_build_keys_test.sh's scratch sequencer: it joins a fresh
+// a game viewport and the HUD) with Tools/eidoverse/run_game_tests.sh's scratch sequencer: it joins a fresh
 // world (its first joiner owns it), spawns a pallet, and does what a person does, through Slate as a keyboard and
 // mouse would (FSlateApplication::Process*Event): arrives in mouselook, presses B (the pointer must come free),
 // clicks the pallet (it must be selected), and again straight from typing in chat, then presses each key
@@ -20,6 +20,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "EngineUtils.h"
 #include "Framework/Application/SlateApplication.h"
+#include "Framework/Application/SlateUser.h"
 #include "Misc/AutomationTest.h"
 #include "Tests/AutomationCommon.h"
 
@@ -35,11 +36,18 @@ namespace
         bool bButtonFocus = false; int32 ClickFrame = 0;
         FVector Pos; double Yaw = 0, Scale = 1;
         TArray<FString> Report; int32 Failures = 0;
+        FVector2D PressedAt = FVector2D::ZeroVector, LastPx = FVector2D(-1e6, -1e6), PressedMouse = FVector2D::ZeroVector;
+        double HeldDrift = 0;
     };
     const FString PalletId = TEXT("buildkeys-pallet");
+    // Place the faux cursor (see RunTest) where the injected events say the mouse is: a captured viewport reads the
+    // cursor, not the events. Never the platform cursor -- that would move the real mouse of whoever uses this Mac.
+    bool bFauxCursor = false;   // set only once UsePlatformCursorForCursorUser(false) has replaced a platform cursor
+    void PlaceFauxCursor(const FVector2D& Abs) { if (bFauxCursor && FSlateApplication::Get().GetCursorUser()) FSlateApplication::Get().SetCursorPos(Abs); }
     // A left click at a world point, as the mouse would deliver it to the game viewport. Move first; press only once
-    // the game reads the mouse where the point is (the viewport's cached geometry can lag a frame or two).
-    bool Click(APlayerController* PC, const FVector& World, bool bDown, bool bMoveOnly = false)
+    // the game reads the mouse where the point is (the viewport's cached geometry can lag a frame or two). The release
+    // goes where the press went (Release): chasing the point while the button is held is a drag, and a drag moves it.
+    bool Click(APlayerController* PC, const FVector& World, bool bDown, bool bMoveOnly = false, FVector2D* PressedAt = nullptr)
     {
         // FSceneViewport reads the mouse as AbsoluteToLocal(screen) x Scale on its own cached geometry: invert that
         FVector2D Px;
@@ -48,10 +56,17 @@ namespace
         const FGeometry& G = SV->GetCachedGeometry();
         const FVector2D Abs = G.LocalToAbsolute(Px / FMath::Max(G.Scale, .01f));
         FSlateApplication& App = FSlateApplication::Get();
+        PlaceFauxCursor(Abs);
         App.ProcessMouseMoveEvent(FPointerEvent(0, Abs, Abs, TSet<FKey>(), EKeys::Invalid, 0, FModifierKeysState()));
         if (bMoveOnly) return true;
+        if (PressedAt) *PressedAt = Abs;
         if (bDown) return App.ProcessMouseButtonDownEvent(nullptr, FPointerEvent(0, Abs, Abs, TSet<FKey>({EKeys::LeftMouseButton}), EKeys::LeftMouseButton, 0, FModifierKeysState()));
         return App.ProcessMouseButtonUpEvent(FPointerEvent(0, Abs, Abs, TSet<FKey>(), EKeys::LeftMouseButton, 0, FModifierKeysState()));
+    }
+    void Release(const FVector2D& Abs)
+    {
+        PlaceFauxCursor(Abs);
+        FSlateApplication::Get().ProcessMouseButtonUpEvent(FPointerEvent(0, Abs, Abs, TSet<FKey>(), EKeys::LeftMouseButton, 0, FModifierKeysState()));
     }
     void Press(const FKey& Key, bool bDown)
     {
@@ -70,13 +85,24 @@ bool FEidoverseLiveBuildKeys::RunTest(const FString&)
 {
     const FString Url = FPlatformMisc::GetEnvironmentVariable(TEXT("EIDO_LIVE_BUILD_URL"));
     const FString WorldName = FPlatformMisc::GetEnvironmentVariable(TEXT("EIDO_LIVE_BUILD_WORLD"));
-    if (Url.IsEmpty() || WorldName.IsEmpty()) { AddInfo(TEXT("live check skipped: run Tools/eidoverse/run_build_keys_test.sh (-game, a scratch sequencer)")); return true; }
+    if (Url.IsEmpty() || WorldName.IsEmpty()) { AddInfo(TEXT("live check skipped: run Tools/eidoverse/run_game_tests.sh (-game, a scratch sequencer)")); return true; }
     if (!Url.StartsWith(TEXT("ws://127.0.0.1:"))) { AddError(TEXT("loopback servers only")); return false; }
     UWorld* Game = nullptr;
     for (const FWorldContext& C : GEngine->GetWorldContexts()) if (C.WorldType == EWorldType::Game && C.World()) Game = C.World();
     if (!Game) { AddError(TEXT("needs a game session (-game)")); return false; }
     // focusing a text box in an offscreen window: macOS's input method can't find the window (rendering offscreen only)
     AddExpectedError(TEXT("context failed when its window couldn't be found"), EAutomationExpectedErrorFlags::Contains, 0);
+    // The pointer is the injected one only: while a button is held the viewport captures the mouse and reads the
+    // platform cursor -- the machine's REAL mouse (seen 795 px from the injected point on a Mac someone was using),
+    // which turned the harness's click into a drag. Slate's faux cursor follows events alone; restored at the end.
+    {
+        // nothing else in the engine switches it back (UE 5.8: no other caller), so from here the cursor user's cursor
+        // is the faux one and SetCursorPos moves only that
+        FSlateApplication& App = FSlateApplication::Get();
+        const TSharedPtr<GenericApplication> Platform = App.GetPlatformApplication();
+        App.UsePlatformCursorForCursorUser(false);
+        bFauxCursor = Platform && Platform->Cursor.IsValid() && App.GetCursorUser().IsValid();
+    }
     TSharedPtr<FBuildKeys> S = MakeShared<FBuildKeys>();
     S->World = Game; S->StepAt = FPlatformTime::Seconds();
     static const FKeyCase Cases[] = {
@@ -147,6 +173,7 @@ bool FEidoverseLiveBuildKeys::RunTest(const FString&)
             if (++S->Frames == 1)
             {
                 B->HUD->SelectEntity(FString());
+                Pose(B, S->Pos, S->Yaw, S->Scale);   // a click is not a drag: it must leave the pallet where it is
                 if (S->Step == 5) B->HUD->FocusChat();   // typing in the chat line mid-build (Enter), then clicking a thing
             }
             // move until the game reads the mouse on the pallet, then press and release
@@ -157,14 +184,22 @@ bool FEidoverseLiveBuildKeys::RunTest(const FString&)
             {
                 Click(PC, Center, false, true);
                 float MX = 0, MY = 0; FVector2D Px;
-                if (PC->GetMousePosition(MX, MY) && PC->ProjectWorldLocationToScreen(Center, Px, true) && FVector2D::Distance(FVector2D(MX, MY), Px) < 3) { Click(PC, Center, true); S->ClickFrame = S->Frames; }
-                else if (S->Frames > 60) { AddError(TEXT("test harness: could not place the mouse on the pallet")); return true; }
+                // press only once the pallet holds still on screen (the camera may still be easing round to it):
+                // a hand clicks what it sees, and the game picks with the camera of the frame it reads the press in
+                const bool bSteady = PC->ProjectWorldLocationToScreen(Center, Px, true) && FVector2D::Distance(Px, S->LastPx) < 1;
+                S->LastPx = Px;
+                if (bSteady && PC->GetMousePosition(MX, MY) && FVector2D::Distance(FVector2D(MX, MY), Px) < 3) { Click(PC, Center, true, false, &S->PressedAt); S->ClickFrame = S->Frames; S->LastPx = FVector2D(-1e6, -1e6); S->PressedMouse = FVector2D(MX, MY); S->HeldDrift = 0; }
+                else if (S->Frames > 120) { AddError(TEXT("test harness: could not place the mouse on the pallet")); return true; }
                 return false;
             }
-            if (S->Frames == S->ClickFrame + 2) Click(PC, Center, false);
+            if (S->Frames <= S->ClickFrame + 2)
+            { float HX = 0, HY = 0; if (PC->GetMousePosition(HX, HY)) S->HeldDrift = FMath::Max(S->HeldDrift, FVector2D::Distance(FVector2D(HX, HY), S->PressedMouse)); }
+            if (S->Frames == S->ClickFrame + 2) Release(S->PressedAt);
             if (S->Frames < S->ClickFrame + 6) return false;
             S->ClickFrame = 0;
-            const bool bPicked = B->HUD->GetSelectedEntity() == PalletId && B->HUD->IsPointerMode();
+            FVector After; double AfterYaw = 0, AfterScale = 1; Pose(B, After, AfterYaw, AfterScale);
+            const bool bStill = (After - S->Pos).GetAbsMax() < .005;
+            const bool bPicked = B->HUD->GetSelectedEntity() == PalletId && B->HUD->IsPointerMode() && bStill;
             {
                 // where the click went: the mouse as the game saw it, the pallet on screen, and what the pick ray hit
                 float MX = 0, MY = 0; PC->GetMousePosition(MX, MY); FVector2D Px; PC->ProjectWorldLocationToScreen(Center, Px, true);
@@ -172,8 +207,8 @@ bool FEidoverseLiveBuildKeys::RunTest(const FString&)
                 S->Report.Add(FString::Printf(TEXT("     click: mouse (%.0f,%.0f), pallet on screen (%.0f,%.0f), hit %s (entity '%s')"), MX, MY, Px.X, Px.Y,
                     Hit.GetActor() ? *Hit.GetActor()->GetName() : TEXT("nothing"), Hit.GetActor() ? *B->GetScene()->EntityId(Hit.GetActor()) : TEXT("")));
             }
-            S->Report.Add(FString::Printf(TEXT("%s clicking the pallet selects it%s (selected '%s', pointer %d)"), bPicked ? TEXT("ok  ") : TEXT("FAIL"),
-                S->Step == 5 ? TEXT(" straight from typing in chat") : TEXT(""), *B->HUD->GetSelectedEntity(), B->HUD->IsPointerMode() ? 1 : 0));
+            S->Report.Add(FString::Printf(TEXT("%s clicking the pallet selects it%s, leaving it in place (selected '%s', pointer %d, moved %.3f m, pointer drift while held %.0f px)"), bPicked ? TEXT("ok  ") : TEXT("FAIL"),
+                S->Step == 5 ? TEXT(" straight from typing in chat") : TEXT(""), *B->HUD->GetSelectedEntity(), B->HUD->IsPointerMode() ? 1 : 0, (After - S->Pos).GetAbsMax(), S->HeldDrift));
             if (!bPicked) { ++S->Failures; B->HUD->SetPointerMode(true); B->HUD->SelectEntity(PalletId); }
             FSlateApplication::Get().SetUserFocusToGameViewport(0);
             Next(S->Step == 4 ? 5 : 3); return false;
@@ -212,6 +247,7 @@ bool FEidoverseLiveBuildKeys::RunTest(const FString&)
         }
         return true;
     }));
+    ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([]() -> bool { bFauxCursor = false; FSlateApplication::Get().UsePlatformCursorForCursorUser(true); return true; }));
     return true;
 }
 #endif

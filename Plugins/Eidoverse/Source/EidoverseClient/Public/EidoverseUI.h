@@ -577,6 +577,31 @@ private:
     int32 WorldListSerial = -1, DoorWorldsSerial = -1; FString WorldListHere, DoorWorldsServer;
     void RefreshWorldList(double Now);
     void RefreshDoorWorlds(double Now);
+    // The World panel's access tab (EidoverseUIAccess.cpp, accesspanel.js): who may come into this world.
+    UWidget* BuildWorldAccess();
+    UButton* AccessButton(const FString& Text, const FString& Action, bool bOn = false);
+    void RefreshAccess(double Now);
+    void PaintAccess();
+    void AccessGrant(const FString& Id, const FString& Role, const FString& Span = FString(), bool bRevoke = false, bool bClearEnd = false);
+    UFUNCTION() void OnAccessClicked();
+public:
+    /** What a click on the access tab does, by its action ("door:none", "setrole:builder|<who>", "rm:<who>"...). */
+    void AccessAction(const FString& Action);
+private:
+    UFUNCTION() void OnAccessSearchChanged(const FText& Text);
+    UFUNCTION() void OnAccessSearchCommitted(const FText& Text, ETextCommit::Type Kind);
+    UPROPERTY() TObjectPtr<UVerticalBox> AccessDoor;
+    UPROPERTY() TObjectPtr<UVerticalBox> AccessMembers;
+    UPROPERTY() TObjectPtr<UVerticalBox> AccessResultsBox;
+    UPROPERTY() TObjectPtr<UVerticalBox> AccessHere;
+    UPROPERTY() TObjectPtr<UWidget> AccessAddSection;
+    UPROPERTY() TObjectPtr<UWrapBox> AccessAddRole;
+    UPROPERTY() TObjectPtr<UWrapBox> AccessAddSpan;
+    UPROPERTY() TObjectPtr<UEditableTextBox> AccessSearch;
+    UPROPERTY() TObjectPtr<UTextBlock> AccessErrorLine;
+    TMap<TWeakObjectPtr<UButton>, FString> AccessActions;   // exact strings: subjects are case-sensitive, FNames are not
+    FString AccessArmed, AccessOpenRow, AccessAddRoleValue = TEXT("visitor"), AccessAddSpanValue;
+    bool bAccessShown = false; int32 AccessDirtySeen = -1, AccessPaintedSerial = -1; double AccessAskAt = 0, AccessRepaintAt = 0;
     UFUNCTION() void OnLocalCommonsClicked();
     UFUNCTION() void OnSignInClicked();
     UFUNCTION() void OnSignOutClicked();

@@ -1,5 +1,35 @@
 # Unreal / Three.js parity
 
+## Body size: skeletons under a transformed parent, 2026-10-18 (a report: "linn is much larger than antra")
+
+It was the other body: antra1.vrm's skeleton hangs under an `Armature` node with scale 1.8 and a quarter turn.
+glTF (and three.js) pose a skinned body by every ancestor of its joints; glTFRuntime builds the reference skeleton
+from the inverse bind matrices alone and dropped that node, so the body came out at its raw 1.0 m, and facing
+sideways. Decode now bakes such a parent into the skinned geometry and bind matrices before parsing
+(`EidoverseAvatarBake.cpp`: v' = D v, IBM' = IBM D^-1, D = root joint world x root inverse bind), so everything
+downstream sees the scene's frame. A file whose skeleton parents are plain is untouched; one this can't rewrite
+exactly (quantized, sparse, shared geometry) is left as it came. `Eidoverse.AvatarMeasure` (env
+`EIDO_AVATAR_MEASURE`, library paths) reports the imported heights: antra1 hips 0.558 → 1.004 m, head 0.848 →
+1.526 m (three.js: 1.004 / 1.529); linn unchanged (hips 0.931, head 1.604); claude 3 cm lower, as three.js has it.
+Still different (not addressed): where a file's bind pose and node rest pose disagree (linn's fingers), three.js
+rests in the node pose and Unreal in the bind pose.
+
+## World access (#258), 2026-10-18
+
+- Close code 4010 ("not open to you", at the door or on being removed) reads as such and never retries; `notice`
+  messages toast and narrate.
+- `/grant <name> owner|builder|visitor|spectator|none [for 30m|2h|1d|1w|forever]`, `/revoke <name>`, `/members`,
+  `/access [members|watch|visitors|open]` (the door: `grant {id:"*"}`).
+- World panel › access: the door (closing asks twice when people here aren't listed), members with role and time
+  strips and remove, add someone (the directory search, or by name), here-now-not-listed chips, and the server's
+  refusal inline (a typed name can't hold a closed world's door).
+`Eidoverse.LiveAccess` (in `run_game_tests.sh`, with `access_bot.ts` signed in through a scratch identity issuer)
+plays it: the tab, visitors, members-only asks then is refused for a typed name, a 1 h grant and its revoke, a
+members-only world refusing at the door with 4010, and being removed with 4010 when its owner closes it.
+The game tests now use Slate's faux cursor: while a button is held the viewport reads the platform cursor, i.e. the
+real mouse of whoever is using the Mac, which had turned the harness's click into a drag. Step timeouts count frames
+as well as seconds (a loaded machine hitched 11 s in one frame).
+
 ## Build mode keys, 2026-10-17 (a report: "rotating, moving up and down, nothing")
 
 The keys themselves were wired as build.js has them; what failed was getting to "something selected":
@@ -11,7 +41,7 @@ The keys themselves were wired as build.js has them; what failed was getting to 
 - **Arrows (and Tab) died after any click on a panel**: Slate's keyboard navigation gives a focused button the
   arrows and eats them. The web has none; it is off while the HUD is up (restored after, for the editor).
 - An editing key with nothing selected says how to select, instead of nothing.
-`Eidoverse.LiveBuildKeys` (`sh Tools/eidoverse/run_build_keys_test.sh`) plays it through the real input path in an
+`Eidoverse.LiveBuildKeys` (`sh Tools/eidoverse/run_game_tests.sh`) plays it through the real input path in an
 offscreen game session against a scratch sequencer: arrive in mouselook, B, click the pallet (also straight from
 typing in chat), then Q/E/R/F/,/./Up with focus on the world and on a panel button. Without the first fix B leaves
 the pointer off; without the second the click from chat drops to mouselook and selects nothing.

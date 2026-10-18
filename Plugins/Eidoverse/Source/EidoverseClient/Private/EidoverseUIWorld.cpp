@@ -32,7 +32,7 @@
 
 namespace
 {
-    const TCHAR* WorldTabNames[] = {TEXT("here"), TEXT("avatar"), TEXT("sky"), TEXT("ground"), TEXT("scene")};
+    const TCHAR* WorldTabNames[] = {TEXT("here"), TEXT("avatar"), TEXT("sky"), TEXT("ground"), TEXT("scene"), TEXT("access")};
     const TCHAR* Clouds[] = {TEXT("clear"), TEXT("cumulus"), TEXT("stratus"), TEXT("cirrus")};
     const TCHAR* Weathers[] = {TEXT("clear"), TEXT("fair"), TEXT("sunshower"), TEXT("overcast"), TEXT("rain"), TEXT("storm"), TEXT("cyclone"), TEXT("darkstorm")};
     // skypanel.js SLIDERS: [key, min, max, step, default]
@@ -90,6 +90,7 @@ UWidget* UEidoverseHUD::BuildWorld()
     WorldPages->AddChild(BuildWorldSky());
     WorldPages->AddChild(BuildWorldGround());
     WorldPages->AddChild(BuildWorldScene());
+    WorldPages->AddChild(BuildWorldAccess());
     Column->AddChildToVerticalBox(WorldPages)->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
     return Column;
 }
@@ -268,6 +269,7 @@ void UEidoverseHUD::LoadImage(const FString& Url, const FString& Key)
 void UEidoverseHUD::RefreshWorldPanels()
 {
     if (!Bridge || !WorldPages) return;
+    RefreshAccess(FPlatformTime::Seconds());
     WorldPages->SetActiveWidgetIndex(WorldTab);
     for (int32 I = 0; I < WorldTabs.Num(); ++I)
         WorldTabs[I]->SetStyle(FEidoverseTheme::Button(I == WorldTab ? FEidoverseTheme::Brand().CopyWithNewOpacity(.16f) : FEidoverseTheme::Well(),
@@ -475,7 +477,7 @@ void UEidoverseHUD::WorldAction(const FString& Action)
     const FString Id = Action;
     if (!Bridge || Id.IsEmpty()) return;
     auto Refused = [this](const TCHAR* What) { Toast(FString::Printf(TEXT("Not sent: %s."), What), true); };
-    if (Id.StartsWith(TEXT("wtab:"))) { WorldTab = FMath::Clamp(FCString::Atoi(*Id.Mid(5)), 0, 4); NextSceneRefresh = 0; SceneHash = 0; }
+    if (Id.StartsWith(TEXT("wtab:"))) { WorldTab = FMath::Clamp(FCString::Atoi(*Id.Mid(5)), 0, 5); NextSceneRefresh = 0; SceneHash = 0; }
     else if (Id.StartsWith(TEXT("avatar:")))
     {
         if (Bridge->ChangeAvatar(Id.Mid(7))) Toast(TEXT("Changing body…"));

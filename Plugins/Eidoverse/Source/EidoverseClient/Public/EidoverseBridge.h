@@ -207,6 +207,16 @@ public:
     UFUNCTION(BlueprintPure, Category="Eidoverse") FString HttpBase() const;
     static FString HttpBaseOf(const FString& SocketUrl);
     // ---- travel (EidoverseTravel.cpp): the server's world map, and going there ----
+    // ---- world access (#258, accesspanel.js): who may come into the world I stand in ----
+    TSharedPtr<FJsonObject> AccessState;           // the server's access-state: owned, door, mayEdit, you, members, here, now
+    int32 AccessSerial=0, AccessDirty=0;            // a new state; something that may change it (a grant, an arrival)
+    TArray<TSharedPtr<FJsonObject>> AccessResults;  // the owner's directory search (access-directory), for AccessQuery
+    FString AccessQuery, AccessError;
+    int32 AccessResultsSerial=0;
+    void RequestAccessState() { SendRaw(TEXT("access-state"), MakeShared<FJsonObject>()); }
+    void RequestAccessDirectory(const FString& Query);
+    /** grant: the one verb under every access change (the door is the wildcard "*", a member a named record). */
+    bool SendAccessGrant(const TSharedRef<FJsonObject>& Args) { AccessError.Empty(); return SendVerb(TEXT("grant"), Args); }
     UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse|Travel") TArray<FEidoverseWorldInfo> KnownWorlds;
     UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse|Travel") FString WorldsStatus;
     int32 WorldsSerial=0; double WorldsFetchedAt=-100; FString WorldsServer; bool bWorldsPending=false;

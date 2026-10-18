@@ -244,6 +244,7 @@ void AEidoverseBridge::Connect()
         ChatHistory.Empty();if(ChatPanel)ChatPanel->RefreshHistory();
         RenderedChatSeqs.Reset();ChatPageCursor=ChatPageFrom=ChatTrimmedThrough=-1;bHistoryDone=false;bHistoryPending=false;LastWhisperFrom.Empty();
         ChatResyncFloor=-1;
+        AccessState.Reset();AccessResults.Reset();AccessQuery.Empty();AccessError.Empty();
         bBodyMovedThisSession=false;PendingRestore.Reset();SelfHeldPose.Reset();RetryDelay=1.2;
     }
     RemoteMounts.Reset();
@@ -734,6 +735,7 @@ void AEidoverseBridge::Receive(const FString& Message)
         const FString Id=Eido::String(J,TEXT("id"));
         {FString Session;AttentionGate.Participant(Id,J->TryGetStringField(TEXT("session"),Session)?TOptional<FString>(Session):TOptional<FString>(),true);}
         if(!Peers.Contains(Id)&&Id!=AssignedIdentity)Narrate(Id.Left(64)+TEXT(" arrived"));
+        ++AccessDirty;
         Announce(Id,Eido::String(J,TEXT("avatar")));
     }
     else if(Type==TEXT("avatar-updated")&&bJoined)
@@ -749,6 +751,7 @@ void AEidoverseBridge::Receive(const FString& Message)
     {
         const FString Id=Eido::String(J,TEXT("id"));
         if(bJoined&&Peers.Contains(Id))Narrate(Id.Left(64)+TEXT(" left"));
+        ++AccessDirty;
         if(auto* P=Peers.Find(Id))if(P->Actor.IsValid())P->Actor->Destroy();Peers.Remove(Id);RemoteCount=Peers.Num();RemoteMounts.Remove(Id);
     }
     else if(Type==TEXT("frame")&&bJoined)
@@ -762,6 +765,7 @@ void AEidoverseBridge::Receive(const FString& Message)
         const TSharedPtr<FJsonObject>* Entry=nullptr;if(!J->TryGetObjectField(TEXT("entry"),Entry))return;
         double Seq;if(!(*Entry)->TryGetNumberField(TEXT("seq"),Seq)||Seq<=LastLogSequence)return;LastLogSequence=int64(Seq);
         bSceneDirty=true;
+        if(Eido::String(*Entry,TEXT("verb"))==TEXT("grant"))++AccessDirty;   // who may come in may have changed
         AttentionGate.Say(EidoAttention::ReadSay(*Entry));   // only the live path: history and the join window never chime
         ReceiveInteraction(*Entry);
         NarrateLogEntry(*Entry);
