@@ -100,6 +100,10 @@ public:
     // un-mirrored; bMirrored then tells the renderer to apply scale (1,-1,1).
     static bool UnmirrorDocument(const TSharedPtr<FJsonObject>& Document);
     static bool ReplaceGlbJson(TArray<uint8>& Bytes,const TSharedPtr<FJsonObject>& Document);
+    // A skeleton under a transformed non-joint node (an Armature with scale/turn): glTF and three.js pose the body by
+    // it, glTFRuntime drops it. Bakes it into the skinned geometry and bind matrices (EidoverseAvatarBake.cpp);
+    // false, and the file untouched, when there is nothing to bake or it can't be done exactly.
+    static bool BakeSkeletonParents(TArray<uint8>& Glb,const TSharedPtr<FJsonObject>& Document,FString* Note=nullptr);
     void Start();
     void Cancel();
     static bool ResolveUrl(const FString& Base,const FString& Reference,FString& Out);

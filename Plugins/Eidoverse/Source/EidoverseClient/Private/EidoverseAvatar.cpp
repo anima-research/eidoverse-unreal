@@ -340,7 +340,10 @@ void UEidoverseAvatarAsset::Decode(const TArray<uint8>& Bytes)
         {
             TArray<uint8> Source=Bytes;
             bMirror=bStatic&&UnmirrorDocument(J)&&ReplaceGlbJson(Source,J);
-            Parser=FglTFRuntimeParser::FromData(bMirror?Source:Bytes,Config);
+            // a body posed by a non-joint parent (antra1's Armature: x1.8, a quarter turn) is baked to its scene frame
+            FString BakeNote;const bool bBaked=!bStatic&&BakeSkeletonParents(Source,J,&BakeNote);
+            if(bBaked||!BakeNote.IsEmpty())UE_LOG(LogTemp,Display,TEXT("EIDOVERSE avatar skeleton parents %s: %s"),bBaked?TEXT("baked"):TEXT("left"),*BakeNote);
+            Parser=FglTFRuntimeParser::FromData(bMirror||bBaked?Source:Bytes,Config);
             if(!Parser)Error=TEXT("GLB parser rejected avatar");
         }
         const double Ms=(FPlatformTime::Seconds()-T0)*1000;
