@@ -21,10 +21,6 @@
   "EidoverseInteractions.cpp": 2,
   "EidoverseLocomotion.cpp": 3
  },
- "render-scene": {
-  "EidoverseBridge.cpp": 1,
-  "EidoverseWorlds.cpp": 1
- },
  "whisper": {
   "EidoverseBridge.cpp": 2,
   "EidoverseCommands.cpp": 1

@@ -884,8 +884,7 @@ void AEidoverseBridge::ShowRefusal(const TSharedPtr<FJsonObject>& Reply)
 // ---- the main-era wire by owner (Bridge/SLICES.md): each slice retires its own; through the bridge none of these arrive ----
 bool AEidoverseBridge::ReceiveSceneWire(const FString& Type,const TSharedPtr<FJsonObject>& J)
 {
-    if(Type==TEXT("render-scene")){ReceiveDynamicScene(J);return true;}
-    return false;
+    return false;   // render-scene is gone: the scene is bridge/scene v2 (OnSceneMsg)
 }
 bool AEidoverseBridge::ReceiveChatWire(const FString& Type,const TSharedPtr<FJsonObject>& J,double Now)
 {
