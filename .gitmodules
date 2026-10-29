@@ -1,0 +1,3 @@
+[submodule "eidoverse-worlds"]
+	path = Plugins/Eidoverse/Bridge/engine
+	url = https://github.com/anima-research/eidoverse-worlds

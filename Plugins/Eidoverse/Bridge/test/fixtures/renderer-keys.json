@@ -1,0 +1,764 @@
+{
+ "air": {
+  "sites": [
+   "EidoverseSceneWater.cpp:77"
+  ],
+  "at": [
+   "upserts[].data.air"
+  ]
+ },
+ "area": {
+  "sites": [
+   "EidoverseSceneParticles.cpp:85",
+   "EidoverseSceneParticles.cpp:86"
+  ],
+  "not": "particles: the protocol's particles are an effect instance {effect, ...} (shared/particle_effects.js resolveParticles; translate-v1 DROPPED particles.*): the renderer's emitter reads (EidoverseSceneParticles.cpp) move to the effect document's modules (shape, spawn, render, size, color); C++ fix, slice A's C++ half"
+ },
+ "atmosphere": {
+  "sites": [
+   "EidoverseScene.cpp:128"
+  ],
+  "at": [
+   "atmosphere"
+  ]
+ },
+ "authored": {
+  "sites": [
+   "EidoverseScene.cpp:102"
+  ],
+  "at": [
+   "environment.terrain.authored"
+  ]
+ },
+ "base": {
+  "sites": [
+   "EidoverseScene.cpp:199"
+  ],
+  "at": [
+   "transforms[].motion.base"
+  ]
+ },
+ "bbox": {
+  "sites": [
+   "EidoverseScene.cpp:612"
+  ],
+  "not": "the geom message's (EidoverseScene.cpp:612 reads geom, a PASS lane from the server), not the render model"
+ },
+ "bounds": {
+  "sites": [
+   "EidoverseSceneWater.cpp:129"
+  ],
+  "not": "the world's own environment is @world in the protocol (translate-v1 CARRIED.environment: spawn -> @world spawn, bounds -> @world bounds, floor -> a flat @world terrain): not an entity's data.environment; C++ fix (read the world's), slice A's C++ half"
+ },
+ "boxes": {
+  "sites": [
+   "EidoverseScene.cpp:90",
+   "EidoverseSceneWater.cpp:78"
+  ],
+  "at": [
+   "upserts[].structure.boxes",
+   "upserts[].data.air.boxes"
+  ]
+ },
+ "center": {
+  "sites": [
+   "EidoverseScene.cpp:615",
+   "EidoverseSceneWater.cpp:84"
+  ],
+  "at": [
+   "upserts[].data.water.center",
+   "upserts[].data.air.boxes[].center"
+  ],
+  "not": "also the geom message's bbox.center (EidoverseScene.cpp:615)"
+ },
+ "collide": {
+  "sites": [
+   "EidoverseScene.cpp:138"
+  ],
+  "at": [
+   "upserts[].collide"
+  ]
+ },
+ "collision": {
+  "sites": [
+   "EidoverseScene.cpp:140"
+  ],
+  "at": [
+   "upserts[].data.collision"
+  ]
+ },
+ "color": {
+  "sites": [
+   "EidoverseScene.cpp:111",
+   "EidoverseScene.cpp:147"
+  ],
+  "at": [
+   "upserts[].color",
+   "environment.terrain.color"
+  ]
+ },
+ "count": {
+  "sites": [
+   "EidoverseSceneParticles.cpp:77"
+  ],
+  "not": "particles: the protocol's particles are an effect instance {effect, ...} (shared/particle_effects.js resolveParticles; translate-v1 DROPPED particles.*): the renderer's emitter reads (EidoverseSceneParticles.cpp) move to the effect document's modules (shape, spawn, render, size, color); C++ fix, slice A's C++ half"
+ },
+ "data": {
+  "sites": [
+   "EidoverseScene.cpp:140",
+   "EidoverseScene.cpp:173",
+   "EidoverseScene.cpp:174",
+   "EidoverseScene.cpp:186"
+  ],
+  "at": [
+   "upserts[].data"
+  ]
+ },
+ "day": {
+  "sites": [
+   "EidoverseScene.cpp:150"
+  ],
+  "at": [
+   "upserts[].day"
+  ]
+ },
+ "enabled": {
+  "sites": [
+   "EidoverseScene.cpp:140"
+  ],
+  "at": [
+   "upserts[].data.collision.enabled"
+  ]
+ },
+ "environment": {
+  "sites": [
+   "EidoverseScene.cpp:129",
+   "EidoverseSceneWater.cpp:73"
+  ],
+  "at": [
+   "environment"
+  ],
+  "not": "also the world's own environment is @world in the protocol (translate-v1 CARRIED.environment: spawn -> @world spawn, bounds -> @world bounds, floor -> a flat @world terrain): not an entity's data.environment; C++ fix (read the world's), slice A's C++ half (EidoverseSceneWater.cpp:73 reads an entity's data.environment)"
+ },
+ "error": {
+  "sites": [
+   "EidoverseScene.cpp:118",
+   "EidoverseScene.cpp:122"
+  ],
+  "at": [
+   "error"
+  ]
+ },
+ "flip": {
+  "sites": [
+   "EidoverseScenePictures.cpp:52"
+  ],
+  "not": "absent means false (translate-v1 DROPPED picture.flip false); a true flip rides imported:material.flip and is produced as data.picture.flip"
+ },
+ "floor": {
+  "sites": [
+   "EidoverseSceneWater.cpp:169"
+  ],
+  "not": "the world's own environment is @world in the protocol (translate-v1 CARRIED.environment: spawn -> @world spawn, bounds -> @world bounds, floor -> a flat @world terrain): not an entity's data.environment; C++ fix (read the world's), slice A's C++ half"
+ },
+ "flora": {
+  "sites": [
+   "EidoverseScene.cpp:99"
+  ],
+  "at": [
+   "environment.flora"
+  ]
+ },
+ "guarded": {
+  "sites": [
+   "EidoverseUIBuildTools.cpp:52",
+   "EidoverseUIBuildTools.cpp:176",
+   "EidoverseUIBuildTools.cpp:308"
+  ],
+  "at": [
+   "upserts[].interact.guarded"
+  ]
+ },
+ "heights": {
+  "sites": [
+   "EidoverseScene.cpp:103"
+  ],
+  "at": [
+   "environment.terrain.heights"
+  ]
+ },
+ "id": {
+  "sites": [
+   "EidoverseScene.cpp:134",
+   "EidoverseScene.cpp:189",
+   "EidoverseScene.cpp:191"
+  ],
+  "at": [
+   "upserts[].id",
+   "transforms[].id"
+  ]
+ },
+ "indices": {
+  "sites": [
+   "EidoverseScene.cpp:79"
+  ],
+  "at": [
+   "upserts[].structure.sweeps[].indices"
+  ]
+ },
+ "intensity": {
+  "sites": [
+   "EidoverseScene.cpp:145"
+  ],
+  "at": [
+   "upserts[].intensity"
+  ]
+ },
+ "interact": {
+  "sites": [
+   "EidoverseScene.cpp:138",
+   "EidoverseScene.cpp:175"
+  ],
+  "at": [
+   "upserts[].interact"
+  ]
+ },
+ "keep": {
+  "sites": [
+   "EidoverseScene.cpp:150"
+  ],
+  "at": [
+   "upserts[].keep"
+  ]
+ },
+ "kind": {
+  "sites": [
+   "EidoverseScene.cpp:54",
+   "EidoverseScene.cpp:138",
+   "EidoverseScene.cpp:142"
+  ],
+  "at": [
+   "upserts[].kind",
+   "upserts[].structure.parts[].kind"
+  ]
+ },
+ "lastActor": {
+  "sites": [
+   "EidoverseUIBuildTools.cpp:296"
+  ],
+  "at": [
+   "upserts[].interact.lastActor"
+  ]
+ },
+ "lib": {
+  "sites": [
+   "EidoverseScene.cpp:138",
+   "EidoverseScene.cpp:165"
+  ],
+  "at": [
+   "upserts[].lib"
+  ]
+ },
+ "lifetime": {
+  "sites": [
+   "EidoverseSceneParticles.cpp:76"
+  ],
+  "not": "particles: the protocol's particles are an effect instance {effect, ...} (shared/particle_effects.js resolveParticles; translate-v1 DROPPED particles.*): the renderer's emitter reads (EidoverseSceneParticles.cpp) move to the effect document's modules (shape, spawn, render, size, color); C++ fix, slice A's C++ half"
+ },
+ "lit": {
+  "sites": [
+   "EidoverseScenePictures.cpp:51"
+  ],
+  "at": [
+   "upserts[].data.picture.lit"
+  ]
+ },
+ "locked": {
+  "sites": [
+   "EidoverseInteractions.cpp:80",
+   "EidoverseUIBuildTools.cpp:54",
+   "EidoverseUIBuildTools.cpp:171",
+   "EidoverseUIBuildTools.cpp:307"
+  ],
+  "at": [
+   "upserts[].interact.locked"
+  ]
+ },
+ "loop": {
+  "sites": [
+   "EidoverseSceneSounds.cpp:188"
+  ],
+  "at": [
+   "upserts[].data.sound.loop"
+  ]
+ },
+ "m": {
+  "sites": [
+   "EidoverseScene.cpp:199"
+  ],
+  "at": [
+   "transforms[].motion.m"
+  ]
+ },
+ "mat": {
+  "sites": [
+   "EidoverseScene.cpp:54"
+  ],
+  "at": [
+   "upserts[].structure.parts[].mat"
+  ]
+ },
+ "max": {
+  "sites": [
+   "EidoverseSceneWater.cpp:129"
+  ],
+  "not": "the world's own environment is @world in the protocol (translate-v1 CARRIED.environment: spawn -> @world spawn, bounds -> @world bounds, floor -> a flat @world terrain): not an entity's data.environment; C++ fix (read the world's), slice A's C++ half"
+ },
+ "min": {
+  "sites": [
+   "EidoverseSceneWater.cpp:129"
+  ],
+  "not": "the world's own environment is @world in the protocol (translate-v1 CARRIED.environment: spawn -> @world spawn, bounds -> @world bounds, floor -> a flat @world terrain): not an entity's data.environment; C++ fix (read the world's), slice A's C++ half"
+ },
+ "motion": {
+  "sites": [
+   "EidoverseScene.cpp:198"
+  ],
+  "at": [
+   "transforms[].motion"
+  ]
+ },
+ "mount": {
+  "sites": [
+   "EidoverseScene.cpp:202"
+  ],
+  "at": [
+   "transforms[].mount"
+  ]
+ },
+ "mounted": {
+  "sites": [
+   "EidoverseInteractions.cpp:80"
+  ],
+  "at": [
+   "upserts[].interact.mounted"
+  ]
+ },
+ "moving": {
+  "sites": [
+   "EidoverseInteractions.cpp:80"
+  ],
+  "at": [
+   "upserts[].interact.moving"
+  ]
+ },
+ "offset": {
+  "sites": [
+   "EidoverseScene.cpp:205"
+  ],
+  "at": [
+   "transforms[].mount.offset"
+  ]
+ },
+ "opacity": {
+  "sites": [
+   "EidoverseSceneParticles.cpp:75"
+  ],
+  "not": "particles: the protocol's particles are an effect instance {effect, ...} (shared/particle_effects.js resolveParticles; translate-v1 DROPPED particles.*): the renderer's emitter reads (EidoverseSceneParticles.cpp) move to the effect document's modules (shape, spawn, render, size, color); C++ fix, slice A's C++ half"
+ },
+ "origin": {
+  "sites": [
+   "EidoverseSceneParticles.cpp:87"
+  ],
+  "not": "particles: the protocol's particles are an effect instance {effect, ...} (shared/particle_effects.js resolveParticles; translate-v1 DROPPED particles.*): the renderer's emitter reads (EidoverseSceneParticles.cpp) move to the effect document's modules (shape, spawn, render, size, color); C++ fix, slice A's C++ half"
+ },
+ "p": {
+  "sites": [
+   "EidoverseScene.cpp:193"
+  ],
+  "at": [
+   "transforms[].p"
+  ]
+ },
+ "part": {
+  "sites": [
+   "EidoverseScene.cpp:174",
+   "EidoverseScene.cpp:175",
+   "EidoverseScene.cpp:206",
+   "EidoverseScenePictures.cpp:51"
+  ],
+  "at": [
+   "upserts[].data.picture.part"
+  ],
+  "not": "also a socket's part (interact.sockets.*.part) and a mount's (transforms[].mount.part): only for a socket on a model part, which no world here has"
+ },
+ "particles": {
+  "sites": [
+   "EidoverseSceneWater.cpp:72"
+  ],
+  "at": [
+   "upserts[].data.particles"
+  ]
+ },
+ "parts": {
+  "sites": [
+   "EidoverseScene.cpp:76",
+   "EidoverseScene.cpp:173",
+   "EidoverseScene.cpp:201"
+  ],
+  "at": [
+   "upserts[].structure.parts",
+   "upserts[].data.parts",
+   "transforms[].parts"
+  ]
+ },
+ "picture": {
+  "sites": [
+   "EidoverseScene.cpp:174",
+   "EidoverseSceneWater.cpp:70"
+  ],
+  "at": [
+   "upserts[].data.picture"
+  ]
+ },
+ "placer": {
+  "sites": [
+   "EidoverseUIBuildTools.cpp:50",
+   "EidoverseUIBuildTools.cpp:296"
+  ],
+  "at": [
+   "upserts[].interact.placer"
+  ]
+ },
+ "placerSub": {
+  "sites": [
+   "EidoverseUIBuildTools.cpp:50"
+  ],
+  "at": [
+   "upserts[].interact.placerSub"
+  ]
+ },
+ "playing": {
+  "sites": [
+   "EidoverseSceneSounds.cpp:119"
+  ],
+  "at": [
+   "upserts[].data.sound.playing"
+  ]
+ },
+ "positions": {
+  "sites": [
+   "EidoverseScene.cpp:79"
+  ],
+  "at": [
+   "upserts[].structure.sweeps[].positions"
+  ]
+ },
+ "preset": {
+  "sites": [
+   "EidoverseSceneParticles.cpp:69"
+  ],
+  "not": "particles: the protocol's particles are an effect instance {effect, ...} (shared/particle_effects.js resolveParticles; translate-v1 DROPPED particles.*): the renderer's emitter reads (EidoverseSceneParticles.cpp) move to the effect document's modules (shape, spawn, render, size, color); C++ fix, slice A's C++ half"
+ },
+ "q": {
+  "sites": [
+   "EidoverseScene.cpp:193",
+   "EidoverseSceneWater.cpp:88"
+  ],
+  "at": [
+   "transforms[].q",
+   "upserts[].data.air.boxes[].q"
+  ]
+ },
+ "quality": {
+  "sites": [
+   "EidoverseSceneParticles.cpp:80"
+  ],
+  "not": "particles: the protocol's particles are an effect instance {effect, ...} (shared/particle_effects.js resolveParticles; translate-v1 DROPPED particles.*): the renderer's emitter reads (EidoverseSceneParticles.cpp) move to the effect document's modules (shape, spawn, render, size, color); C++ fix, slice A's C++ half"
+ },
+ "radius": {
+  "sites": [
+   "EidoverseSceneSounds.cpp:189"
+  ],
+  "at": [
+   "upserts[].data.sound.radius"
+  ]
+ },
+ "range": {
+  "sites": [
+   "EidoverseScene.cpp:145"
+  ],
+  "at": [
+   "upserts[].range"
+  ]
+ },
+ "removed": {
+  "sites": [
+   "EidoverseScene.cpp:130",
+   "EidoverseScene.cpp:131"
+  ],
+  "at": [
+   "removed"
+  ]
+ },
+ "revision": {
+  "sites": [
+   "EidoverseScene.cpp:134"
+  ],
+  "at": [
+   "upserts[].revision"
+  ]
+ },
+ "scale": {
+  "sites": [
+   "EidoverseScene.cpp:195",
+   "EidoverseScene.cpp:206"
+  ],
+  "at": [
+   "transforms[].scale",
+   "transforms[].mount.scale"
+  ]
+ },
+ "seed": {
+  "sites": [
+   "EidoverseSceneParticles.cpp:90"
+  ],
+  "at": [
+   "upserts[].data.particles.seed"
+  ]
+ },
+ "segments": {
+  "sites": [
+   "EidoverseScene.cpp:103"
+  ],
+  "at": [
+   "environment.terrain.segments"
+  ]
+ },
+ "size": {
+  "sites": [
+   "EidoverseScene.cpp:103",
+   "EidoverseScene.cpp:615",
+   "EidoverseSceneParticles.cpp:75",
+   "EidoverseSceneWater.cpp:85"
+  ],
+  "at": [
+   "environment.terrain.size",
+   "upserts[].data.water.size",
+   "upserts[].data.air.boxes[].size"
+  ],
+  "not": "also particles: the protocol's particles are an effect instance {effect, ...} (shared/particle_effects.js resolveParticles; translate-v1 DROPPED particles.*): the renderer's emitter reads (EidoverseSceneParticles.cpp) move to the effect document's modules (shape, spawn, render, size, color); C++ fix, slice A's C++ half"
+ },
+ "sockets": {
+  "sites": [
+   "EidoverseScene.cpp:175"
+  ],
+  "at": [
+   "upserts[].interact.sockets"
+  ]
+ },
+ "sound": {
+  "sites": [
+   "EidoverseSceneWater.cpp:71"
+  ],
+  "at": [
+   "upserts[].data.sound"
+  ]
+ },
+ "spawn": {
+  "sites": [
+   "EidoverseSceneWater.cpp:122"
+  ],
+  "not": "the world's own environment is @world in the protocol (translate-v1 CARRIED.environment: spawn -> @world spawn, bounds -> @world bounds, floor -> a flat @world terrain): not an entity's data.environment; C++ fix (read the world's), slice A's C++ half"
+ },
+ "speed": {
+  "sites": [
+   "EidoverseSceneParticles.cpp:76"
+  ],
+  "not": "particles: the protocol's particles are an effect instance {effect, ...} (shared/particle_effects.js resolveParticles; translate-v1 DROPPED particles.*): the renderer's emitter reads (EidoverseSceneParticles.cpp) move to the effect document's modules (shape, spawn, render, size, color); C++ fix, slice A's C++ half"
+ },
+ "src": {
+  "sites": [
+   "EidoverseScenePictures.cpp:51",
+   "EidoverseSceneSounds.cpp:118"
+  ],
+  "at": [
+   "upserts[].data.sound.src",
+   "upserts[].data.picture.src"
+  ]
+ },
+ "structure": {
+  "sites": [
+   "EidoverseScene.cpp:141"
+  ],
+  "at": [
+   "upserts[].structure"
+  ]
+ },
+ "sweeps": {
+  "sites": [
+   "EidoverseScene.cpp:77"
+  ],
+  "at": [
+   "upserts[].structure.sweeps"
+  ]
+ },
+ "t0": {
+  "sites": [
+   "EidoverseSceneSounds.cpp:190"
+  ],
+  "at": [
+   "transforms[].motion.m.t0"
+  ],
+  "not": "also a sound's start time (data.sound.t0), present only when a sound was started at a time (shared/sound.js)"
+ },
+ "terrain": {
+  "sites": [
+   "EidoverseScene.cpp:100"
+  ],
+  "at": [
+   "environment.terrain"
+  ]
+ },
+ "texture": {
+  "sites": [
+   "EidoverseSceneParticles.cpp:88"
+  ],
+  "not": "particles: the protocol's particles are an effect instance {effect, ...} (shared/particle_effects.js resolveParticles; translate-v1 DROPPED particles.*): the renderer's emitter reads (EidoverseSceneParticles.cpp) move to the effect document's modules (shape, spawn, render, size, color); C++ fix, slice A's C++ half"
+ },
+ "time": {
+  "sites": [
+   "EidoverseScene.cpp:127"
+  ],
+  "at": [
+   "time"
+  ]
+ },
+ "to": {
+  "sites": [
+   "EidoverseScene.cpp:205",
+   "EidoverseScene.cpp:206"
+  ],
+  "at": [
+   "transforms[].mount.to"
+  ]
+ },
+ "transforms": {
+  "sites": [
+   "EidoverseScene.cpp:189"
+  ],
+  "at": [
+   "transforms"
+  ]
+ },
+ "traversal": {
+  "sites": [
+   "EidoverseSceneWater.cpp:74"
+  ],
+  "not": "translate-v1 CARRIED.traversal: a climb route is a child thing (climb {points, reach, speed} + label): C++ fix, slice D"
+ },
+ "upserts": {
+  "sites": [
+   "EidoverseScene.cpp:130",
+   "EidoverseScene.cpp:132"
+  ],
+  "at": [
+   "upserts"
+  ]
+ },
+ "vehicle": {
+  "sites": [
+   "EidoverseSceneWater.cpp:75"
+  ],
+  "not": "translate-v1 CARRIED.vehicle: drive {maxSpeed, turnRate, climbRate} on the host + a helm socket child (station drive): C++ fix, slice D"
+ },
+ "volume": {
+  "sites": [
+   "EidoverseSceneSounds.cpp:189"
+  ],
+  "at": [
+   "upserts[].data.sound.volume"
+  ]
+ },
+ "warnings": {
+  "sites": [
+   "EidoverseScene.cpp:210"
+  ],
+  "at": [
+   "warnings"
+  ]
+ },
+ "water": {
+  "sites": [
+   "EidoverseScene.cpp:114",
+   "EidoverseSceneWater.cpp:69"
+  ],
+  "at": [
+   "environment.water",
+   "upserts[].data.water"
+  ]
+ },
+ "x0": {
+  "sites": [
+   "EidoverseScene.cpp:47",
+   "EidoverseScene.cpp:92"
+  ],
+  "at": [
+   "upserts[].structure.parts[].x0"
+  ]
+ },
+ "x1": {
+  "sites": [
+   "EidoverseScene.cpp:47",
+   "EidoverseScene.cpp:92"
+  ],
+  "at": [
+   "upserts[].structure.parts[].x1"
+  ]
+ },
+ "y0": {
+  "sites": [
+   "EidoverseScene.cpp:47",
+   "EidoverseScene.cpp:92"
+  ],
+  "at": [
+   "upserts[].structure.parts[].y0"
+  ]
+ },
+ "y1": {
+  "sites": [
+   "EidoverseScene.cpp:47",
+   "EidoverseScene.cpp:92"
+  ],
+  "at": [
+   "upserts[].structure.parts[].y1"
+  ]
+ },
+ "yaw": {
+  "sites": [
+   "EidoverseScene.cpp:206"
+  ],
+  "at": [
+   "transforms[].mount.yaw",
+   "upserts[].interact.sockets.*.yaw"
+  ]
+ },
+ "z0": {
+  "sites": [
+   "EidoverseScene.cpp:47",
+   "EidoverseScene.cpp:92"
+  ],
+  "at": [
+   "upserts[].structure.parts[].z0"
+  ]
+ },
+ "z1": {
+  "sites": [
+   "EidoverseScene.cpp:47",
+   "EidoverseScene.cpp:92"
+  ],
+  "at": [
+   "upserts[].structure.parts[].z1"
+  ]
+ }
+}
