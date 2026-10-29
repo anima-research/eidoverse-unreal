@@ -318,7 +318,7 @@ public:
     struct FClimb { FString Id; TArray<FVector> PathLocal; int32 Segment=0; double Distance=0; float Speed=1.3f; bool bReverse=false; };
     TOptional<FClimb> Climb;
     FString ClimbHintKey;
-    struct FHelm { FString Id; bool bPending=false; bool bActive=false; FVector Vel=FVector::ZeroVector; double YawWire=0; double SentAt=0; };
+    struct FHelm { FString Id,Seat; bool bPending=false; bool bActive=false; FVector Vel=FVector::ZeroVector,HelmLocal=FVector(0,.5,0); double YawWire=0; double SentAt=0; };
     FHelm Helm;
     // vehicles.js piloting(): the helm owns the keys and the camera while held
     UFUNCTION(BlueprintPure, Category="Eidoverse") bool IsPiloting() const { return Helm.bActive; }
@@ -506,8 +506,50 @@ public:
     void OnWriteReply(const FString& Type,const TSharedPtr<FJsonObject>& J);    // C: EidoverseBridgeWrites.cpp
 
     void OnBodiesMsg(const FString& Type,const TSharedPtr<FJsonObject>& J);     // D: EidoverseBridgeBodies.cpp
+    // Seats, holding and the body's track at the authority (EidoverseBridgeBodies.cpp; Bridge/src/bodies.ts).
+    struct FEidoSeat { FString Seat,Host,Name,Action,Pose,Occupant,Thing; };
+    TArray<FEidoSeat> SceneSeats;                       // bridge/scene seats[], as the bridge last listed them
+    int32 SceneSeatsSerial=0;
+    /** bridge/scene's seats[] (slice A's OnSceneMsg calls it): others' seats to RemoteMounts, a seat I was put in. */
+    void ReceiveSceneSeats(const TSharedPtr<FJsonObject>& Scene);
+    const FEidoSeat* FindSceneSeat(const FString& Host,const FString& Name) const;
+    /** bridge/ride or bridge/unride {req, …}; Done gets bridge/ridden's reply. */
+    FString BridgeRide(const FString& Type,const TSharedRef<FJsonObject>& Fields,TFunction<void(const TSharedPtr<FJsonObject>&)> Done=nullptr,bool bQuiet=false);
+    /** A request for my body (use, grab, punt…), rate limited as the main-era verbs were; refusals are shown. */
+    bool BodyRequest(const FString& Verb,const TSharedRef<FJsonObject>& Args,TFunction<void(const TSharedPtr<FJsonObject>&)> Done=nullptr);
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|Interaction") bool GrabEntity(const FString& Id);
+    /** put (bThrow false) or throw with V (wire m/s) what I hold. */
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|Interaction") bool LetGoOfEntity(bool bThrow,FVector V);
+    UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse|Interaction") FString HeldItem;   // what the authority says I hold (grab's reply, then holds)
+    FString SeatEntity,SeatAnim;                        // the socket entity I sit in (bridge/ridden attach.to), sent as pose.seat
+    TSharedPtr<FJsonObject> SeatWirePose() const;       // pose.seat while seated (net.js sendPose), else null
+    UFUNCTION(BlueprintPure, Category="Eidoverse|Interaction") FString GetSeatHost() const { return bSeatConfirmed?SeatTo:FString(); }
+    UFUNCTION(BlueprintPure, Category="Eidoverse|Interaction") FString GetSeatOccupant(const FString& Host) const;
+    // The authority's track of my body (client/lib/thingphysics.js track): move {to} in steps it accepts.
+    bool bBodyArrived=false,bBodyMoving=false; FVector BodyTrackedAt=FVector::ZeroVector; double BodyTrackAt=0,BodyTeleportAt=-100;
+    void TickBodyTrack(double Now);
+    FVector MyFeetWire() const;
+    UFUNCTION(BlueprintPure, Category="Eidoverse|Interaction") bool IsBodyTracked(float Within=.5f) const;
+    FVector PendingUnridePos=FVector::ZeroVector; int32 PendingUnrideTries=0; double PendingUnrideAt=0;
+    void SendUnride();
+    bool RideSeat(const FString& Host,const FString& Slot);   // EidoverseSeats.cpp
+    void StandUpBridged(class AEidoverseExplorer* Explorer,bool bSendDismount,bool bHave,const FTransform& Seat);
+    bool UseBridgedHelm(const FVector& Feet);           // EidoverseLocomotion.cpp: E at a drive seat
+    void SendDrive(const FVector& PosWire,const FQuat& QWire);
+    void ReceiveHolds(const TSharedPtr<FJsonObject>& J);   // holds {holds: {id: {by, hand}}}: what I held and isn't listed is out of my hand
 
     void OnAccessMsg(const FString& Type,const TSharedPtr<FJsonObject>& J);     // D: EidoverseBridgeAccess.cpp
+    // The access tab's writes (EidoverseBridgeAccess.cpp): @world access + default-role, roles:<identity> (Bridge/test/fixtures/access.ts).
+    /** One of AccessState's doors (open, public, watch, invite-only). */
+    bool SendAccessDoor(const FString& Door);
+    /** roles:<Who> {role, until?} (UntilMs 0: no end); a name, not an identity, resolves in the bridge (writes.ts grant). */
+    bool SendAccessRole(const FString& Who,const FString& NewRole,double UntilMs=0);
+    bool SendAccessRevoke(const FString& Who);
+    bool AccessMayEdit() const;
+    void AccessReplied(const TSharedPtr<FJsonObject>& Reply);
+    TSharedPtr<FJsonObject> AccessStateWire;            // bridge/access-state as sent; AccessState is it in the tab's (main's) shape
+    TSharedPtr<FJsonObject> AccessTabState(const TSharedPtr<FJsonObject>& Wire) const;
+    bool SendAccessGrantBridged(const TSharedRef<FJsonObject>& Args);   // main's grant args → the door or roles:<identity> requests
 
     // The main-era wire, split by owner so each slice retires its own (Bridge/SLICES.md).
     bool ReceiveSceneWire(const FString& Type,const TSharedPtr<FJsonObject>& J);      // A

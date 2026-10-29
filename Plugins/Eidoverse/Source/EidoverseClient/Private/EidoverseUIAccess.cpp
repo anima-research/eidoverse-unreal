@@ -110,6 +110,7 @@ void UEidoverseHUD::RefreshAccess(double Now)
 
 void UEidoverseHUD::PaintAccess()
 {
+    if (!AccessDoor) return;   // the tab isn't built yet (a test, or a grant before the World panel opened)
     for (auto It = AccessActions.CreateIterator(); It; ++It) if (!It->Key.IsValid()) It.RemoveCurrent();
     AccessDoor->ClearChildren(); AccessMembers->ClearChildren(); AccessResultsBox->ClearChildren(); AccessHere->ClearChildren();
     AccessAddRole->ClearChildren(); AccessAddSpan->ClearChildren();
