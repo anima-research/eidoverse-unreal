@@ -4,7 +4,8 @@
 # through the local bridge (Plugins/Eidoverse/Bridge): snapshot, bridge/ready, the scene. Loopback only; scratch printed at the end.
 #
 #   sh Tools/eidoverse/run_v4_join.sh            (UE_ROOT: the engine install; on WSL, the Windows one under /mnt/c;
-#                                                 UE_ARGS: more editor arguments; EIDO_LIVE_V4_SHOT=0: no screenshot)
+#                                                 UE_ARGS: more editor arguments; EIDO_LIVE_V4_SHOT=0: no screenshot;
+#                                                 EIDO_V4_TESTS: the tests to run, e.g. Eidoverse.LiveV4Scene)
 set -eu
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 ENGINE=${EIDOVERSE_REPO:-$ROOT/Plugins/Eidoverse/Bridge/engine}
@@ -36,11 +37,11 @@ else
   [ -n "${DEVELOPER_DIR:-}" ] || export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 fi
 "$EDITOR" "$PROJECT" -game -RenderOffscreen -ResX=1280 -ResY=720 \
-  -ExecCmds="Automation RunTests Eidoverse.LiveV4Join" -TestExit="Automation Test Queue Empty" \
+  -ExecCmds="Automation RunTests ${EIDO_V4_TESTS:-Eidoverse.LiveV4Join}" -TestExit="Automation Test Queue Empty" \
   -unattended -nosound -nosplash -stdout -FullStdOutLogOutput -NoP4 ${UE_ARGS:-} >"$SCRATCH/game.log" 2>&1 || true
 SHOT=$(find "$ROOT/Saved/Screenshots" -name 'eidoverse-v4-join*.png' -newer "$SCRATCH/seed.log" 2>/dev/null | head -1)
 [ -z "$SHOT" ] || cp "$SHOT" "$SCRATCH/"
 echo "--- server"; grep -a "\[world:$WORLD\]" "$SCRATCH/server.log" | tr -d '\r' || true
-echo "--- client"; grep -aE "EIDOVERSE (bridge|joined)|EIDOVERSE_V4|couldn't join|Test Completed\. Result=|Eidoverse.LiveV4Join" "$SCRATCH/game.log" | sed -E 's/^\[[^]]*\]\[[^]]*\]//' | tr -d '\r' || true
+echo "--- client"; grep -aE "EIDOVERSE (bridge|joined)|EIDOVERSE_V4|couldn't join|Test Completed\. Result=|${EIDO_V4_TESTS:-Eidoverse.LiveV4Join}" "$SCRATCH/game.log" | sed -E 's/^\[[^]]*\]\[[^]]*\]//' | tr -d '\r' || true
 echo "scratch: $SCRATCH${SHOT:+ (screenshot: $(basename "$SHOT"))}"
 ! grep -q 'Result={Fail}' "$SCRATCH/game.log" && grep -q 'Result={Success}' "$SCRATCH/game.log"
