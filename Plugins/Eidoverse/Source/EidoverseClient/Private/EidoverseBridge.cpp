@@ -1,5 +1,6 @@
 #include "EidoverseBridge.h"
 #include "EidoverseVoice.h"
+#include "EidoverseSidecar.h"
 #include "Components/CapsuleComponent.h"
 #include "UnrealClient.h"
 #include "EidoverseLoadTrace.h"
@@ -71,6 +72,7 @@ void AEidoverseBridge::BeginPlay()
     AttentionGate.MentionsMe=[this](const FString& Text){return EidoAttention::Mentions(Text,AssignedIdentity);};
     AttentionGate.NowMs=[](){return FPlatformTime::Seconds()*1000;};
     AttentionGate.Play=[this](){return PlayAttention();};
+    {const FString Env=FPlatformMisc::GetEnvironmentVariable(TEXT("EIDOVERSE_BRIDGE"));if(FParse::Param(FCommandLine::Get(),TEXT("EidoverseBridge"))||Env==TEXT("1")||Env==TEXT("dev"))bUseBridge=true;}
     if(bAutoConnect)Connect();
 }
 void AEidoverseBridge::EndPlay(const EEndPlayReason::Type Reason)
@@ -78,7 +80,9 @@ void AEidoverseBridge::EndPlay(const EEndPlayReason::Type Reason)
     CloseChat();
     if(HUD){HUD->RemoveFromParent();HUD=nullptr;}
     if(ChatOverlay&&GetWorld()&&GetWorld()->GetGameViewport())GetWorld()->GetGameViewport()->RemoveViewportWidgetContent(ChatOverlay.ToSharedRef());
-    ChatOverlay.Reset();ChatPanel.Reset();Disconnect();LogoutProduction();Super::EndPlay(Reason);
+    ChatOverlay.Reset();ChatPanel.Reset();Disconnect();LogoutProduction();
+    if(Sidecar){Sidecar->Stop();Sidecar.Reset();}
+    Super::EndPlay(Reason);
 }
 void AEidoverseBridge::OpenChat(){if(HUD)HUD->FocusChat();if(ChatPanel)ChatPanel->Open();}
 void AEidoverseBridge::CloseChat(){if(ChatPanel)ChatPanel->Close();}
@@ -232,6 +236,7 @@ void AEidoverseBridge::Disconnect()
     if(!bRetrying)QueuedMessages.Reset();
     ClearInteractions();VoiceLost();
     bWanted=false;bJoined=false;++Generation;RetryAt=0;bCaptureAdvertised=false;
+    bBridgeStarting=false;bBridgeReady=false;BridgeWorldId.Empty();if(!bRetrying)PendingReplies.Reset();
     if(Socket){Socket->OnConnected().Clear();Socket->OnMessage().Clear();Socket->OnClosed().Clear();Socket->OnConnectionError().Clear();Socket->Close();Socket.Reset();}
     ClearPeers();EndDynamicScene();ConnectionStatus=TEXT("offline");AssignedIdentity.Empty();
 }
@@ -246,6 +251,7 @@ void AEidoverseBridge::Connect()
         ChatResyncFloor=-1;
         AccessState.Reset();AccessResults.Reset();AccessQuery.Empty();AccessError.Empty();
         bBodyMovedThisSession=false;PendingRestore.Reset();SelfHeldPose.Reset();RetryDelay=1.2;
+        BridgeReadyCount=0;
     }
     RemoteMounts.Reset();
     // Development cleartext is loopback-only. Do not leak credentials in URL,
@@ -261,17 +267,37 @@ void AEidoverseBridge::Connect()
     // a retry keeps the chat: remember the last entry the old socket delivered, for the re-join's resync
     if(bRetrying)ChatResyncFloor=FMath::Max(ChatResyncFloor,LastLogSequence);
     bWanted=true;OpenedAt=FPlatformTime::Seconds();AssignedIdentity.Empty();LastFrameTime=-1;LastLogSequence=-1;
+    if(bUseBridge)
+    {
+        // the bridge holds the server socket (it folds); this socket goes to it, and bridge/hello names the server
+        if(!Sidecar)Sidecar=MakeShared<FEidoverseSidecar>();
+        FString Why;if(!Sidecar->Ensure(Why)){Status(TEXT("no local bridge: ")+Why);return;}
+        bBridgeStarting=true;Status(TEXT("starting the local bridge"));
+        return;   // Tick opens the socket once the bridge says its port
+    }
     TMap<FString,FString> Headers;if(ProductionLogin)Headers.Add(TEXT("Cookie"),TEXT("ew_sess=")+ProductionSession);
     Socket=FWebSocketsModule::Get().CreateWebSocket(Endpoint,TEXT(""),Headers);
+    BindSocket();
+}
+void AEidoverseBridge::BindSocket()
+{
     Socket->SetTextMessageMemoryLimit(8*1024*1024);
     const uint32 G=Generation;TWeakObjectPtr<AEidoverseBridge> Weak(this);
     Socket->OnConnected().AddLambda([Weak,G](){Eido::Dispatch(Weak,[G](AEidoverseBridge& B){
         if(B.Generation!=G)return;
+        if(B.bUseBridge)B.SendBridgeHello();
         B.SendJoin();B.Status(TEXT("joining"));});});
     Socket->OnMessage().AddLambda([Weak,G](const FString& M){if(M.Len()>8*1024*1024)return;Eido::Dispatch(Weak,[G,M](AEidoverseBridge& B){if(B.Generation==G)B.Receive(M);});});
     Socket->OnClosed().AddLambda([Weak,G](int32 Code,const FString&,bool){Eido::Dispatch(Weak,[G,Code](AEidoverseBridge& B){if(B.Generation==G)B.Lost(Code);});});
     Socket->OnConnectionError().AddLambda([Weak,G](const FString&){Eido::Dispatch(Weak,[G](AEidoverseBridge& B){if(B.Generation==G)B.Lost(1006);});});
     Status(TEXT("connecting"));Socket->Connect();
+}
+void AEidoverseBridge::SendBridgeHello()
+{
+    // the server to dial, and the native sign-in as its Cookie (the bridge sends it as EidoverseBridge.cpp did)
+    auto J=MakeShared<FJsonObject>();J->SetStringField(TEXT("type"),TEXT("bridge/hello"));J->SetStringField(TEXT("server"),Endpoint);
+    if(Endpoint==ProductionEndpoint&&HasProductionSession())J->SetStringField(TEXT("cookie"),ProductionSession);
+    Send(J);
 }
 void AEidoverseBridge::SendJoin()
 {
@@ -685,6 +711,8 @@ void AEidoverseBridge::Receive(const FString& Message)
     TSharedPtr<FJsonObject> J;if(!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Message),J)||!J)return;
     FString Type=Eido::String(J,TEXT("type"));const double Now=FPlatformTime::Seconds();
     if(ForwardVoiceSignal(Type,J))return;
+    if(Type.StartsWith(TEXT("bridge/"))){OnBridgeMessage(Type,J);return;}   // the local bridge's own (never a wire type)
+    if(Type==TEXT("reply")&&OnReply(J))return;
     if(Type==TEXT("snapshot"))
     {
         AssignedIdentity=Eido::String(J,TEXT("you"));if(AssignedIdentity.IsEmpty())return;
@@ -701,6 +729,7 @@ void AEidoverseBridge::Receive(const FString& Message)
         double SceneVersion=0;bSceneSupported=J->TryGetNumberField(TEXT("renderSceneVersion"),SceneVersion)&&SceneVersion==1;
         // An avatar change re-joins the same world: keep the rendered scene and the pawn.
         if(bRejoining&&DynamicScene){bRejoining=false;}
+        else if(bUseBridge){}   // the scene starts on bridge/ready, once the cut is folded
         else if(bRenderDynamicWorld&&bSceneSupported)BeginDynamicScene();
         else if(bRenderDynamicWorld)WorldRenderStatus=TEXT("Server needs the dynamic-scene update. Local prototype remains active.");
         const TSharedPtr<FJsonObject>* Sim=nullptr;const TSharedPtr<FJsonObject>* Epoch=nullptr;
@@ -727,9 +756,7 @@ void AEidoverseBridge::Receive(const FString& Message)
         if(Sim&&Epoch)(*Epoch)->TryGetStringField(TEXT("sim"),SimId);
         ReceiveSnapshotExtras(J,Now);
     }
-    else if(Type==TEXT("render-scene")&&bJoined)ReceiveDynamicScene(J);
-    else if(Type==TEXT("lease")&&bJoined)ReceiveLease(J);
-    else if(Type==TEXT("snap")&&bJoined)ReceiveCapture(J);
+    else if(bJoined&&(ReceiveSceneWire(Type,J)||ReceiveChatWire(Type,J,Now)||ReceiveWriteWire(Type,J)||ReceiveBodiesWire(Type,J))){}
     else if(Type==TEXT("arrive")&&bJoined)
     {
         const FString Id=Eido::String(J,TEXT("id"));
@@ -760,29 +787,6 @@ void AEidoverseBridge::Receive(const FString& Message)
         const TSharedPtr<FJsonObject>* Poses=nullptr;if(J->TryGetObjectField(TEXT("poses"),Poses))for(auto& P:(*Poses)->Values)
         {const TSharedPtr<FJsonObject>* O=nullptr;if(P.Value->TryGetObject(O))Pose(FString(P.Key),*O,Now);}
     }
-    else if(Type==TEXT("log")&&bJoined)
-    {
-        const TSharedPtr<FJsonObject>* Entry=nullptr;if(!J->TryGetObjectField(TEXT("entry"),Entry))return;
-        double Seq;if(!(*Entry)->TryGetNumberField(TEXT("seq"),Seq)||Seq<=LastLogSequence)return;LastLogSequence=int64(Seq);
-        bSceneDirty=true;
-        if(Eido::String(*Entry,TEXT("verb"))==TEXT("grant"))++AccessDirty;   // who may come in may have changed
-        AttentionGate.Say(EidoAttention::ReadSay(*Entry));   // only the live path: history and the join window never chime
-        ReceiveInteraction(*Entry);
-        NarrateLogEntry(*Entry);
-        {
-            const FString Verb=Eido::String(*Entry,TEXT("verb"));const TSharedPtr<FJsonObject>* SeatArgs=nullptr;
-            if((Verb==TEXT("mount")||Verb==TEXT("dismount"))&&(*Entry)->TryGetObjectField(TEXT("args"),SeatArgs))ReceiveSeatLog(Verb,*SeatArgs);
-        }
-        if(Eido::String(*Entry,TEXT("verb"))!=TEXT("say"))return;
-        const TSharedPtr<FJsonObject>* Args=nullptr;if(!(*Entry)->TryGetObjectField(TEXT("args"),Args))return;
-        FString Sender=Eido::String(*Entry,TEXT("actor")),Text=Eido::String(*Args,TEXT("text")).Left(4000);FString Utt;double UttN;bool bSpoken=false;(*Args)->TryGetBoolField(TEXT("spoken"),bSpoken);
-        if(bSpoken&&(*Args)->TryGetNumberField(TEXT("utt"),UttN))Utt=FString::Printf(TEXT("%.0f"),UttN);else if(bSpoken)(*Args)->TryGetStringField(TEXT("utt"),Utt);
-        // ...or trimmed off the top: a re-join's window can replay such a line, and appending it would put it
-        // under hours of newer talk. Paging slots it back where it belongs.
-        if(RenderedChatSeqs.Contains(int64(Seq))||int64(Seq)<=ChatTrimmedThrough)return;RenderedChatSeqs.Add(int64(Seq));
-        AddChatLine(Sender,Text,false,Utt.Left(64),bSpoken,int64(Seq));
-        if(!bSpoken)NoteSpeaker(Sender,Text);   // spoken says were performed live by their captions
-    }
     else if(Type==TEXT("your-rights")&&bJoined)
     {
         const TSharedPtr<FJsonObject>* Rights=nullptr;if(!J->TryGetObjectField(TEXT("rights"),Rights))return;
@@ -792,7 +796,6 @@ void AEidoverseBridge::Receive(const FString& Message)
     }
     else if(Type==TEXT("anim")&&bJoined)ReceiveAgentAnimation(J);
     else if(Type==TEXT("caption")&&bJoined)PerformSpeech(Eido::String(J,TEXT("id")),Eido::String(J,TEXT("text")).Left(500));
-    else if(Type==TEXT("inspect")&&bJoined){InspectedId=Eido::String(J,TEXT("id"));InspectReply=J;++InspectSerial;}
     else if(Type==TEXT("typing")&&bJoined)
     {
         // Public composing, or a whisper being composed to us; others' DMs stay private.
@@ -803,7 +806,115 @@ void AEidoverseBridge::Receive(const FString& Message)
         if(HUD&&State.IsEmpty())HUD->NoteTyping(Id);
         if(auto* Peer=Peers.Find(Id))if(auto* Plate=Peer->Plate.Get())if(auto* W=Cast<UEidoverseNameplate>(Plate->GetUserWidgetObject()))W->ShowTypingState(State);
     }
-    else if(Type==TEXT("whisper")&&bJoined)
+    else ReceiveProtocol(Type,J,Now);
+}
+// ---- the local bridge's messages (Plugins/Eidoverse/Bridge/README.md), and the protocol's request/reply ----
+void AEidoverseBridge::OnBridgeMessage(const FString& Type,const TSharedPtr<FJsonObject>& J)
+{
+    if(Type==TEXT("bridge/hello")){UE_LOG(LogTemp,Display,TEXT("EIDOVERSE bridge/hello ok (server %s)"),*Endpoint);return;}
+    if(Type==TEXT("bridge/ready"))
+    {
+        // the join's cut is adopted: the world can be drawn (the scene starts here, not on the snapshot)
+        bBridgeReady=true;++BridgeReadyCount;BridgeWorldId=Eido::String(J,TEXT("worldId"));
+        double Head=-1;J->TryGetNumberField(TEXT("head"),Head);
+        UE_LOG(LogTemp,Display,TEXT("EIDOVERSE bridge/ready world=%s worldId=%s head=%.0f you=%s"),*Eido::String(J,TEXT("world")),*BridgeWorldId,Head,*Eido::String(J,TEXT("you")));
+        bSceneSupported=true;
+        if(bRenderDynamicWorld&&!DynamicScene)BeginDynamicScene();
+        return;
+    }
+    if(Type==TEXT("bridge/error"))
+    {
+        const FString For=Eido::String(J,TEXT("for")),Reason=Eido::String(J,TEXT("reason")).Left(300);
+        UE_LOG(LogTemp,Warning,TEXT("EIDOVERSE bridge/error for %s: %s (%s)"),*For,*Reason,*Eido::String(J,TEXT("code")));
+        if(For!=TEXT("bridge/do")){if(!Reason.IsEmpty())ToastText(Reason,true);return;}
+    }
+    if(Type==TEXT("bridge/done")||Type==TEXT("bridge/ridden")||Type==TEXT("bridge/error"))
+    {
+        // the answer to a bridge/do of mine: the authority's reply, or the bridge's own refusal, to whoever asked
+        TFunction<void(const TSharedPtr<FJsonObject>&)> Done;const TSharedPtr<FJsonObject>* Body=nullptr;
+        if(PendingReplies.RemoveAndCopyValue(Eido::String(J,TEXT("req")),Done))Done(Type==TEXT("bridge/error")?J:J->TryGetObjectField(TEXT("reply"),Body)?*Body:TSharedPtr<FJsonObject>());
+        OnWriteReply(Type,J);
+        return;
+    }
+    if(Type==TEXT("bridge/scene")){OnSceneMsg(Type,J);return;}
+    if(Type==TEXT("bridge/say")||Type==TEXT("bridge/narration")){OnChatMsg(Type,J);return;}
+    if(Type.StartsWith(TEXT("bridge/access-"))){OnAccessMsg(Type,J);return;}
+    OnBodiesMsg(Type,J);
+}
+FString AEidoverseBridge::Request(const FString& Verb,const TSharedRef<FJsonObject>& Args,TFunction<void(const TSharedPtr<FJsonObject>&)> Done)
+{
+    if(bSpectator||Verb.IsEmpty())return FString();
+    const FString Id=FString::Printf(TEXT("u%d"),++RequestSerial);
+    auto J=MakeShared<FJsonObject>();J->SetStringField(TEXT("type"),TEXT("request"));J->SetStringField(TEXT("id"),Id);
+    J->SetStringField(TEXT("verb"),Verb);J->SetObjectField(TEXT("args"),Args);
+    if(!bJoined||!Socket||!Socket->IsConnected()){if(!QueueWhileReconnecting(J,Verb))return FString();}
+    else Send(J);
+    PendingReplies.Add(Id,Done?Done:[this](const TSharedPtr<FJsonObject>& R){ShowRefusal(R);});
+    return Id;
+}
+FString AEidoverseBridge::BridgeDo(const FString& Fn,const TSharedRef<FJsonObject>& Fields,TFunction<void(const TSharedPtr<FJsonObject>&)> Done)
+{
+    if(!bUseBridge||!bJoined||!Socket||!Socket->IsConnected()||Fn.IsEmpty())return FString();
+    const FString Req=FString::Printf(TEXT("d%d"),++RequestSerial);
+    Fields->SetStringField(TEXT("type"),TEXT("bridge/do"));Fields->SetStringField(TEXT("req"),Req);Fields->SetStringField(TEXT("fn"),Fn);
+    Send(Fields);
+    PendingReplies.Add(Req,Done?Done:[this](const TSharedPtr<FJsonObject>& R){ShowRefusal(R);});
+    return Req;
+}
+bool AEidoverseBridge::OnReply(const TSharedPtr<FJsonObject>& J)
+{
+    // a reply to one of mine: its body ({ok, …} or {ok:false, refused}) to whoever asked
+    TFunction<void(const TSharedPtr<FJsonObject>&)> Done;
+    if(!PendingReplies.RemoveAndCopyValue(Eido::String(J,TEXT("id")),Done))return false;
+    const TSharedPtr<FJsonObject>* Body=nullptr;
+    Done(J->TryGetObjectField(TEXT("reply"),Body)?*Body:TSharedPtr<FJsonObject>());
+    return true;
+}
+void AEidoverseBridge::ShowRefusal(const TSharedPtr<FJsonObject>& Reply)
+{
+    // the authority's words for a refusal, and its fix (ADAPTER-DESIGN §1: the C++ shows reason and fix)
+    bool bOk=false;if(!Reply||(Reply->TryGetBoolField(TEXT("ok"),bOk)&&bOk))return;
+    const TSharedPtr<FJsonObject>* Refused=nullptr;const TSharedPtr<FJsonObject> R=Reply->TryGetObjectField(TEXT("refused"),Refused)?*Refused:Reply;
+    const FString Reason=Eido::String(R,TEXT("reason")).Left(300),Fix=Eido::String(R,TEXT("fix")).Left(200);
+    if(Reason.IsEmpty())return;
+    const FString Text=Fix.IsEmpty()?Reason:Reason+TEXT(" \u2014 ")+Fix;
+    LastErrorText=Reason;LastErrorAt=FPlatformTime::Seconds();
+    ToastText(Text,true);Narrate(Text);OnVerbRefused.Broadcast(Reason);
+}
+// ---- the main-era wire by owner (Bridge/SLICES.md): each slice retires its own; through the bridge none of these arrive ----
+bool AEidoverseBridge::ReceiveSceneWire(const FString& Type,const TSharedPtr<FJsonObject>& J)
+{
+    if(Type==TEXT("render-scene")){ReceiveDynamicScene(J);return true;}
+    return false;
+}
+bool AEidoverseBridge::ReceiveChatWire(const FString& Type,const TSharedPtr<FJsonObject>& J,double Now)
+{
+    if(Type==TEXT("log"))
+    {
+        const TSharedPtr<FJsonObject>* Entry=nullptr;if(!J->TryGetObjectField(TEXT("entry"),Entry))return true;
+        double Seq;if(!(*Entry)->TryGetNumberField(TEXT("seq"),Seq)||Seq<=LastLogSequence)return true;LastLogSequence=int64(Seq);
+        bSceneDirty=true;
+        if(Eido::String(*Entry,TEXT("verb"))==TEXT("grant"))++AccessDirty;   // who may come in may have changed
+        AttentionGate.Say(EidoAttention::ReadSay(*Entry));   // only the live path: history and the join window never chime
+        ReceiveInteraction(*Entry);
+        NarrateLogEntry(*Entry);
+        {
+            const FString Verb=Eido::String(*Entry,TEXT("verb"));const TSharedPtr<FJsonObject>* SeatArgs=nullptr;
+            if((Verb==TEXT("mount")||Verb==TEXT("dismount"))&&(*Entry)->TryGetObjectField(TEXT("args"),SeatArgs))ReceiveSeatLog(Verb,*SeatArgs);
+        }
+        if(Eido::String(*Entry,TEXT("verb"))!=TEXT("say"))return true;
+        const TSharedPtr<FJsonObject>* Args=nullptr;if(!(*Entry)->TryGetObjectField(TEXT("args"),Args))return true;
+        FString Sender=Eido::String(*Entry,TEXT("actor")),Text=Eido::String(*Args,TEXT("text")).Left(4000);FString Utt;double UttN;bool bSpoken=false;(*Args)->TryGetBoolField(TEXT("spoken"),bSpoken);
+        if(bSpoken&&(*Args)->TryGetNumberField(TEXT("utt"),UttN))Utt=FString::Printf(TEXT("%.0f"),UttN);else if(bSpoken)(*Args)->TryGetStringField(TEXT("utt"),Utt);
+        // ...or trimmed off the top: a re-join's window can replay such a line, and appending it would put it
+        // under hours of newer talk. Paging slots it back where it belongs.
+        if(RenderedChatSeqs.Contains(int64(Seq))||int64(Seq)<=ChatTrimmedThrough)return true;RenderedChatSeqs.Add(int64(Seq));
+        AddChatLine(Sender,Text,false,Utt.Left(64),bSpoken,int64(Seq));
+        if(!bSpoken)NoteSpeaker(Sender,Text);   // spoken says were performed live by their captions
+        return true;
+    }
+    if(Type==TEXT("snap")){ReceiveCapture(J);return true;}   // capture (v4 renames it: capture / capture-result)
+    if(Type==TEXT("whisper"))
     {
         // The server echoes my own whispers (echo:true) so every tab of mine sees them.
         const FString From=Eido::String(J,TEXT("from")).Left(64),To=Eido::String(J,TEXT("to")).Left(64),Text=Eido::String(J,TEXT("text")).Left(4000);
@@ -816,8 +927,19 @@ void AEidoverseBridge::Receive(const FString& Message)
         }
         if(bEcho)AddChatLine(TEXT("to ")+To,Text,true);
         else{LastWhisperFrom=From;AddChatLine(From,Text,true);if(HUD)HUD->Toast(From+TEXT(" whispered you"));}
+        return true;
     }
-    else ReceiveProtocol(Type,J,Now);
+    return false;
+}
+bool AEidoverseBridge::ReceiveWriteWire(const FString& Type,const TSharedPtr<FJsonObject>& J)
+{
+    if(Type==TEXT("inspect")){InspectedId=Eido::String(J,TEXT("id"));InspectReply=J;++InspectSerial;return true;}
+    return false;
+}
+bool AEidoverseBridge::ReceiveBodiesWire(const FString& Type,const TSharedPtr<FJsonObject>& J)
+{
+    if(Type==TEXT("lease")){ReceiveLease(J);return true;}
+    return false;
 }
 void AEidoverseBridge::SendPose()
 {
@@ -951,6 +1073,8 @@ void AEidoverseBridge::Tick(float DeltaSeconds)
     }
     if(ChatPanel&&!HUD)if(auto* PC=UGameplayStatics::GetPlayerController(this,0))
         if(PC->WasInputKeyJustPressed(EKeys::Enter))OpenChat(); // F2 is Unreal's Unlit debug binding.
+    if(bBridgeStarting&&bWanted&&Sidecar&&Sidecar->Ready())
+    {bBridgeStarting=false;Socket=Sidecar->OpenSocket();if(Socket)BindSocket();}
     if(bWanted&&!bJoined&&RetryAt==0&&Now-OpenedAt>15){Lost(1006);}
     if(bWanted&&RetryAt>0&&Now>=RetryAt){bRetrying=true;Connect();bRetrying=false;return;}
     // world-reset: reload after the 1.8 s the web gives people to read the notice.

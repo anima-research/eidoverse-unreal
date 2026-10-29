@@ -104,7 +104,8 @@ void AEidoverseBridge::TickDynamicScene(double Now)
     if(bSceneWaiting&&Now-LastSceneRequest>5){bSceneWaiting=false;bSceneDirty=true;WorldRenderStatus=TEXT("Scene response delayed; retrying");}
     if(!bSceneWaiting&&(bSceneDirty||bSceneMoving)&&Now-LastSceneRequest>=SceneRequestInterval)
     {
-        auto J=MakeShared<FJsonObject>();J->SetStringField(TEXT("type"),TEXT("render-scene"));J->SetNumberField(TEXT("version"),1);
+        // through the bridge, the same body answered locally from its fold (bridge/scene v2, Bridge/src/scene.ts)
+        auto J=MakeShared<FJsonObject>();J->SetStringField(TEXT("type"),bUseBridge?TEXT("bridge/scene"):TEXT("render-scene"));J->SetNumberField(TEXT("version"),bUseBridge?2:1);
         J->SetBoolField(TEXT("reset"),LastSceneRequest<0);Send(J);LastSceneRequest=Now;bSceneWaiting=true;bSceneDirty=false;
     }
     if(DynamicScene)WorldRenderStatus=DynamicScene->Diagnostic+FString::Printf(TEXT(" · %d models loaded / %d failed"),DynamicScene->LoadedModels,DynamicScene->FailedModels);

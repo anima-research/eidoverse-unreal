@@ -23,6 +23,7 @@ class AEidoverseScene;
 class APawn;
 class APostProcessVolume;
 class UEidoverseHUD;
+class FEidoverseSidecar;
 
 struct FEidoverseSuspendedActor
 {
@@ -480,6 +481,42 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Eidoverse") int32 SentPoseCount=0;
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Eidoverse") bool bJoined=false;
     UPROPERTY(BlueprintAssignable, Category="Eidoverse") FEidoverseChat OnChat;
+    // ---- the local bridge (EidoverseSidecar.cpp; Plugins/Eidoverse/Bridge/README.md): join a world as a replica through it ----
+    // On: -EidoverseBridge, or EIDOVERSE_BRIDGE=1|dev. The socket then goes to the bridge, which dials Endpoint.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Eidoverse") bool bUseBridge=false;
+    UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse") bool bBridgeReady=false;   // bridge/ready: the join's cut is folded
+    UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse") FString BridgeWorldId;
+    UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse") int32 BridgeReadyCount=0;
+    TSharedPtr<FEidoverseSidecar> Sidecar;
+    bool bBridgeStarting=false;
+    /** A request {id, verb, args} (the protocol's writes); Done gets the reply body ({ok, …} or {ok:false, refused}). */
+    FString Request(const FString& Verb,const TSharedRef<FJsonObject>& Args,TFunction<void(const TSharedPtr<FJsonObject>&)> Done=nullptr);
+    /** bridge/do {req, fn, …} (Bridge/src/writes.ts); Done gets bridge/done's reply, or the bridge/error itself. */
+    FString BridgeDo(const FString& Fn,const TSharedRef<FJsonObject>& Fields,TFunction<void(const TSharedPtr<FJsonObject>&)> Done=nullptr);
+    TMap<FString,TFunction<void(const TSharedPtr<FJsonObject>&)>> PendingReplies;
+    int32 RequestSerial=0;
+    void OnBridgeMessage(const FString& Type,const TSharedPtr<FJsonObject>& J);
+    bool OnReply(const TSharedPtr<FJsonObject>& J);
+    void ShowRefusal(const TSharedPtr<FJsonObject>& Reply);
+    // Per-slice hooks (Bridge/SLICES.md): each slice owns one, in its own file; slice 0 leaves them as stubs.
+    void OnSceneMsg(const FString& Type,const TSharedPtr<FJsonObject>& J);      // A: EidoverseBridgeScene.cpp
+
+    void OnChatMsg(const FString& Type,const TSharedPtr<FJsonObject>& J);       // B: EidoverseBridgeChat.cpp
+
+    void OnWriteReply(const FString& Type,const TSharedPtr<FJsonObject>& J);    // C: EidoverseBridgeWrites.cpp
+
+    void OnBodiesMsg(const FString& Type,const TSharedPtr<FJsonObject>& J);     // D: EidoverseBridgeBodies.cpp
+
+    void OnAccessMsg(const FString& Type,const TSharedPtr<FJsonObject>& J);     // D: EidoverseBridgeAccess.cpp
+
+    // The main-era wire, split by owner so each slice retires its own (Bridge/SLICES.md).
+    bool ReceiveSceneWire(const FString& Type,const TSharedPtr<FJsonObject>& J);      // A
+    bool ReceiveChatWire(const FString& Type,const TSharedPtr<FJsonObject>& J,double Now);   // B
+    bool ReceiveWriteWire(const FString& Type,const TSharedPtr<FJsonObject>& J);      // C
+    bool ReceiveBodiesWire(const FString& Type,const TSharedPtr<FJsonObject>& J);     // D
+    bool ReceiveHistory(const TSharedPtr<FJsonObject>& J);                            // B (EidoverseProtocol.cpp)
+    bool ReceiveAccessProtocol(const FString& Type,const TSharedPtr<FJsonObject>& J); // D (EidoverseProtocol.cpp)
+    void ReceiveSnapshotSeats(const TSharedPtr<FJsonObject>& State);                  // D (EidoverseProtocol.cpp)
     UFUNCTION(BlueprintCallable, Category="Eidoverse") void Connect();
     UFUNCTION(BlueprintCallable, Category="Eidoverse") void Disconnect();
     /** Tests only (Eidoverse.LiveChat): drop the socket as a network failure would, the chat kept, and hold the
@@ -562,6 +599,8 @@ private:
     FString LastExplorerMode;
     bool bRejoining=false;
     void SendJoin();
+    void SendBridgeHello();
+    void BindSocket();
     void ReadRights(const TSharedPtr<FJsonObject>& Rights);
     void Status(const FString& Value);
     void ClearPeers();
