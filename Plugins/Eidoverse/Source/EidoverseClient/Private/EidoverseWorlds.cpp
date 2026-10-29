@@ -98,12 +98,13 @@ void AEidoverseBridge::EndDynamicScene()
     for(auto& S:SuspendedActors)if(auto* A=S.Actor.Get())
     {A->SetActorHiddenInGame(S.bHidden);A->SetActorTickEnabled(S.bTick);A->SetActorEnableCollision(S.bCollision);if(auto* PP=Cast<APostProcessVolume>(A))PP->bEnabled=S.bPostProcess;
      A->Tags.Remove(TEXT("EidoverseSuspended"));if(S.bWaterPostTag)A->Tags.AddUnique(TEXT("WaterOpticsPostProcess"));}
-    SuspendedActors.Empty();bSceneDirty=bSceneMoving=bSceneWaiting=false;bDeterministicScenePhysics=false;SceneRequestInterval=.3;
+    SuspendedActors.Empty();SelfHeld.Empty();bSceneDirty=bSceneMoving=bSceneWaiting=false;bDeterministicScenePhysics=false;SceneRequestInterval=.3;
 }
 void AEidoverseBridge::TickDynamicScene(double Now)
 {
     if(!DynamicScene||!bSceneSupported)return;
     if(bSceneWaiting&&Now-LastSceneRequest>5){bSceneWaiting=false;bSceneDirty=true;WorldRenderStatus=TEXT("Scene response delayed; retrying");}
+    TickSelfHeld();
     // the log is folded in the bridge, not here, so nothing marks the scene dirty: keep asking (a local ask, Bridge/src/scene.ts)
     if(!bSceneWaiting&&Now-LastSceneRequest>=SceneRequestInterval)
     {

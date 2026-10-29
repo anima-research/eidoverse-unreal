@@ -500,6 +500,8 @@ public:
     void ShowRefusal(const TSharedPtr<FJsonObject>& Reply);
     // Per-slice hooks (Bridge/SLICES.md): each slice owns one, in its own file; slice 0 leaves them as stubs.
     void OnSceneMsg(const FString& Type,const TSharedPtr<FJsonObject>& J);      // A: EidoverseBridgeScene.cpp
+    TSet<FString> SelfHeld;   // A: what bridge/scene says my hand holds (held.by == me), drawn at my hand by TickSelfHeld
+    void TickSelfHeld();
 
     void OnChatMsg(const FString& Type,const TSharedPtr<FJsonObject>& J);       // B: EidoverseBridgeChat.cpp
 
