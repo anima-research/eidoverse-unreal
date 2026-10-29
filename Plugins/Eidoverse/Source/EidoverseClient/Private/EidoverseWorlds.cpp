@@ -43,8 +43,6 @@ void AEidoverseBridge::JoinLocalCommons()
 void AEidoverseBridge::BeginDynamicScene()
 {
     EndDynamicScene();auto* PC=UGameplayStatics::GetPlayerController(this,0);if(!PC)return;
-    // the world is drawn from the bridge's fold (bridge/scene v2); main's render-scene is gone (Bridge/SLICES.md A)
-    if(!bUseBridge){WorldRenderStatus=TEXT("This world is drawn through the local bridge (-EidoverseBridge). Local prototype remains active.");return;}
     if(auto* V=IConsoleManager::Get().FindConsoleVariable(TEXT("r.OneFrameThreadLag"))){PreviousFrameLag=V->GetInt();V->SetWithCurrentPriority(0,NAME_None,ECVF_SetByConsole,ECVF_SetByCode);}
     PrototypePawn=PC->GetPawn();
     // Runtime only: suspend the prototype without modifying saved levels. Keep
@@ -104,11 +102,11 @@ void AEidoverseBridge::TickDynamicScene(double Now)
 {
     if(!DynamicScene||!bSceneSupported)return;
     if(bSceneWaiting&&Now-LastSceneRequest>5){bSceneWaiting=false;bSceneDirty=true;WorldRenderStatus=TEXT("Scene response delayed; retrying");}
-    TickSelfHeld();
-    // the log is folded in the bridge, not here, so nothing marks the scene dirty: keep asking (a local ask, Bridge/src/scene.ts)
-    if(!bSceneWaiting&&Now-LastSceneRequest>=SceneRequestInterval)
+    if(bUseBridge)TickSelfHeld();
+    // through the bridge the log is folded there, so nothing here marks the scene dirty: keep asking (a local ask, Bridge/src/scene.ts)
+    if(!bSceneWaiting&&(bSceneDirty||bSceneMoving||bUseBridge)&&Now-LastSceneRequest>=SceneRequestInterval)
     {
-        auto J=MakeShared<FJsonObject>();J->SetStringField(TEXT("type"),TEXT("bridge/scene"));J->SetNumberField(TEXT("version"),2);
+        auto J=MakeShared<FJsonObject>();J->SetStringField(TEXT("type"),bUseBridge?TEXT("bridge/scene"):TEXT("render-scene"));J->SetNumberField(TEXT("version"),bUseBridge?2:1);
         J->SetBoolField(TEXT("reset"),LastSceneRequest<0);Send(J);LastSceneRequest=Now;bSceneWaiting=true;bSceneDirty=false;
     }
     if(DynamicScene)WorldRenderStatus=DynamicScene->Diagnostic+FString::Printf(TEXT(" · %d models loaded / %d failed"),DynamicScene->LoadedModels,DynamicScene->FailedModels);
