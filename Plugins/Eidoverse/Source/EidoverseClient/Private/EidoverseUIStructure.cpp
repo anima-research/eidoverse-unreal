@@ -76,7 +76,7 @@ namespace StructEdit
         return E;
     }
     FIntPoint PickCell(const TSharedPtr<FJsonObject>& G, double Lx, double Lz)
-    { double T = 1; G->TryGetNumberField(TEXT("tile"), T); return {FMath::FloorToInt(Lx / T), FMath::FloorToInt(Lz / T)}; }
+    { double T = 1; G->TryGetNumberField(TEXT("tile"), T); return {(int32)FMath::FloorToInt(Lx / T), (int32)FMath::FloorToInt(Lz / T)}; }
     TSharedPtr<FJsonObject> AddWall(const TSharedPtr<FJsonObject>& Data, const FGridEdge& E, int32 Lv)
     {
         auto D = Clone(Data); auto L = Level(D, Lv); FArr W = Get(L, TEXT("walls"));
