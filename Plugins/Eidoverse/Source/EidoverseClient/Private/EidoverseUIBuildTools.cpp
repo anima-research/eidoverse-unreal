@@ -4,7 +4,8 @@
 #endif
 // Build tools beyond spawn/place (web build.js, lights.js, placer.js, scenegraph.js):
 // drag-to-move with the live `drag` stream, lock/guard and attribution, light editing,
-// attach/detach/find. The server still decides; these only shape the requests.
+// attach/detach/find. The server still decides; these only shape the requests. Through the local bridge
+// (bUseBridge) they go as bridge/do (Bridge/src/writes.ts), in the current protocol's components.
 #include "EidoverseUI.h"
 #include "EidoverseBridge.h"
 #include "EidoverseScene.h"
@@ -96,7 +97,12 @@ void UEidoverseHUD::TickDrag(APlayerController* PC, AEidoverseScene* Scene, bool
         if (Drag.bActive)
         {
             Scene->HoldTransform(Drag.Id, false);
-            if ((Drag.CurrentWire - Drag.BeforeWire).GetAbsMax() >= .005)
+            if ((Drag.CurrentWire - Drag.BeforeWire).GetAbsMax() >= .005 && Bridge->bUseBridge)
+            {
+                if (!Bridge->BuildPlace(Drag.Id, Drag.CurrentWire, Drag.Yaw, Drag.Scale).IsEmpty())
+                    PushUndo(TEXT("setTransform"), AEidoverseBridge::PlaceFields(Drag.Id, Drag.BeforeWire, Drag.Yaw, Drag.Scale));
+            }
+            else if ((Drag.CurrentWire - Drag.BeforeWire).GetAbsMax() >= .005)
             {
                 auto Args = MakeShared<FJsonObject>();
                 Args->SetStringField(TEXT("id"), Drag.Id); Args->SetArrayField(TEXT("pos"), ToolVec3(Drag.CurrentWire));
@@ -172,7 +178,10 @@ bool UEidoverseHUD::BuildToolAction(const FString& Action)
         if (bOn) A->SetBoolField(TEXT("data"), true); else A->SetField(TEXT("data"), MakeShared<FJsonValueNull>());
         Bridge->SendVerb(TEXT("comp"), A);
     };
-    if (Action == TEXT("tool:lock")) Comp(TEXT("lock"), !IFlag(E->Interact, TEXT("locked")));
+    // through the bridge: lock is true or absent (componentspec lock, its strength its setter's rank); there is no guard
+    if (Bridge->bUseBridge && Action == TEXT("tool:lock")) Bridge->BuildSet(Id, TEXT("lock"), IFlag(E->Interact, TEXT("locked")) ? TSharedPtr<FJsonValue>() : TSharedPtr<FJsonValue>(MakeShared<FJsonValueBoolean>(true)));
+    else if (Bridge->bUseBridge && Action == TEXT("tool:guard")) Hint(TEXT("guard isn't in this protocol: a lock holds against everyone below the rank of whoever set it"), 4);
+    else if (Action == TEXT("tool:lock")) Comp(TEXT("lock"), !IFlag(E->Interact, TEXT("locked")));
     else if (Action == TEXT("tool:guard"))
     {
         const FString Why = AuthorRefusal(Id);
@@ -240,6 +249,20 @@ bool UEidoverseHUD::BuildToolAction(const FString& Action)
         {
             UEidoverseHUD* Self = Weak.Get(); if (!Self) return;
             if (Path.IsEmpty()) { Self->Toast(TEXT("upload failed: ") + Error, true); return; }
+            if (Self->Bridge && Self->Bridge->bUseBridge && Kind != TEXT("avatar"))
+            {
+                // componentspec sound / picture (a framed quad of its own: an image on a model's part is its material's); look is description
+                auto S = MakeShared<FJsonObject>(); S->SetStringField(TEXT("src"), Path); S->SetStringField(TEXT("description"), FPaths::GetBaseFilename(File).Left(200));
+                if (Kind == TEXT("sound")) { S->SetNumberField(TEXT("volume"), .8); S->SetNumberField(TEXT("radius"), 12); S->SetBoolField(TEXT("loop"), true); S->SetBoolField(TEXT("playing"), true); Self->SendComp(Target, TEXT("sound"), S); }
+                else if (Kind == TEXT("picture")) { S->SetStringField(TEXT("lit"), TEXT("scene")); Self->SendComp(Target, TEXT("picture"), S); }
+                else if (Kind == TEXT("model"))
+                {
+                    auto A = MakeShared<FJsonObject>(); A->SetStringField(TEXT("name"), FPaths::GetBaseFilename(File)); A->SetStringField(TEXT("path"), Path);
+                    Self->Bridge->BridgeDo(TEXT("asset"), A);
+                    Self->BuildAction(TEXT("build:hold:") + Path);
+                }
+                return;
+            }
             if (Kind == TEXT("sound"))
             {
                 auto S = MakeShared<FJsonObject>(); S->SetStringField(TEXT("src"), Path); S->SetNumberField(TEXT("volume"), .8); S->SetNumberField(TEXT("radius"), 12);
@@ -268,6 +291,20 @@ bool UEidoverseHUD::BuildToolAction(const FString& Action)
     }
     else if (Action.StartsWith(TEXT("tool:light:")))
     {
+        if (Bridge->bUseBridge)
+        {
+            // set light {…, merge: true} changes only the field touched; keep has no field, noon is daytime
+            auto A = MakeShared<FJsonObject>();
+            const FString What = Action.Mid(11);
+            if (What == TEXT("brighter") || What == TEXT("dimmer")) A->SetNumberField(TEXT("intensity"), FMath::RoundToDouble(FMath::Clamp(E->LightIntensity * (What == TEXT("brighter") ? 1.25 : .8), 0., 400.) * 10) / 10);
+            else if (What == TEXT("farther") || What == TEXT("nearer")) A->SetNumberField(TEXT("range"), FMath::Clamp(E->LightRange + (What == TEXT("farther") ? 2 : -2), 1., 200.));
+            else if (What == TEXT("noon")) A->SetStringField(TEXT("daytime"), E->bLightDayAware ? TEXT("full") : TEXT("dim"));   // "burns at noon": full in daylight
+            else if (What.StartsWith(TEXT("color:"))) A->SetNumberField(TEXT("color"), double(FParse::HexNumber(*What.Mid(6))));
+            else { Hint(TEXT("keep lit isn't in this protocol's light"), 3); return true; }
+            if (!Bridge->BuildSet(Id, TEXT("light"), MakeShared<FJsonValueObject>(A), true).IsEmpty()) Hint(TEXT("light updated"), 1.2f);
+            ExtrasFor.Empty();
+            return true;
+        }
         // lights.js: a partial light verb changes only the field touched.
         const UPointLightComponent* L = E->Light.Get();
         auto A = MakeShared<FJsonObject>(); A->SetStringField(TEXT("id"), Id);
@@ -381,6 +418,12 @@ void UEidoverseHUD::RebuildBuildExtras()
 
 void UEidoverseHUD::SendComp(const FString& Id, const FString& Type, const TSharedPtr<FJsonObject>& Data)
 {
+    if (Bridge && Bridge->bUseBridge)
+    {
+        // the component whole (set), or no data: taken off (unset)
+        if (!Bridge->BuildSet(Id, Type, Data ? TSharedPtr<FJsonValue>(MakeShared<FJsonValueObject>(Data)) : TSharedPtr<FJsonValue>()).IsEmpty()) { ExtrasFor.Empty(); Hint(Type + TEXT(" updated"), 1.5f); }
+        return;
+    }
     auto A = MakeShared<FJsonObject>(); A->SetStringField(TEXT("id"), Id); A->SetStringField(TEXT("type"), Type);
     if (Data) A->SetObjectField(TEXT("data"), Data); else A->SetField(TEXT("data"), MakeShared<FJsonValueNull>());
     if (Bridge && Bridge->SendVerb(TEXT("comp"), A)) { ExtrasFor.Empty(); Hint(Type + TEXT(" updated"), 1.5f); }
@@ -390,6 +433,13 @@ void UEidoverseHUD::SendSockets(const FString& Id, const TSharedPtr<FJsonObject>
 {
     // seatedit.js: the whole merged map every time (or null), with the old map as the undo.
     SendComp(Id, TEXT("sockets"), Sockets);
+    if (Bridge && Bridge->bUseBridge)
+    {
+        auto Back = MakeShared<FJsonObject>(); Back->SetStringField(TEXT("id"), Id); Back->SetStringField(TEXT("component"), TEXT("sockets"));
+        if (Before) Back->SetObjectField(TEXT("value"), Before);
+        PushUndo(Before ? TEXT("set") : TEXT("unset"), Back);
+        return;
+    }
     auto Undo = MakeShared<FJsonObject>(); Undo->SetStringField(TEXT("id"), Id); Undo->SetStringField(TEXT("type"), TEXT("sockets"));
     if (Before) Undo->SetObjectField(TEXT("data"), Before); else Undo->SetField(TEXT("data"), MakeShared<FJsonValueNull>());
     PushUndo(TEXT("comp"), Undo);

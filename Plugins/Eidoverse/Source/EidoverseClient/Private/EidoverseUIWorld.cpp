@@ -477,6 +477,21 @@ void UEidoverseHUD::WorldAction(const FString& Action)
     const FString Id = Action;
     if (!Bridge || Id.IsEmpty()) return;
     auto Refused = [this](const TCHAR* What) { Toast(FString::Printf(TEXT("Not sent: %s."), What), true); };
+    // bridged: a world write as bridge/do (Bridge/src/writes.ts); its toast once the authority took it, its words if it refused
+    TWeakObjectPtr<UEidoverseHUD> Weak(this);
+    auto Write = [this, Weak](const TCHAR* Fn, const TSharedPtr<FJsonObject>& Value, const FString& Took) -> bool
+    {
+        auto F = MakeShared<FJsonObject>();
+        if (Value) F->SetObjectField(TEXT("value"), Value); else F->SetField(TEXT("value"), MakeShared<FJsonValueNull>());
+        return !Bridge->BridgeDo(Fn, F, [Weak, Took](const TSharedPtr<FJsonObject>& R)
+        {
+            UEidoverseHUD* Self = Weak.Get(); if (!Self || !Self->Bridge) return;
+            bool bOk = false;
+            if (R && R->TryGetBoolField(TEXT("ok"), bOk) && bOk) { if (!Took.IsEmpty()) Self->Toast(Took); }
+            else Self->Bridge->ShowRefusal(R);
+        }).IsEmpty();
+    };
+    const bool bBridged = Bridge->bUseBridge;
     if (Id.StartsWith(TEXT("wtab:"))) { WorldTab = FMath::Clamp(FCString::Atoi(*Id.Mid(5)), 0, 5); NextSceneRefresh = 0; SceneHash = 0; }
     else if (Id.StartsWith(TEXT("avatar:")))
     {
@@ -508,9 +523,21 @@ void UEidoverseHUD::WorldAction(const FString& Action)
             // Web skypanel gather(): the whole sky, hours and azimuth always present.
             auto Args = Copy(SkyDraft);
             if (!Args->HasField(TEXT("hours"))) Args->SetNumberField(TEXT("hours"), 12);
-            if (!Args->HasField(TEXT("azimuth"))) Args->SetNumberField(TEXT("azimuth"), 180);
-            if (Bridge->IsOwner() && Bridge->SendVerb(TEXT("sky"), Args.ToSharedRef())) { bSkyDirty = false; Toast(TEXT("Sky applied.")); PreviewSkyDraft(false); }
-            else Refused(TEXT("only the owner can change the sky"));
+            if (bBridged)
+            {
+                // the sky verb's fields (componentspec sky): azimuth in radians, a weather change's ease as transition (s); tz alone is the real clock
+                if (!Args->HasField(TEXT("azimuth"))) Args->SetNumberField(TEXT("azimuth"), PI);
+                double Ease = 0; if (Args->TryGetNumberField(TEXT("weatherSeconds"), Ease)) { Args->SetNumberField(TEXT("transition"), Ease); Args->RemoveField(TEXT("weatherSeconds")); }
+                Args->RemoveField(TEXT("clock"));
+                if (Write(TEXT("sky"), Args, TEXT("Sky applied."))) { bSkyDirty = false; PreviewSkyDraft(false); }
+                else Refused(TEXT("join a world first"));
+            }
+            else
+            {
+                if (!Args->HasField(TEXT("azimuth"))) Args->SetNumberField(TEXT("azimuth"), 180);
+                if (Bridge->IsOwner() && Bridge->SendVerb(TEXT("sky"), Args.ToSharedRef())) { bSkyDirty = false; Toast(TEXT("Sky applied.")); PreviewSkyDraft(false); }
+                else Refused(TEXT("only the owner can change the sky"));
+            }
         }
     }
     else if (Id.StartsWith(TEXT("ground:")))
@@ -521,6 +548,17 @@ void UEidoverseHUD::WorldAction(const FString& Action)
             if (auto Shapes = Sub(Palette, TEXT("shapes"))) Shapes->TryGetNumberField(*GroundShape, Amplitude);
             FString Layer = TEXT("#4a5d33");
             if (auto Tint = Sub(Sub(Palette, TEXT("tints")), *GroundTint)) Tint->TryGetStringField(TEXT("layer"), Layer);
+            if (bBridged)
+            {
+                // @world terrain, whole (componentspec terrain): a layer's color is 0xRRGGBB
+                auto T = MakeShared<FJsonObject>(); T->SetStringField(TEXT("kind"), TEXT("noise"));
+                T->SetNumberField(TEXT("seed"), GroundSeed); T->SetNumberField(TEXT("size"), 160); T->SetNumberField(TEXT("segments"), 200);
+                T->SetNumberField(TEXT("amplitude"), Amplitude); T->SetNumberField(TEXT("flatRadius"), 16);
+                auto TL = MakeShared<FJsonObject>(); TL->SetNumberField(TEXT("color"), double(FParse::HexNumber(*Layer.Replace(TEXT("#"), TEXT(""))))); TL->SetNumberField(TEXT("repeat"), 16);
+                T->SetArrayField(TEXT("layers"), {MakeShared<FJsonValueObject>(TL)});
+                if (!Write(TEXT("terrain"), T, TEXT("Terrain applied."))) Refused(TEXT("join a world first"));
+                return;
+            }
             auto Args = MakeShared<FJsonObject>();
             Args->SetNumberField(TEXT("seed"), GroundSeed); Args->SetNumberField(TEXT("size"), 160); Args->SetNumberField(TEXT("segments"), 200);
             Args->SetNumberField(TEXT("amplitude"), Amplitude); Args->SetNumberField(TEXT("flatRadius"), 16);
@@ -538,6 +576,11 @@ void UEidoverseHUD::WorldAction(const FString& Action)
         else if (Id.StartsWith(TEXT("ground:density:"))) { GrassDensity = Id.Mid(15); Regrow(); }
         else if (Id == TEXT("ground:apply")) SendTerrain();
         else if (Id == TEXT("ground:reshuffle")) { GroundSeed = FMath::RandRange(0, 9998); SendTerrain(); }
+        else if (Id == TEXT("ground:mow") && bBridged)
+        {
+            if (!Write(TEXT("grass"), nullptr, FString())) Refused(TEXT("join a world first"));   // no grass component: mown
+            else bGrassGrown = false;
+        }
         else if (Id == TEXT("ground:mow"))
         {
             auto Args = MakeShared<FJsonObject>(); Args->SetBoolField(TEXT("clear"), true);
@@ -562,12 +605,22 @@ void UEidoverseHUD::WorldAction(const FString& Action)
             double Density = 1;
             if (auto D = Sub(Palette, TEXT("grassDensity"))) D->TryGetNumberField(*GrassDensity, Density);
             Args->SetNumberField(TEXT("density"), Density);
-            if (Bridge->IsOwner() && Bridge->SendVerb(TEXT("grass"), Args.ToSharedRef())) { Toast(TEXT("Planted.")); LastPlanting = Id.Mid(13); bGrassGrown = true; }
+            if (bBridged)
+            {
+                if (Write(TEXT("grass"), Args, TEXT("Planted."))) { LastPlanting = Id.Mid(13); bGrassGrown = true; }
+                else Refused(TEXT("join a world first"));
+            }
+            else if (Bridge->IsOwner() && Bridge->SendVerb(TEXT("grass"), Args.ToSharedRef())) { Toast(TEXT("Planted.")); LastPlanting = Id.Mid(13); bGrassGrown = true; }
             else Refused(TEXT("only the owner can plant"));
         }
     }
     else if (Id.StartsWith(TEXT("scene:select:"))) { SelectEntity(Id.Mid(13)); SceneHash = 0; NextSceneRefresh = 0; }
     else if (Id.StartsWith(TEXT("comp:"))) { InspectorAction(Id); return; }
+    else if (Id.StartsWith(TEXT("scene:remove:")) && bBridged)
+    {
+        if (!(Bridge->CanBuild() && !Bridge->BuildRemove(Id.Mid(13)).IsEmpty())) Refused(TEXT("you can't build here"));
+        SceneHash = 0;
+    }
     else if (Id.StartsWith(TEXT("scene:remove:")))
     {
         auto Args = MakeShared<FJsonObject>(); Args->SetStringField(TEXT("id"), Id.Mid(13));
