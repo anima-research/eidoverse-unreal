@@ -4,6 +4,7 @@ import { Session } from "./session.ts";
 
 const TOKEN = /^[A-Za-z0-9_-]{32,256}$/;   // a subprotocol token (RFC 6455 §4.1): 32 random bytes, hex or base64url
 const PROTO = "eido-bridge.";
+const NATIVE_ORIGINS = new Set(["http://127.0.0.1", "http://localhost"]);   // a page on loopback has a port in its Origin (but on :80)
 
 /** The first stdin line, and a promise that settles when stdin ends (the parent is gone). */
 async function readStdin() {
@@ -23,8 +24,9 @@ const listener = Bun.serve<{ session?: Session }>({
   hostname: "127.0.0.1", port: 0,
   fetch(req, srv) {
     if (new URL(req.url).pathname !== "/ws") return new Response("not found", { status: 404 });
-    // a page can't drive a local bridge: any Origin is refused (a native client sends none)
-    if (req.headers.has("origin")) return new Response("forbidden", { status: 403 });
+    // a page can't drive a local bridge: an Origin is refused but the port-less loopback one libwebsockets sends (the Unreal client)
+    const origin = req.headers.get("origin");
+    if (origin !== null && !NATIVE_ORIGINS.has(origin)) return new Response("forbidden", { status: 403 });
     const offered = (req.headers.get("sec-websocket-protocol") ?? "").split(",").map((s) => s.trim());
     const proto = offered.find((p) => p.startsWith(PROTO) && sameToken(p.slice(PROTO.length), token));
     if (!proto) return new Response("forbidden", { status: 403 });

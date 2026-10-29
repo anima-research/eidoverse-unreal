@@ -6,7 +6,7 @@
   "scripts": {
     "start": "bun src/main.ts",
     "test": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun test --timeout 120000 test/",
-    "build": "bun build --compile src/main.ts --outfile dist/eido-bridge"
+    "build": "sh build.sh"
   },
   "devDependencies": {
     "typescript": "5.6.3"

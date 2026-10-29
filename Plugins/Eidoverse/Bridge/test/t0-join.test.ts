@@ -44,13 +44,21 @@ test("T0b through the bridge: snapshot (its cut adopted, not forwarded) then bri
   ann.close(); r.close();
 });
 
-test("T0c the local socket: no token, a wrong token, or an Origin header is refused", async () => {
+test("T0c the local socket: no token, a wrong token, or a page's Origin is refused; the native client's port-less loopback Origin is not", async () => {
   const bare = await openSock(`ws://127.0.0.1:${br.port}/ws`);
   expect(bare.opened).toBe(false);
   const wrong = await openSock(`ws://127.0.0.1:${br.port}/ws`, { protocols: [`eido-bridge.${"0".repeat(64)}`] });
   expect(wrong.opened).toBe(false);
-  const page = await openSock(`ws://127.0.0.1:${br.port}/ws`, { protocols: [`eido-bridge.${br.token}`], headers: { Origin: "https://example.com" } });
-  expect(page.opened).toBe(false);
+  for (const Origin of ["https://example.com", "http://127.0.0.1:8080", "http://localhost:5173", "null"]) {   // a page's (any port is a page's)
+    const page = await openSock(`ws://127.0.0.1:${br.port}/ws`, { protocols: [`eido-bridge.${br.token}`], headers: { Origin } });
+    expect([Origin, page.opened]).toEqual([Origin, false]);
+  }
+  // the Unreal client's websocket (libwebsockets) sends its host as Origin, with no port: admitted, the token still gates it
+  const native = await openSock(`ws://127.0.0.1:${br.port}/ws`, { protocols: [`eido-bridge.${br.token}`], headers: { Origin: "http://127.0.0.1" } });
+  expect(native.opened).toBe(true);
+  native.close();
+  const nativeNoToken = await openSock(`ws://127.0.0.1:${br.port}/ws`, { headers: { Origin: "http://127.0.0.1" } });
+  expect(nativeNoToken.opened).toBe(false);
   const ok = await openSock(`ws://127.0.0.1:${br.port}/ws`, { protocols: [`eido-bridge.${br.token}`] });
   expect(ok.opened).toBe(true);
   expect(ok.ws.protocol).toBe(`eido-bridge.${br.token}`);

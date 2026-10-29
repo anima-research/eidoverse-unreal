@@ -52,7 +52,8 @@ export async function startServer({ worlds = [["glade", "Ann"]] as [string, stri
 export type Bridge = Awaited<ReturnType<typeof startBridge>>;
 /** The bridge as the sidecar launcher runs it: token on stdin, `{"port": P}` on stdout. */
 export async function startBridge({ token = crypto.randomBytes(32).toString("hex"), entry = path.join(ROOT, "src/main.ts") } = {}) {
-  const proc = Bun.spawn(["bun", entry], { cwd: ROOT, stdin: "pipe", stdout: "pipe", stderr: "pipe", env: { ...process.env, BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" } });
+  // BRIDGE_EXE: a built executable (build.sh) in place of bun on the sources
+  const proc = Bun.spawn(process.env.BRIDGE_EXE ? [process.env.BRIDGE_EXE] : ["bun", entry], { cwd: ROOT, stdin: "pipe", stdout: "pipe", stderr: "pipe", env: { ...process.env, BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" } });
   process.on("exit", () => { try { proc.kill(); } catch {} });
   proc.stdin.write(token + "\n"); proc.stdin.flush();
   const reader = proc.stdout.getReader(); let out = "", port = 0;

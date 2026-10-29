@@ -13,13 +13,19 @@ changed. Nothing here is copied from the engine: `engine/` is a git submodule pi
 ## Run
 
 ```sh
-git submodule update --init engine
-ln -s <an engine checkout>/node_modules engine/node_modules   # the engine's own deps (or: cd engine && bun install)
+git submodule update --init Plugins/Eidoverse/Bridge/engine   # from the repo root
+ln -s <an engine checkout>/node_modules engine/node_modules   # the engine's deps, for the suites' servers (or: cd engine && bun install)
 echo "<64 hex token>" | bun src/main.ts                       # prints {"port": P}; exits when stdin closes
+sh build.sh [mac-arm64|mac-x64|win64|linux]                   # one executable: ../Binaries/<Platform>/Bridge/ (staged by Build.cs)
 ```
 
+The client starts it itself (`EidoverseSidecar.cpp`) when `bUseBridge` is on (`-EidoverseBridge`, or `EIDOVERSE_BRIDGE=1`):
+the built executable if there is one, else `bun` (`$BUN`, or `~/.bun/bin/bun`) on `src/main.ts`. `EIDOVERSE_BRIDGE=dev`
+tries bun first. On Windows with Smart App Control on, an unsigned built executable is refused by the OS; the signed `bun`
+on the sources still runs. A checkout on a Windows drive under WSL wants `git -C engine config core.filemode false`.
+
 The launcher (the Unreal sidecar) writes a random token on stdin and reads `{"port": P}` from stdout. A local
-connection must offer `Sec-WebSocket-Protocol: eido-bridge.<token>` and carry no `Origin`. Its first message is
+connection must offer `Sec-WebSocket-Protocol: eido-bridge.<token>` and carry no `Origin` but `http://127.0.0.1` or `http://localhost` (port-less: what the Unreal client's libwebsockets sends). Its first message is
 `bridge/hello {server: "wss://host/ws", cookie?: "<ew_sess value>"}`; then the renderer sends its usual `join`.
 
 | local message | way | what |
