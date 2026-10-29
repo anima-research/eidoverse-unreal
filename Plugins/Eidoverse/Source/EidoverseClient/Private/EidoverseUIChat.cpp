@@ -1,7 +1,5 @@
-// Chat tabs for whispers and the composer's autocomplete (chat.js:439-492, 1045-1200):
-// all · mentions · system · @name… — a whisper opens its person's tab and counts
-// unread there; Enter in a DM tab whispers them; each tab keeps its own draft.
-// "/" lists the command table, "@" up to 8 people present; ↑/↓ move, Tab/Enter take.
+// Chat tabs and the composer's autocomplete (chat.js:1045-1200): all · mentions · system, each with its own draft.
+// No DM tabs: whisper is gone by policy (ADAPTER-DESIGN §3.4). "/" lists the command table, "@" up to 8 people present.
 #include "EidoverseUI.h"
 #include "EidoverseBridge.h"
 #include "Components/Button.h"
@@ -35,11 +33,8 @@ namespace
 
 void UEidoverseHUD::OpenDm(const FString& Name)
 {
-    const FString Who = Name.TrimStartAndEnd().Left(64);
-    if (Who.IsEmpty() || (Bridge && Who == Bridge->AssignedIdentity)) return;
-    if (!DmTabs.Contains(Who)) DmTabs.Add(Who);
+    if (Bridge) Bridge->Narrate(AEidoverseBridge::NoDirectMessages);
     ShowFrame(TEXT("chat"), true);
-    SwitchChatTab(3, Who);
     FocusChat();
 }
 
@@ -52,6 +47,7 @@ void UEidoverseHUD::CloseDm(const FString& Name)
 
 void UEidoverseHUD::SwitchChatTab(int32 Tab, const FString& Dm)
 {
+    if (Tab == 3) Tab = 0;   // no DM tab (OpenDm)
     // One draft per tab: park this one's text, bring the other's back.
     if (ChatInput)
     {
@@ -69,28 +65,8 @@ void UEidoverseHUD::SwitchChatTab(int32 Tab, const FString& Dm)
 void UEidoverseHUD::RebuildDmTabs()
 {
     if (!ChatTabBar) return;
-    for (UWidget* W : DmTabWidgets) if (W) W->RemoveFromParent();
-    DmTabWidgets.Reset();
-    for (const FString& Who : DmTabs)
-    {
-        const int32 Unread = DmUnread.FindRef(Who);
-        const bool bOn = ChatTab == 3 && ActiveDm == Who;
-        auto* Tab = TextButton(Unread ? FString::Printf(TEXT("@%s (%d)"), *Who, Unread) : TEXT("@") + Who);
-        Tab->SetStyle(FlatButton(bOn ? FEidoverseTheme::Private().CopyWithNewOpacity(.16f) : FLinearColor::Transparent,
-            FEidoverseTheme::Hover(), 6, bOn ? FEidoverseTheme::Private().CopyWithNewOpacity(.5f) : FLinearColor::Transparent));
-        Tab->OnClicked.AddDynamic(this, &UEidoverseHUD::OnDmTabClicked);
-        ButtonIds.Add(Tab, FName(*(TEXT("dm:") + Who)));
-        auto* Close = TextButton(TEXT("×"));
-        Close->SetToolTipText(FText::FromString(TEXT("close ") + Who));
-        Close->OnClicked.AddDynamic(this, &UEidoverseHUD::OnDmTabClicked);
-        ButtonIds.Add(Close, FName(*(TEXT("dmx:") + Who)));
-        // Before the unread jump button, which stays last.
-        const int32 At = FMath::Max(0, ChatTabBar->GetChildrenCount() - 1);
-        ChatTabBar->InsertChildAt(At, Tab); ChatTabBar->InsertChildAt(At + 1, Close);
-        if (auto* S = Cast<UHorizontalBoxSlot>(Tab->Slot)) S->SetPadding(FMargin(0, 0, 0, 0));
-        if (auto* S = Cast<UHorizontalBoxSlot>(Close->Slot)) S->SetPadding(FMargin(0, 0, 6, 0));
-        DmTabWidgets.Add(Tab); DmTabWidgets.Add(Close);
-    }
+    for (UWidget* W : DmTabWidgets) if (W) W->RemoveFromParent();   // no DM tabs (OpenDm)
+    DmTabWidgets.Reset(); DmTabs.Reset(); DmUnread.Reset();
 }
 
 void UEidoverseHUD::OnDmTabClicked()

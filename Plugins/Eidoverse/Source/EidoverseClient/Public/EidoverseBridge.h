@@ -181,12 +181,12 @@ public:
     // Presence-only "composing" signal (never logged). To: whisper recipient, or empty.
     UFUNCTION(BlueprintCallable, Category="Eidoverse") bool SendTyping(const FString& To);
 
-    // Rights (snapshot yourRights, live your-rights): visitor | builder | owner.
+    // Rights (snapshot yourRights, live your-rights): the role, and the permissions[] it carries (build, readChat, …).
     // An ownerless ("open") world makes everyone a builder. The server still decides.
     UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse|Rights") FString WorldRole;
     UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse|Rights") bool bWorldOpen=false;
     UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse|Rights") bool bCanGenerate=false;
-    UFUNCTION(BlueprintPure, Category="Eidoverse|Rights") bool CanBuild() const { return bJoined&&!bSpectator&&(bWorldOpen||WorldRole==TEXT("builder")||WorldRole==TEXT("owner")); }
+    UFUNCTION(BlueprintPure, Category="Eidoverse|Rights") bool CanBuild() const { return bJoined&&!bSpectator&&(bWorldOpen||HasPermission(TEXT("build"))); }
     UFUNCTION(BlueprintPure, Category="Eidoverse|Rights") bool IsOwner() const { return bJoined&&!bSpectator&&(WorldRole==TEXT("owner")); }
     // Authoring verbs (sky, terrain, grass, spawn, place, remove, comp, ...). Refusals arrive as 'error'.
     bool SendVerb(const FString& Verb,const TSharedRef<FJsonObject>& Args);
@@ -505,6 +505,9 @@ public:
     bool SaySpoken(const FString& Text);                 // a speech-to-text final as a say (EidoverseVoiceGlue.cpp)
     FString PeerOnceAnim(const FString& Id) const;       // tests: the last once anim a peer's pose carried
     TArray<FString> ClipEmoteNames() const;              // tests: the clip library's action-bar names
+    TArray<FString> RightsPermissions; int32 RightsRank=0; FString RoleName;   // your-rights permissions[], rank, roleName
+    bool HasPermission(const FString& Name) const { return RightsPermissions.Contains(Name); }
+    static const TCHAR* NoDirectMessages;               // whisper is gone by policy (ADAPTER-DESIGN §3.4)
 
     void OnWriteReply(const FString& Type,const TSharedPtr<FJsonObject>& J);    // C: EidoverseBridgeWrites.cpp
 
