@@ -336,7 +336,7 @@ void UEidoverseClipLibrary::RequestRoster()
         UEidoverseClipLibrary* Self = Weak.Get();
         TSharedPtr<FJsonObject> J; const TSharedPtr<FJsonObject>* E = nullptr;
         if (Self && Self->Generation == Gen && bOk && Response && Response->GetResponseCode() == 200 && Response->GetContent().Num() < 4 << 20 &&
-            FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Response->GetContentAsString()), J) && J && J->TryGetObjectField(TEXT("emotes"), E))
+            FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Response->GetContentAsString()), J) && J && J->TryGetObjectField(TEXT("actionbar"), E))
             for (const auto& Pair : (*E)->Values)
             {
                 const TSharedPtr<FJsonObject> O = Pair.Value->AsObject(); FString Clip;

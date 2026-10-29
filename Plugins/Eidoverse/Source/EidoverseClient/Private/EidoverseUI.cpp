@@ -1957,10 +1957,10 @@ void UEidoverseHUD::ReloadDefs()
             !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Response->GetContentAsString()), J) || !J) return;
         Self->Defs = J;
         const TSharedPtr<FJsonObject>* E = nullptr;
-        if (J->TryGetObjectField(TEXT("emotes"), E))
+        if (J->TryGetObjectField(TEXT("actionbar"), E))
         {
             Self->Emotes.Reset();
-            // Key order is the bar and number-key order (defs/animations/_emotes.json).
+            // Key order is the bar and number-key order (engine defs/animations/_actionbar.json).
             for (const auto& Pair : (*E)->Values)
             {
                 bool bListed = true;
