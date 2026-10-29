@@ -261,6 +261,7 @@ public:
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void OpenDm(const FString& Name);
     UFUNCTION(BlueprintCallable, Category="Eidoverse|UI") void CloseDm(const FString& Name);
     UFUNCTION(BlueprintPure, Category="Eidoverse|UI") TArray<FString> GetDmTabs() const { return DmTabs; }
+    TArray<FString> GetEmoteNames() const { TArray<FString> Out; for (const auto& E : Emotes) Out.Add(E.Key); return Out; }   // tests: the bar as read from /defs
     UFUNCTION(BlueprintPure, Category="Eidoverse|UI") FString GetActiveDm() const { return ChatTab == 3 ? ActiveDm : FString(); }
     UFUNCTION(BlueprintPure, Category="Eidoverse|UI") int32 GetDmUnread(const FString& Name) const { return DmUnread.FindRef(Name); }
     UFUNCTION(BlueprintPure, Category="Eidoverse|UI") TArray<FString> GetAutocomplete() const;

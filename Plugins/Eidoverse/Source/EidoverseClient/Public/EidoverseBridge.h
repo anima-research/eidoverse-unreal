@@ -502,6 +502,9 @@ public:
     void OnSceneMsg(const FString& Type,const TSharedPtr<FJsonObject>& J);      // A: EidoverseBridgeScene.cpp
 
     void OnChatMsg(const FString& Type,const TSharedPtr<FJsonObject>& J);       // B: EidoverseBridgeChat.cpp
+    bool SaySpoken(const FString& Text);                 // a speech-to-text final as a say (EidoverseVoiceGlue.cpp)
+    FString PeerOnceAnim(const FString& Id) const;       // tests: the last once anim a peer's pose carried
+    TArray<FString> ClipEmoteNames() const;              // tests: the clip library's action-bar names
 
     void OnWriteReply(const FString& Type,const TSharedPtr<FJsonObject>& J);    // C: EidoverseBridgeWrites.cpp
 

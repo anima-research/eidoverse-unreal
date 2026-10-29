@@ -221,12 +221,17 @@ void AEidoverseBridge::TickStt()
     for (const FString& F : Finals)
     {
         const FString Text = F.TrimStartAndEnd().Left(1000);
-        if (Text.IsEmpty()) continue;
-        auto A = MakeShared<FJsonObject>();
-        A->SetStringField(TEXT("text"), TEXT("\U0001F399 ") + Text);
-        A->SetBoolField(TEXT("voiced"), true); A->SetBoolField(TEXT("spoken"), true); A->SetNumberField(TEXT("utt"), ++SttUtt);
-        auto J = MakeShared<FJsonObject>();
-        J->SetStringField(TEXT("type"), TEXT("verb")); J->SetStringField(TEXT("verb"), TEXT("say")); J->SetObjectField(TEXT("args"), A);
-        Send(J);
+        if (!Text.IsEmpty()) SaySpoken(Text);
     }
+}
+
+bool AEidoverseBridge::SaySpoken(const FString& Text)
+{
+    auto A = MakeShared<FJsonObject>();
+    A->SetStringField(TEXT("text"), TEXT("\U0001F399 ") + Text);
+    A->SetBoolField(TEXT("voiced"), true); A->SetBoolField(TEXT("spoken"), true); A->SetNumberField(TEXT("utt"), ++SttUtt);
+    auto J = MakeShared<FJsonObject>();
+    J->SetStringField(TEXT("type"), TEXT("verb")); J->SetStringField(TEXT("verb"), TEXT("say")); J->SetObjectField(TEXT("args"), A);
+    Send(J);
+    return true;
 }
