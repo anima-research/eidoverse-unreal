@@ -290,8 +290,8 @@ FString EidoClipRules::SelectLocomotion(bool bJumped, float AirborneSeconds, boo
 
 void UEidoverseClipLibrary::Configure(const FString& HttpBase)
 {
-    if (HttpBase == Base) return;
-    Base = HttpBase; ++Generation;
+    if (HttpBase == Base && bActionBar == bActionBarOf) return;
+    Base = HttpBase; bActionBarOf = bActionBar; ++Generation;
     bRosterRequested = bRosterReady = false;
     Roster.Empty(); Emotes.Empty(); Ready.Empty(); Loading.Empty(); Failed.Empty(); Waiting.Empty();
 }
@@ -336,7 +336,7 @@ void UEidoverseClipLibrary::RequestRoster()
         UEidoverseClipLibrary* Self = Weak.Get();
         TSharedPtr<FJsonObject> J; const TSharedPtr<FJsonObject>* E = nullptr;
         if (Self && Self->Generation == Gen && bOk && Response && Response->GetResponseCode() == 200 && Response->GetContent().Num() < 4 << 20 &&
-            FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Response->GetContentAsString()), J) && J && J->TryGetObjectField(TEXT("actionbar"), E))
+            FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Response->GetContentAsString()), J) && J && J->TryGetObjectField(Self->bActionBar ? TEXT("actionbar") : TEXT("emotes"), E))
             for (const auto& Pair : (*E)->Values)
             {
                 const TSharedPtr<FJsonObject> O = Pair.Value->AsObject(); FString Clip;

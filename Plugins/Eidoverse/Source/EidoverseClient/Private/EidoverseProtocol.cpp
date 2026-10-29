@@ -91,7 +91,7 @@ void AEidoverseBridge::ReceiveSnapshotExtras(const TSharedPtr<FJsonObject>& J, d
     if (PendingRestore && bBodyMovedThisSession) PendingRestore.Reset();
     // Rights, as the web narrates them.
     if (!bWorldOpen && !WorldRole.IsEmpty() && WorldRole != TEXT("owner"))
-        Narrate(FString::Printf(TEXT("this world has an owner — you are a %s%s here"), RoleName.IsEmpty() ? *WorldRole : *RoleName, bCanGenerate ? TEXT(" +gen") : TEXT("")));
+        Narrate(FString::Printf(TEXT("this world has an owner — you are a %s%s here"), *ShownRole(), bCanGenerate ? TEXT(" +gen") : TEXT("")));
     bEmptyWorldNoticePending = true;
     // Anything queued while reconnecting goes out now, in order.
     if (!QueuedMessages.IsEmpty())
@@ -157,7 +157,7 @@ bool AEidoverseBridge::ReceiveProtocol(const FString& Type, const TSharedPtr<FJs
     }
     if (!bJoined) return false;
     if (Type == TEXT("history")) return ReceiveHistory(J);
-    if (Type == TEXT("capture")) { ReceiveCapture(J); return true; }   // a scene capture for the server's broker (engine server/screenshots.ts)
+    if (Type == TEXT("capture") && bUseBridge) { ReceiveCapture(J); return true; }   // a scene capture for the server's broker (engine server/screenshots.ts)
     if (Type == TEXT("world-reset"))
     {
         const FString By = PStr(J, TEXT("by")), World = PStr(J, TEXT("world"));

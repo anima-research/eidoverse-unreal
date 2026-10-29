@@ -227,9 +227,13 @@ void AEidoverseBridge::TickStt()
 
 bool AEidoverseBridge::SaySpoken(const FString& Text)
 {
-    // say {text, spoken, utt}: `voiced` isn't a say argument (the authority refuses it)
     auto A = MakeShared<FJsonObject>();
     A->SetStringField(TEXT("text"), TEXT("\U0001F399 ") + Text);
     A->SetBoolField(TEXT("spoken"), true); A->SetNumberField(TEXT("utt"), ++SttUtt);
-    return !Request(TEXT("say"), A).IsEmpty();
+    if (bUseBridge) return !Request(TEXT("say"), A).IsEmpty();   // say {text, spoken, utt}: `voiced` isn't a say argument (the authority refuses it)
+    A->SetBoolField(TEXT("voiced"), true);
+    auto J = MakeShared<FJsonObject>();
+    J->SetStringField(TEXT("type"), TEXT("verb")); J->SetStringField(TEXT("verb"), TEXT("say")); J->SetObjectField(TEXT("args"), A);
+    Send(J);
+    return true;
 }

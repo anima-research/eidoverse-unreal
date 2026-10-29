@@ -365,16 +365,26 @@ bool AEidoverseBridge::Say(const FString& Text)
 {
     const double Now=FPlatformTime::Seconds();
     if(bSpectator||Text.TrimStartAndEnd().IsEmpty()||Text.Len()>4000||Now-LastChat<.4)return false;
-    auto A=MakeShared<FJsonObject>();A->SetStringField(TEXT("text"),Text);
-    const bool bLive=bJoined&&Socket&&Socket->IsConnected();
-    if(Request(TEXT("say"),A).IsEmpty())return false;   // queued while reconnecting, in order (QueueWhileReconnecting)
-    if(bLive){LastChat=Now;SpeakOwnSay(Text);}
-    return true;
+    if(bUseBridge)
+    {
+        auto A=MakeShared<FJsonObject>();A->SetStringField(TEXT("text"),Text);
+        const bool bLive=bJoined&&Socket&&Socket->IsConnected();
+        if(Request(TEXT("say"),A).IsEmpty())return false;   // queued while reconnecting, in order (QueueWhileReconnecting)
+        if(bLive){LastChat=Now;SpeakOwnSay(Text);}
+        return true;
+    }
+    auto J=MakeShared<FJsonObject>(),A=MakeShared<FJsonObject>();A->SetStringField(TEXT("text"),Text);
+    J->SetStringField(TEXT("type"),TEXT("verb"));J->SetStringField(TEXT("verb"),TEXT("say"));J->SetObjectField(TEXT("args"),A);
+    if(!bJoined||!Socket||!Socket->IsConnected())return QueueWhileReconnecting(J,TEXT("say"));
+    Send(J);LastChat=Now;SpeakOwnSay(Text);return true;
 }
 bool AEidoverseBridge::Whisper(const FString& To,const FString& Text)
 {
-    // removed by policy (ADAPTER-DESIGN §3.4): nothing is sent
-    Narrate(NoDirectMessages);return false;
+    if(bUseBridge){Narrate(NoDirectMessages);return false;}   // removed by policy (ADAPTER-DESIGN §3.4): nothing is sent
+    const double Now=FPlatformTime::Seconds();
+    if(!bJoined||!Socket||!Socket->IsConnected()||bSpectator||To.TrimStartAndEnd().IsEmpty()||To.Len()>64||Text.TrimStartAndEnd().IsEmpty()||Text.Len()>4000||Now-LastChat<.4)return false;
+    auto J=MakeShared<FJsonObject>();J->SetStringField(TEXT("type"),TEXT("whisper"));J->SetStringField(TEXT("to"),To);J->SetStringField(TEXT("text"),Text);
+    Send(J);LastChat=Now;return true;
 }
 void AEidoverseBridge::Announce(const FString& Id,const FString& Avatar)
 {
@@ -627,7 +637,7 @@ void AEidoverseBridge::Pose(const FString& Id,const TSharedPtr<FJsonObject>& Dat
 {
     auto* Peer=Peers.Find(Id);if(!Peer||!Peer->Actor.IsValid())return; // roster authority, never create from a frame
     const TSharedPtr<FJsonObject>* Reach=nullptr;Peer->Reach=Data->TryGetObjectField(TEXT("reach"),Reach)?*Reach:nullptr;
-    FString Emote=Eido::String(Data,TEXT("anim"));if(Emote.IsEmpty())Emote=Eido::String(Data,TEXT("emote"));   // pose.anim; emote for one release (engine shared/onceanim.js)
+    FString Emote=bUseBridge?Eido::String(Data,TEXT("anim")):FString();if(Emote.IsEmpty())Emote=Eido::String(Data,TEXT("emote"));   // pose.anim; emote for one release (engine shared/onceanim.js)
     if(!Emote.IsEmpty()&&Emote!=Peer->LastEmote){Peer->ActiveEmote=Emote;Peer->EmoteUntil=Time+2.5;Peer->bEmotePending=true;}
     Peer->LastEmote=Emote;
     // Clip and its phase (pose-wire: clip, clipTime, clipTimeSlot, clipRate).
@@ -793,7 +803,7 @@ void AEidoverseBridge::Receive(const FString& Message)
         const TSharedPtr<FJsonObject>* Rights=nullptr;if(!J->TryGetObjectField(TEXT("rights"),Rights))return;
         const FString Before=WorldRole;const bool bGenBefore=bCanGenerate;ReadRights(*Rights);
         if((WorldRole!=Before||bCanGenerate!=bGenBefore)&&!bWorldOpen&&WorldRole!=TEXT("owner"))
-            Narrate(FString::Printf(TEXT("this world has an owner — you are a %s%s here"),RoleName.IsEmpty()?*WorldRole:*RoleName,bCanGenerate?TEXT(" +gen"):TEXT("")));
+            Narrate(FString::Printf(TEXT("this world has an owner — you are a %s%s here"),*ShownRole(),bCanGenerate?TEXT(" +gen"):TEXT("")));
     }
     else if(Type==TEXT("anim")&&bJoined)ReceiveAgentAnimation(J);
     else if(Type==TEXT("caption")&&bJoined)PerformSpeech(Eido::String(J,TEXT("id")),Eido::String(J,TEXT("text")).Left(500));
@@ -914,6 +924,22 @@ bool AEidoverseBridge::ReceiveChatWire(const FString& Type,const TSharedPtr<FJso
         if(!bSpoken)NoteSpeaker(Sender,Text);   // spoken says were performed live by their captions
         return true;
     }
+    if(Type==TEXT("snap")){ReceiveCapture(J);return true;}   // main's name; through the bridge it's capture (ReceiveProtocol)
+    if(Type==TEXT("whisper"))
+    {
+        // The server echoes my own whispers (echo:true) so every tab of mine sees them.
+        const FString From=Eido::String(J,TEXT("from")).Left(64),To=Eido::String(J,TEXT("to")).Left(64),Text=Eido::String(J,TEXT("text")).Left(4000);
+        bool bEcho=false;J->TryGetBoolField(TEXT("echo"),bEcho);
+        {
+            // replay:true marks a held whisper delivered as I join: shown, never chimed
+            EidoAttention::FWhisper W;W.From=From;W.To=To;W.Text=Text;W.bEcho=bEcho;J->TryGetBoolField(TEXT("replay"),W.bReplay);
+            const TSharedPtr<FJsonValue> TextValue=J->TryGetField(TEXT("text"));W.bTextIsString=TextValue.IsValid()&&TextValue->Type==EJson::String;
+            AttentionGate.Whisper(W);
+        }
+        if(bEcho)AddChatLine(TEXT("to ")+To,Text,true);
+        else{LastWhisperFrom=From;AddChatLine(From,Text,true);if(HUD)HUD->Toast(From+TEXT(" whispered you"));}
+        return true;
+    }
     return false;
 }
 bool AEidoverseBridge::ReceiveWriteWire(const FString& Type,const TSharedPtr<FJsonObject>& J)
@@ -985,7 +1011,7 @@ void AEidoverseBridge::SendPose()
     // Bodydrag nails ride presence too (net.js): [{j, at}] while any, null once to clear.
     if(MyPins.Num()){TArray<TSharedPtr<FJsonValue>> Pins;for(const auto& Pin:MyPins){auto O=MakeShared<FJsonObject>();O->SetStringField(TEXT("j"),Pin.Key.ToString());O->SetArrayField(TEXT("at"),Eido::Numbers({Pin.Value.X,Pin.Value.Y,Pin.Value.Z}));Pins.Add(MakeShared<FJsonValueObject>(O));}Data->SetArrayField(TEXT("pins"),Pins);}
     else if(bSendPinsNull){Data->SetField(TEXT("pins"),MakeShared<FJsonValueNull>());bSendPinsNull=false;}
-    if(!PendingEmote.IsEmpty()){Data->SetStringField(TEXT("anim"),PendingEmote);PendingEmote.Empty();}   // pose.anim (engine shared/onceanim.js)
+    if(!PendingEmote.IsEmpty()){Data->SetStringField(bUseBridge?TEXT("anim"):TEXT("emote"),PendingEmote);PendingEmote.Empty();}   // pose.anim (engine shared/onceanim.js); main reads emote
     J->SetStringField(TEXT("type"),TEXT("pose"));J->SetObjectField(TEXT("pose"),Data);Send(J);++SentPoseCount;
 }
 // -EidoverseJoin=<server>,<world>,<name> [-EidoverseAvatar=<library path>]
@@ -1072,7 +1098,7 @@ void AEidoverseBridge::Tick(float DeltaSeconds)
         const FString Base=HttpBase();
         if(!Base.IsEmpty())
         {
-            ClipLibrary->Configure(Base);
+            ClipLibrary->bActionBar=bUseBridge;ClipLibrary->Configure(Base);
             for(const TCHAR* Slot:{TEXT("idle"),TEXT("walk"),TEXT("run"),TEXT("jump"),TEXT("sit"),TEXT("lie")})ClipLibrary->Prefetch(Slot);
         }
         TickAvatars(Now);
@@ -1172,7 +1198,7 @@ namespace
         FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>&,UWorld* W){if(auto* B=Bridge(W))B->Disconnect();}));
     FAutoConsoleCommandWithWorldAndArgs EidoSay(TEXT("Eidoverse.Say"),TEXT("Say <text>. Public, persisted by the server only when echoed."),
         FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& A,UWorld* W){if(auto* B=Bridge(W))B->Say(FString::Join(A,TEXT(" ")));}));
-    FAutoConsoleCommandWithWorldAndArgs EidoWhisper(TEXT("Eidoverse.Whisper"),TEXT("Whisper <participant> <text>: removed by policy (speech is public); says so."),
+    FAutoConsoleCommandWithWorldAndArgs EidoWhisper(TEXT("Eidoverse.Whisper"),TEXT("Whisper <participant> <text>. Private, not a world-log verb (through the bridge: removed by policy)."),
         FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& A,UWorld* W){if(A.Num()<2)return;TArray<FString> Text=A;Text.RemoveAt(0);if(auto* B=Bridge(W))B->Whisper(A[0],FString::Join(Text,TEXT(" ")));}));
 }
 

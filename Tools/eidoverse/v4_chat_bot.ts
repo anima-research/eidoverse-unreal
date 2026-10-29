@@ -38,6 +38,7 @@ Bun.serve({ hostname: "127.0.0.1", port: Number(portArg), async fetch(req) {
     case "/revoke": return json(await ask("delete", { id: "@world", component: `roles:${await actorOf()}` }));
     case "/pose": anim = q("anim"); animLeft = 3; return json({ ok: true });
     case "/seen": return json(seen);
+    case "/defs": return json({ emotes: { "nod-main": { clip: "nod" } }, actionbar: { "wave-bridge": { clip: "raise" } } });   // a main server's /defs, for the non-bridged row
     default: return new Response("no", { status: 404 });
   }
 } });

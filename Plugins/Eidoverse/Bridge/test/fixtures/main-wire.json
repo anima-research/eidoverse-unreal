@@ -1,7 +1,8 @@
 {
  "verb": {
-  "EidoverseBridge.cpp": 1,
-  "EidoverseInteractions.cpp": 1
+  "EidoverseBridge.cpp": 2,
+  "EidoverseInteractions.cpp": 1,
+  "EidoverseVoiceGlue.cpp": 1
  },
  "SendVerb(…)": {
   "EidoverseBridge.cpp": 3,
@@ -24,12 +25,25 @@
   "EidoverseBridge.cpp": 1,
   "EidoverseWorlds.cpp": 1
  },
+ "whisper": {
+  "EidoverseBridge.cpp": 2,
+  "EidoverseCommands.cpp": 1
+ },
+ "snap": {
+  "EidoverseBridge.cpp": 1
+ },
  "inspect": {
   "EidoverseBridge.cpp": 2,
   "EidoverseUIWorld.cpp": 1
  },
- "whisper": {
-  "EidoverseCommands.cpp": 1
+ "snap-result": {
+  "EidoverseCapture.cpp": 1
+ },
+ "emotes": {
+  "EidoverseClips.cpp": 1,
+  "EidoverseUI.cpp": 1,
+  "EidoverseUILantern.cpp": 1,
+  "EidoverseUIMenu.cpp": 1
  },
  "world-access": {
   "EidoverseCommands.cpp": 2
@@ -39,9 +53,5 @@
  },
  "access-directory": {
   "EidoverseProtocol.cpp": 2
- },
- "emotes": {
-  "EidoverseUILantern.cpp": 1,
-  "EidoverseUIMenu.cpp": 1
  }
 }

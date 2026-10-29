@@ -50,6 +50,7 @@ void AEidoverseBridge::RefreshWorlds(const FString& Server)
                 TArray<FString>& Into = Declares == TEXT("agent") ? W.Agents : W.People;
                 if (!Id.IsEmpty() && Into.Num() < 64) Into.Add(Id.Left(64));
             }
+            if (O->TryGetArrayField(TEXT("agents"), Names)) for (const auto& N : *Names) if (W.Agents.Num() < 64) W.Agents.Add(N->AsString().Left(64));   // main's
             Worlds.Add(MoveTemp(W));
             if (Worlds.Num() >= 500) break;
         }

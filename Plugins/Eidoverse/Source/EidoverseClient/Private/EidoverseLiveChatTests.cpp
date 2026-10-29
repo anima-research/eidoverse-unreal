@@ -254,7 +254,7 @@ namespace
     {
         TWeakObjectPtr<UWorld> World;
         TWeakObjectPtr<AEidoverseBridge> Bridge;
-        FString Url, WorldName, Control, Http, Body, ContentType;
+        FString Url, WorldName, Control, Http, Body, ContentType, SavedEndpoint;
         int32 Row = 0, Chimes = 0, Code = 0, Red = 0;
         double RowAt = 0, AskAt = 0;
         bool bStarted = false, bBusy = false, bAsked = false, bResult = false;
@@ -357,6 +357,11 @@ bool FEidoverseLiveV4Chat::RunTest(const FString&)
         [S](AEidoverseBridge* B, double) {
             int32 N = 0; for (const FEidoverseChatLine& L : B->ChatHistory) N += L.Sender == B->AssignedIdentity && L.Text == TEXT("queued while away");
             return S->bResult && B->bJoined && N == 1; }});
+    Rows->Add({TEXT("not bridged: /defs is read for main's emotes, as before"), 20, [S](AEidoverseBridge* B) {
+        S->SavedEndpoint = B->Endpoint; B->bUseBridge = false; B->Endpoint = S->Control.Replace(TEXT("http://"), TEXT("ws://")) + TEXT("/ws"); if (B->HUD) B->HUD->ReloadDefs(); },
+        [](AEidoverseBridge* B, double) {
+            const TArray<FString> Bar = B->HUD ? B->HUD->GetEmoteNames() : TArray<FString>(), Clips = B->ClipEmoteNames();
+            return Bar.Contains(TEXT("nod-main")) && !Bar.Contains(TEXT("wave-bridge")) && Clips.Contains(TEXT("nod-main")) && !Clips.Contains(TEXT("wave-bridge")); }});
 
     ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([this, S, Rows]() -> bool {
         const double Now = FPlatformTime::Seconds(), In = Now - S->RowAt;
@@ -366,7 +371,7 @@ bool FEidoverseLiveV4Chat::RunTest(const FString&)
         if (S->Row >= Rows->Num())
         {
             UE_LOG(LogTemp, Display, TEXT("EIDOVERSE_V4CHAT done: %d of %d rows red"), S->Red, Rows->Num());
-            B->SetShareSceneScreenshots(false); B->Disconnect(); return true;
+            B->SetShareSceneScreenshots(false); B->Disconnect(); if (!S->SavedEndpoint.IsEmpty()) B->Endpoint = S->SavedEndpoint; return true;
         }
         const FRow& R = (*Rows)[S->Row];
         if (!S->bStarted) { S->bStarted = true; S->bAsked = false; S->Body.Empty(); S->AskAt = 0; if (R.Start) R.Start(B); return false; }
