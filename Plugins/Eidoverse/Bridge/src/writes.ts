@@ -4,6 +4,7 @@ import * as R from "../engine/shared/protocol/requests.js";
 import { enc } from "../engine/shared/protocol/names.js";
 import { idOut } from "../engine/shared/protocol/view.js";
 import { PERSON_ID } from "../engine/shared/protocol/ids.js";
+import { doorWrites, DOORS } from "../engine/shared/protocol/access.js";
 
 type Req = { verb: string; args: Record<string, any> };
 /** A refusal the bridge answers itself (nothing went up): never a rights call, only what it can't build (§7.2). */
@@ -40,11 +41,17 @@ const FNS: Record<string, (ctx: Ctx, m: any) => Req | Promise<any>> = {
   unset: (_c, m) => withArgs(R.unset(m.id, m.component), opt(m, ["force", "dry"])),
   remove: (_c, m) => R.remove(m.id),
   use: (_c, m) => R.use(m.id, m.action ?? null, m.args ?? null),
+  // the inspector's read: the id escaped going up, the bag's names and ids in view spelling coming back
+  inspect: async (c, m) => viewed(await c.request("inspect", { id: m.id === "@world" ? m.id : enc(String(m.id ?? "")) })),
   asset: (_c, m) => R.set("@world", `assets:${enc(String(m.path))}`, { name: m.name, path: m.path }),   // keyed as client/lib/generate.js keys it
   // world (UIWorld, Commands): value null deletes the component
   sky: (_c, m) => ({ verb: "sky", args: m.value ?? {} }),
   terrain: (_c, m) => world("terrain", m.value),
   grass: (_c, m) => world("grass", m.value),
+  // /access <door>: the engine's doorWrites from the world's access and default-role as the fold has them, one request
+  door: (c, m) => { const w = doorWrites(String(m.door), c.replica?.st?.entities?.["@world"]?.c ?? {});
+    if (!w) throw new Local("bad-args", `a door is one of ${Object.keys(DOORS).join(", ")}`);
+    return R.batch(w.map((x: any) => R.set("@world", x.component, x.value))); },
   epoch: (_c, m) => withArgs(world("physics-engine", m.engine == null ? null : { engine: m.engine, ...opt(m, ["tickMs"]) }), opt(m, ["force"])),
   // a script (main's behavior): store the source, then bind it with the reply's src; a refused upload stops there
   script: async (c, m) => {
@@ -63,6 +70,11 @@ const FNS: Record<string, (ctx: Ctx, m: any) => Req | Promise<any>> = {
   // /boom: the engine's force verb (verbspec force); its rights and its bodies' consent are the authority's
   force: (_c, m) => ({ verb: "force", args: opt(m, ["at", "radius", "power"]) }),
 };
+
+/** An inspect reply as the view spells it (view.js idOut): its id, component names, versions and children. */
+const keysOut = (o: unknown) => (o && typeof o === "object" && !Array.isArray(o) ? Object.fromEntries(Object.entries(o).map(([k, v]) => [idOut(k), v])) : o);
+const viewed = (r: any) => (!r?.ok ? r : { ...r, id: idOut(String(r.id)), components: keysOut(r.components), versions: keysOut(r.versions), touched: keysOut(r.touched),
+  children: Array.isArray(r.children) ? r.children.map((x: unknown) => idOut(String(x))) : r.children });
 
 /** The reply with its minted ids in view spelling (§3.5: the C++ re-keys its `$b<n>` ghost by them). */
 const decoded = (reply: any) => (reply?.ids && typeof reply.ids === "object" ? { ...reply, ids: Object.fromEntries(Object.entries(reply.ids).map(([k, v]) => [k, idOut(String(v))])) } : reply);

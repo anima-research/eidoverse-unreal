@@ -120,6 +120,25 @@ test("T6d ids that need enc: an imported world's Lamp_1 and 'chaise longue ☼',
   w.close();
 });
 
+test("T6e inspect (the inspector's read): the id goes up escaped, the bag comes back in view spelling; a missing thing is the authority's refusal", async () => {
+  const id = await made("$i1");
+  expect((await ann.req("set", { id, component: "label", value: "inspected" }))?.ok).toBe(true);
+  let k = r.msgs.length, ku = px.up.length;
+  r.send({ type: "bridge/do", req: "i1", fn: "inspect", id });
+  const a = await done("i1", k);
+  expect([a.type, a.reply?.ok, a.reply?.components?.label, a.reply?.components?.model]).toEqual(["bridge/done", true, "inspected", "eidoverse/assets/models/lamp.glb"]);
+  expect(ups(ku).map((m) => ({ verb: m.verb, args: m.args }))).toEqual([{ verb: "inspect", args: { id } }]);
+  k = r.msgs.length;
+  r.send({ type: "bridge/do", req: "i2", fn: "inspect", id: "no-such-thing" });
+  expect((await done("i2", k)).reply).toMatchObject({ ok: false, refused: { code: "not-found" } });
+  const w = await renderer(br, srv.url); w.send(join("odd-ids", "Rae").raw);
+  await w.wait("bridge/ready", (m) => m.type === "bridge/ready");
+  k = w.msgs.length; w.send({ type: "bridge/do", req: "i3", fn: "inspect", id: "Lamp_1" });   // its wire id is x--…: the reply's comes back decoded
+  const o = await w.wait("inspect Lamp_1", (x) => (x.type === "bridge/done" || x.type === "bridge/error") && x.req === "i3", k);
+  expect([o.reply?.ok, o.reply?.id, o.reply?.components?.model]).toEqual([true, "Lamp_1", "eidoverse/assets/models/lamp.glb"]);
+  w.close();
+});
+
 test("T6c a refused create: the request goes up, the authority's refusal comes back as it is, no id is minted, nothing is drawn", async () => {
   expect((await ann.req("set", { id: "@world", component: `roles:${you}`, value: { role: BASE } }))?.ok).toBe(true);
   await caughtUp();

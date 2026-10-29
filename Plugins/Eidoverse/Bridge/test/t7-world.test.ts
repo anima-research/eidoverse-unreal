@@ -5,6 +5,7 @@ import { join } from "./fixtures/renderer.ts";
 import { worldWrites, grant, revoke, kick, ban, unban, boom, script } from "./fixtures/writes.ts";
 import * as R from "../engine/shared/protocol/requests.js";
 import { makeReplica } from "../engine/shared/protocol/replica.js";
+import { doorOf, doorWrites } from "../engine/shared/protocol/access.js";
 
 let srv: Server, br: Bridge, px: Proxy, r: Sock, you: string;
 const ups = (k: number) => px.up.slice(k).map((x) => JSON.parse(x)).filter((m) => m.type === "request").map((m) => ({ verb: m.verb, args: m.args }));
@@ -31,6 +32,31 @@ test("T7a the world panels' writes go up as @world sets and deletes (sky as its 
   const v = (await fresh()).view();
   expect([v.sky?.hours, v.terrain?.seed, v.grass]).toEqual([12, 3, null]);
   expect((await fresh()).st.entities["@world"].c["physics-engine"]).toBeUndefined();
+});
+
+test("T7e /access <door>: the engine's doorWrites from the bridge's fold, as one request, and the door is then that one; a door not on the list is answered locally", async () => {
+  // a moderator reads the world: a closed door turns others away, and a second Rae would replace the renderer's connection
+  const mod = await person(srv.url, "home", "Mo"); const modId = mod.snap.cut.you as string; mod.close();
+  let k0 = r.msgs.length; r.send({ type: "bridge/do", req: "mo", fn: "grant", who: modId, role: "moderator" });
+  expect((await done("mo", k0)).reply?.ok).toBe(true);
+  const owner = async () => { const rep = makeReplica(); const p = await person(srv.url, "home", "Mo"); rep.adopt(p.snap.cut); p.close(); return rep; };
+  const caughtUp = async () => { const h = (await owner()).head; await until("the bridge catches up", async () => { const k = r.msgs.length; r.send({ type: "bridge/status" }); return (await r.wait("status", (m) => m.type === "bridge/status", k)).head >= h; }); };
+  const was = doorOf((await owner()).st.entities["@world"].c);
+  for (const door of ["invite-only", "watch", "public", "open", was]) {
+    await caughtUp(); const wc = (await owner()).st.entities["@world"].c;
+    const k = r.msgs.length, ku = px.up.length;
+    r.send({ type: "bridge/do", req: `door-${door}`, fn: "door", door });
+    const a = await done(`door-${door}`, k);
+    expect([door, a.type, a.reply?.ok, a.reply?.refused]).toEqual([door, "bridge/done", true, undefined]);
+    expect([door, ups(ku)]).toEqual([door, [R.batch(doorWrites(door, wc)!.map((x: any) => R.set("@world", x.component, x.value)))]]);
+    await until(`the door is ${door}`, async () => doorOf((await owner()).st.entities["@world"].c) === door);
+  }
+  const k = r.msgs.length, ku = px.up.length;
+  r.send({ type: "bridge/do", req: "door-x", fn: "door", door: "members" });
+  expect(await done("door-x", k)).toMatchObject({ type: "bridge/error", fn: "door", code: "bad-args" });
+  expect(ups(ku)).toEqual([]);
+  k0 = r.msgs.length; r.send({ type: "bridge/do", req: "mo-", fn: "revoke", who: modId });
+  expect((await done("mo-", k0)).reply?.ok).toBe(true);
 });
 
 test("T7b grant/revoke/kick/ban/unban name a person; the bridge resolves the name to their identity, the authority decides", async () => {
