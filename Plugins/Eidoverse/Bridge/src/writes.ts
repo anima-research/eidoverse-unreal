@@ -4,7 +4,6 @@ import * as R from "../engine/shared/protocol/requests.js";
 import { enc } from "../engine/shared/protocol/names.js";
 import { idOut } from "../engine/shared/protocol/view.js";
 import { PERSON_ID } from "../engine/shared/protocol/ids.js";
-import { REMOVED_VERBS } from "../engine/shared/protocol/verbspec.js";
 
 type Req = { verb: string; args: Record<string, any> };
 /** A refusal the bridge answers itself (nothing went up): never a rights call, only what it can't build (§7.2). */
@@ -61,8 +60,8 @@ const FNS: Record<string, (ctx: Ctx, m: any) => Req | Promise<any>> = {
   kick: (c, m) => ({ verb: "kick", args: { who: identity(c, m.who), ...opt(m, ["minutes", "reason"]) } }),
   ban: (c, m) => ({ verb: "ban", args: { who: identity(c, m.who), ...opt(m, ["days", "reason"]) } }),
   unban: (c, m) => ({ verb: "unban", args: { who: identity(c, m.who) } }),
-  // GAP (§7.2): no verb serves it; the fix is the engine's own pointer
-  force: () => { throw new Local("gap", "there's no force blast in this protocol", REMOVED_VERBS.force.fix); },
+  // /boom: the engine's force verb (verbspec force); its rights and its bodies' consent are the authority's
+  force: (_c, m) => ({ verb: "force", args: opt(m, ["at", "radius", "power"]) }),
 };
 
 /** The reply with its minted ids in view spelling (§3.5: the C++ re-keys its `$b<n>` ghost by them). */

@@ -3,6 +3,7 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { startServer, startBridge, startProxy, renderer, person, until, type Server, type Bridge, type Proxy, type Sock } from "./harness.ts";
 import { join } from "./fixtures/renderer.ts";
 import { DOOR, grant, revoke } from "./fixtures/access.ts";
+import { BASE } from "../engine/shared/protocol/roles.js";
 
 const GAP = "search by name isn't available on this server: pick someone here, or paste their identity (u-…)";
 let srv: Server, br: Bridge, px: Proxy, r: Sock, ann: Awaited<ReturnType<typeof person>>, bob: Awaited<ReturnType<typeof person>>;
@@ -73,4 +74,11 @@ test("T10d the directory: whois for a name or an identity this world has seen; a
   const miss = await directory("Nobody Ever");
   expect([miss.results, miss.error]).toEqual([[], GAP]);
   expect(await directory("")).toEqual({ type: "bridge/access-directory", q: "", results: [] });
+});
+
+test("T10e a world with no default-role: the tab names the engine's base rung (roles.js BASE), as the authority reads it", async () => {
+  const k = r.msgs.length;
+  expect((await ann.req("delete", { id: "@world", component: "default-role" }))?.ok).toBe(true);
+  await pushed(k, "the change pushed", () => true);
+  expect((await state()).defaultRole).toBe(BASE);
 });

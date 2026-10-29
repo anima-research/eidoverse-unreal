@@ -13,6 +13,8 @@ import { waterParams, vector, MAX_AIR } from "../engine/shared/water.js";
 import { resolveParticles } from "../engine/shared/particle_effects.js";
 import { normalizeSound } from "../engine/shared/sound.js";
 import { enc } from "../engine/shared/protocol/names.js";
+import { COMPONENTS } from "../engine/shared/protocol/componentspec.js";
+import { OLD_LIGHT_DECAY } from "../engine/shared/protocol/shaperepair.js";
 import { addBodies } from "./bodies.ts";
 
 export const SCENE_VERSION = 2;
@@ -102,7 +104,12 @@ export function componentData(view: any, kids: Tree, id: string) {
   return Object.keys(data).length ? data : null;
 }
 
-const LIGHT = { color: 0xffe0b0, intensity: 1, range: 10 };
+const LIGHT = { ...COMPONENTS.light.defaults, color: 0xffe0b0 };   // the colour main's render-scene filled in
+/** The renderer's intensity is main's (it draws inverse-square and brightens by (range/2)^0.3 itself, EidoverseScene.cpp:591); a decay-2 light's is undone here. */
+const rendererIntensity = (L: any) => { const i = L.intensity ?? LIGHT.intensity, r = L.range ?? LIGHT.range;
+  return (L.decay ?? LIGHT.decay) === OLD_LIGHT_DECAY ? i : i / Math.max(1, r * 0.5) ** 0.3; };
+/** main's collide (exact | box) is collider.shape now (translate-v1 @24): mesh → exact. */
+const collideOf = (rec: any) => (isObj(rec.collider) && rec.collider.shape === "box" ? "box" : isObj(rec.collider) && rec.collider.shape === "mesh" ? "exact" : null);
 const NOT_COMPONENTS = new Set(["id", "pos", "q", "yaw", "scale", "scale3", "born", "model", "parent"]);
 /** One drawn thing, in the renderer's upsert shape (render-scene.ts projectEntity). */
 export function upsertOf(view: any, kids: Tree, id: string) {
@@ -118,8 +125,8 @@ export function upsertOf(view: any, kids: Tree, id: string) {
   const kind = rec.model ? "model" : isObj(rec.light) ? "light" : "empty";
   const L = kind === "light" ? rec.light : {};
   const out = { id, lib: rec.model ?? "", kind, structure,
-    color: L.color ?? LIGHT.color, intensity: L.intensity ?? LIGHT.intensity, range: L.range ?? LIGHT.range,
-    collide: rec.collide ?? "exact", collideAuthored: rec.collide ?? null, components: Object.keys(rec).filter((k) => !NOT_COMPONENTS.has(k)),
+    color: L.color ?? LIGHT.color, intensity: kind === "light" ? rendererIntensity(L) : 1, range: L.range ?? LIGHT.range,
+    collide: collideOf(rec) ?? "exact", collideAuthored: collideOf(rec), components: Object.keys(rec).filter((k) => !NOT_COMPONENTS.has(k)),
     data: componentData(view, kids, id),
     ...(kind === "light" ? { keep: L.important === true, day: L.daytime !== "full" } : {}),
     interact: { actions: Object.keys(rec.reactions ?? {}).slice(0, 32), sockets: socketsOf(view, kids, id) ?? null,

@@ -7,8 +7,8 @@ import { join } from "./fixtures/renderer.ts";
 import { scanKeys } from "./renderer-keys.ts";
 import { DROPPED } from "../engine/tools/protocol/import-v1/translate-v1.js";
 
-const MAIN = process.env.MAIN_DIR ?? "/home/claude/eido/wt-main-ccd5";
-const UNREAL = process.env.UNREAL_DIR ?? "/home/claude/eido/ref/eidoverse-unreal";
+const MAIN = process.env.MAIN_DIR ?? "";   // a checkout of the engine's main (the oracle); T3a is skipped without one
+const UNREAL = process.env.UNREAL_DIR ?? path.resolve(ROOT, "../../..");   // the client repo this directory sits in
 const TOL = 1e-6;
 const dirsIn = (d: string) => fs.existsSync(d) ? fs.readdirSync(d).sort().map((n) => path.join(d, n)).filter((p) => fs.existsSync(path.join(p, "log.jsonl"))) : [];
 const WORLDS = [...dirsIn(path.join(ENGINE, "spec/fixtures")), ...dirsIn(path.join(ROOT, "test/fixtures/worlds")),
@@ -45,6 +45,10 @@ const RULES: Rule[] = [
   { at: /^\.atmosphere\.clock\.(seq|by)$/, why: D("entity.actor / entity.ts") + " (a stored sky carries no seq/by: the entry that wrote it does; replica.js #260 I286)" },
   { at: /\.data\.picture\.flip$/, why: D("picture.flip false"), when: (d) => d.main === false && d.bridge === undefined },
   { at: /\.interact\.moving$/, why: D("motion.part") + ": a part's motion is motion:<slot>, and moves the thing as main's bare part motion did", when: (d, c) => d.bridge === true && Object.keys(c.mainState.entities[c.id] ?? {}).length > 0 },
+  { at: /\.upserts\.[^.]+\.intensity$/, why: "translate-v1 @29 parityIntensity: a light is decay 2 at main's brightness, written to 4 digits (scene.ts undoes the factor; the rounding stays)",
+    when: (d) => typeof d.main === "number" && typeof d.bridge === "number" && Math.abs(d.bridge - d.main) <= 5e-4 * Math.abs(d.main) },
+  { at: /\.upserts\.[^.]+\.collide(Authored)?$/, why: "translate-v1 @24: main's spawn collide yields to the thing's own collider component's shape (comp collider)",
+    when: (d, c) => { const sh = c.mainState.entities[c.id]?.comp?.collider?.shape; return !!sh && d.bridge === (sh === "box" ? "box" : "exact"); } },
   // additive (ADAPTER-DESIGN §3.6): a key main never sent that the renderer doesn't read (renderer-keys.json)
   { at: /\.([^.[\]]+)$/, why: "additive: a key main never sent, which the renderer doesn't read (renderer-keys.json)", when: (d) => d.main === undefined && !(/\.([^.[\]]+)$/.exec(d.at)![1] in KEYS) },
   { at: /^\.environment\.(sky|grass)(\.|$)/, why: "translate-v1 @12 wave 2 (render-media-env): @world sky and grass in today's spelling (shared/protocol/shaperepair.js)" },
@@ -74,6 +78,7 @@ beforeAll(async () => {
     const again = await r.wait(`${world}: bridge/scene again`, (m) => m.type === "bridge/scene" || m.type === "bridge/error", k);
     if (!probes.length) { k = r.msgs.length; r.send({ type: "bridge/scene", version: 1 }); probes.push(await r.wait("a v1 ask", (m) => m.type === "bridge/scene", k)); }
     r.close();
+    if (!MAIN) { results.push({ world, main: null, mainState: null, bridge, again }); continue; }
     const s = scratch("main");
     const mr = Bun.spawnSync(["bun", path.join(ROOT, "test/oracle/main-scene.ts"), path.join(d, "log.jsonl"), world, String(bridge.time ?? Date.now())], { cwd: MAIN,
       env: { ...process.env, MAIN_DIR: MAIN, WORLDS_DIR: path.join(s, "w"), OPT_DIR: path.join(s, "o"), BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" } });
@@ -84,7 +89,7 @@ beforeAll(async () => {
 }, 600_000);
 afterAll(() => { br?.stop(); srv?.stop(); });
 
-test("T3a every world: bridge/scene agrees with main's render-scene field by field, but for named reasons", () => {
+test.skipIf(!MAIN)("T3a every world: bridge/scene agrees with main's render-scene field by field, but for named reasons", () => {
   const unexplained: string[] = [], explained = new Map<string, number>();
   expect(results.length).toBe(WORLDS.length);
   for (const { world, main, mainState, bridge } of results) {

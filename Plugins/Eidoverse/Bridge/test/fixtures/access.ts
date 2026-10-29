@@ -1,5 +1,6 @@
 // test/fixtures/access.ts — the access tab's grants (EidoverseUIAccess.cpp:267-275 AccessGrant → world-access {id, role?, for?, revoke?}) in the protocol's form.
 // The door was the wildcard's rung; it is @world access + default-role now (shared/protocol/access.js DOORS, doorWrites).
+import { BASE } from "../../engine/shared/protocol/roles.js";
 
 let n = 0;
 const request = (src: string, verb: string, args: Record<string, unknown>) => { const id = `ax-${++n}`; return { id, src, raw: JSON.stringify({ type: "request", id, verb, args }) }; };
@@ -9,7 +10,7 @@ const batch = (...ops: any[]) => ops.length === 1 ? ops[0] : { verb: "batch", ar
 /** The tab's four doors (EidoverseUIAccess.cpp:24-29: builder, visitor, spectator, none) → the protocol's (open, public, watch, invite-only). */
 export const DOOR: Record<string, { to: string; req: () => { id: string; src: string; raw: string } }> = {
   builder: { to: "open", req: () => { const b = batch(set("access", { join: "anyone" }), set("default-role", { role: "builder" })); return request("EidoverseUIAccess.cpp:296 (door:builder)", b.verb, b.args); } },
-  visitor: { to: "public", req: () => { const b = batch(set("access", { join: "anyone" }), set("default-role", { role: "inhabitant" })); return request("EidoverseUIAccess.cpp:296 (door:visitor)", b.verb, b.args); } },
+  visitor: { to: "public", req: () => { const b = batch(set("access", { join: "anyone" }), set("default-role", { role: BASE })); return request("EidoverseUIAccess.cpp:296 (door:visitor)", b.verb, b.args); } },
   spectator: { to: "watch", req: () => { const s = set("access", { join: "listed", watch: "anyone" }); return request("EidoverseUIAccess.cpp:296 (door:spectator)", s.verb, s.args); } },
   none: { to: "invite-only", req: () => { const s = set("access", { join: "listed" }); return request("EidoverseUIAccess.cpp:296 (door:none)", s.verb, s.args); } },
 };

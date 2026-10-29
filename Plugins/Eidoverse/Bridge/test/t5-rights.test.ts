@@ -3,6 +3,7 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { startServer, startBridge, startProxy, renderer, person, until, type Server, type Bridge, type Proxy, type Sock } from "./harness.ts";
 import { join } from "./fixtures/renderer.ts";
 import { create } from "../engine/shared/protocol/requests.js";
+import { BASE } from "../engine/shared/protocol/roles.js";
 
 let srv: Server, br: Bridge, px: Proxy, r: Sock, ann: Awaited<ReturnType<typeof person>>, raeId = "";
 let n = 0;
@@ -26,7 +27,7 @@ async function rightsAfter(k: number, kd: number, want: (x: any) => boolean) {
 beforeAll(async () => {
   srv = await startServer(); px = await startProxy(srv.url); br = await startBridge();
   ann = await person(srv.url, "glade", "Ann");
-  expect((await ann.req("set", { id: "@world", component: "default-role", value: { role: "inhabitant" } }))?.ok).toBe(true);
+  expect((await ann.req("set", { id: "@world", component: "default-role", value: { role: BASE } }))?.ok).toBe(true);
   expect((await ann.req("set", { id: "@world", component: "role-defs", value: { crew: { name: "Crew", rank: 50, can: { build: true } } } }))?.ok).toBe(true);
   r = await renderer(br, px.url); r.send(join("glade", "Rae").raw);
   raeId = (await r.wait("bridge/ready", (m) => m.type === "bridge/ready")).you;
@@ -37,10 +38,10 @@ test("T5a the join's rights are the server's: snapshot.yourRights reaches the re
   const snap = r.msgs.find((m) => m?.type === "snapshot");
   const sent = JSON.parse(px.down.find((x) => JSON.parse(x).type === "snapshot")!);
   expect(snap.yourRights).toEqual(sent.yourRights);
-  expect([snap.yourRights.role, snap.yourRights.permissions]).toEqual(["inhabitant", []]);
+  expect([snap.yourRights.role, snap.yourRights.permissions]).toEqual([BASE, []]);
 });
 
-test("T5b an inhabitant's create still goes up and comes back refused in the authority's words; the bridge sends nothing of its own", async () => {
+test("T5b a member's create still goes up and comes back refused in the authority's words; the bridge sends nothing of its own", async () => {
   const s = await spawn();
   expect(s.up).toEqual([s.raw]);
   expect(s.mine).toContain(s.down);
@@ -64,7 +65,7 @@ test("T5c a custom role with build, and a moderator: the renderer reads permissi
 test("T5d taken away again: the next create is refused by the authority, not by the bridge", async () => {
   const k = r.msgs.length, kd = px.down.length;
   expect((await ann.req("delete", { id: "@world", component: `roles:${raeId}` }))?.ok).toBe(true);
-  await rightsAfter(k, kd, (x) => x?.role === "inhabitant");
+  await rightsAfter(k, kd, (x) => x?.role === BASE);
   const s = await spawn();
   expect(s.up).toEqual([s.raw]);
   expect(s.got.reply.refused?.code).toBe("rights");

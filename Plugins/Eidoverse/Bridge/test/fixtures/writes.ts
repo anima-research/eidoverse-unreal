@@ -38,7 +38,7 @@ export const worldWrites: Do[] = [
 /** Moderation by name (Commands.cpp: `/kick <name>` etc.); `who` is a display name or an identity. */
 export const grant = (who: string, role: string) => d("EidoverseCommands.cpp:331", "grant {id, role}", { req: `g-${who}`, fn: "grant", who, role });
 export const revoke = (who: string) => d("EidoverseCommands.cpp:338", "grant {id, revoke: true}", { req: `rv-${who}`, fn: "revoke", who });
-export const kick = (who: string) => d("EidoverseCommands.cpp:252", "kick {id, reason}", { req: `k-${who}`, fn: "kick", who, minutes: 1, reason: "testing" });
+export const kick = (who: string) => d("EidoverseCommands.cpp:252", "kick {id, reason}", { req: `k-${who}`, fn: "kick", who, reason: "testing" });
 export const ban = (who: string) => d("EidoverseCommands.cpp:252", "ban {id, reason}", { req: `b-${who}`, fn: "ban", who, days: 1, reason: "testing" });
 export const unban = (who: string) => d("EidoverseCommands.cpp:254", "unban {id}", { req: `u-${who}`, fn: "unban", who });
 export const boom = d("EidoverseCommands.cpp:241-247", "force {at, power, radius}", { req: "boom", fn: "force", at: [0, 1, 0], power: 8, radius: 4 });

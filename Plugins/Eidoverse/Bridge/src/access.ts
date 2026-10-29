@@ -2,6 +2,7 @@
 import type { Ctx, Slice } from "./slice.ts";
 import { doorOf, listedIn, DOORS } from "../engine/shared/protocol/access.js";
 import { actorName } from "../engine/shared/protocol/names.js";
+import { BASE } from "../engine/shared/protocol/roles.js";
 import { hereAtJoin, arrived, left, type Here } from "./people.ts";
 
 /** ADAPTER-DESIGN §3.3 access-directory row: the protocol has no directory search; whois knows only the people this world has seen. */
@@ -23,7 +24,7 @@ export function accessState(ctx: Ctx, st: State) {
   const here = [...st.here].filter(([, id]) => !id || !listedIn(wc, id, now)).map(([conn, id]) => ({ id: conn, identity: id, name: id && actorName(id) !== id ? actorName(id) : conn }));
   const mine = you && listedIn(wc, you, now) ? wc[`roles:${you}`] : null;
   return { type: "bridge/access-state", world: String(ctx.join?.world ?? ""), door: doorOf(wc), doors: DOORS, access: wc.access ?? null,
-    defaultRole: wc["default-role"]?.role ?? "inhabitant", members, here,
+    defaultRole: wc["default-role"]?.role ?? BASE, members, here,
     you: { id: you, role: st.rights?.role ?? mine?.role ?? null, ...(Number.isSafeInteger(mine?.until) ? { until: mine.until } : {}) }, rights: st.rights };
 }
 const push = (ctx: Ctx) => { const st = stateOf(ctx); if (st.asked && ctx.replica?.active) ctx.send(accessState(ctx, st)); };

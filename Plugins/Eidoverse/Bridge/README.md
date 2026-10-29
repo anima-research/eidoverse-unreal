@@ -40,7 +40,8 @@ connection must offer `Sec-WebSocket-Protocol: eido-bridge.<token>` and carry no
 ## Test
 
 ```sh
-flock /home/claude/eido/.testlock bun run test          # every suite; each starts its own server from engine/ on a scratch worlds dir
+bun run test          # every suite; each starts its own server from engine/ on a scratch worlds dir
+MAIN_DIR=<a checkout of the engine's main> bun run test   # T3a too: the render model against main's own render-scene
 ```
 
 | suite | what |
@@ -50,8 +51,8 @@ flock /home/claude/eido/.testlock bun run test          # every suite; each star
 | `t2-resync` | a lost log message or a purge: one re-join, one snapshot, the same fold and scene as a fresh joiner |
 | `h-table` | the `bridge/*` table and the bridge's own requests |
 | `t6-build` | build writes: the renderer's build sites (`test/fixtures/writes.ts`) as `bridge/do` → `requests.js` requests; `$b<n>` → minted ids; refusals are the authority's |
-| `t7-world` | world and moderation writes: the world panels and commands as `bridge/do`; names resolve to identities in the bridge, rights stay the authority's; `/boom` is a GAP |
-| `t3-scene` | the render model against main's `render-scene.ts` on main's fold (`MAIN_DIR`, default `/home/claude/eido/wt-main-ccd5`), for `engine/spec/fixtures`, `test/fixtures/worlds` and `ORACLE_WORLDS`; and the key pin against the renderer's C++ (`UNREAL_DIR`; `test/fixtures/renderer-keys.json`, refreshed by `bun test/renderer-keys.ts <unreal dir>`) |
+| `t7-world` | world and moderation writes: the world panels and commands as `bridge/do`; names resolve to identities in the bridge, rights stay the authority's; `/boom` is the engine's `force` |
+| `t3-scene` | the render model against main's `render-scene.ts` on main's fold (`MAIN_DIR`; skipped without it), for `engine/spec/fixtures`, `test/fixtures/worlds` and `ORACLE_WORLDS`; and the key pin against the renderer's C++ (`UNREAL_DIR`, default: the client repo around this directory; `test/fixtures/renderer-keys.json`, refreshed by `bun test/renderer-keys.ts <unreal dir>`) |
 | `t4-chat` | says → `bridge/say`, spoken lines, arrival-only history, whisper refused by policy, narration |
 | `t5-rights` | your-rights and refusals are the authority's, byte for byte; the bridge never refuses or grants |
 | `t8-holding` | grab/put/throw/drop/punt answered by the authority; `held` at the holder's hand; holds from the join cut |

@@ -5,7 +5,7 @@ import path from "node:path";
 import { ROOT } from "./harness.ts";
 
 const SRC = process.env.G3_SRC ? path.resolve(process.env.G3_SRC) : path.join(ROOT, "src");
-const UNREAL = process.env.UNREAL_DIR ?? "/home/claude/eido/ref/eidoverse-unreal";
+const UNREAL = process.env.UNREAL_DIR ?? path.resolve(ROOT, "../../..");   // the client repo this directory sits in
 const files = (d: string): string[] => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => e.isDirectory() ? (e.name === "node_modules" || e.name === ".git" ? [] : files(path.join(d, e.name))) : [path.join(d, e.name)]);
 const HANDSHAKE = [/eido-bridge\./, /\b(Bun|process)\.stdin\b/, /sec-websocket-protocol/i];
 

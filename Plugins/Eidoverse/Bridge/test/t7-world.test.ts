@@ -1,9 +1,8 @@
-// T7 world and moderation writes: world panels and commands as bridge/do; names resolve to identities here, rights stay the authority's; /boom is a GAP (ADAPTER-DESIGN §3.5, §5, §7.2).
+// T7 world and moderation writes: world panels and commands as bridge/do; names resolve to identities here, rights stay the authority's; /boom is the engine's force (ADAPTER-DESIGN §3.5, §5).
 import { test, expect, beforeAll, afterAll } from "bun:test";
 import { startServer, startBridge, startProxy, renderer, person, until, type Server, type Bridge, type Proxy, type Sock } from "./harness.ts";
 import { join } from "./fixtures/renderer.ts";
 import { worldWrites, grant, revoke, kick, ban, unban, boom, script } from "./fixtures/writes.ts";
-import { REMOVED_VERBS } from "../engine/shared/protocol/verbspec.js";
 import * as R from "../engine/shared/protocol/requests.js";
 import { makeReplica } from "../engine/shared/protocol/replica.js";
 
@@ -52,7 +51,7 @@ test("T7b grant/revoke/kick/ban/unban name a person; the bridge resolves the nam
   expect((await fresh()).view().roles[bobId]?.role).toBe("moderator");
   await step(revoke("Bob"), [R.unset("@world", `roles:${bobId}`)]);
   expect((await fresh()).view().roles[bobId]).toBeUndefined();
-  await step(kick("Bob"), [{ verb: "kick", args: { who: bobId, minutes: 1, reason: "testing" } }]);
+  await step(kick("Bob"), [{ verb: "kick", args: { who: bobId, reason: "testing" } }]);
   await bob.waitClosed();
   await step(unban(bobId), [{ verb: "unban", args: { who: bobId } }]);   // gone: by identity
   bob = await person(srv.url, "home", "Bob");
@@ -74,18 +73,16 @@ test("T7b' an unknown name is answered locally, nothing goes up; a non-owner's k
   cy.close();
 });
 
-test("T7c /boom is a GAP: answered locally with the design's text and the engine's own pointer; the live authority confirms it has no force", async () => {
+test("T7c /boom is the engine's force {at, power, radius}: it goes up as the renderer sent it and the authority answers", async () => {
   const p = await person(srv.url, "home", "Hal");
-  const help = await p.req("help", { verb: "force" }), tried = await p.req("force", { at: [0, 1, 0], power: 8 });
+  const help = await p.req("help", { verb: "force" });
   p.close();
-  expect(help?.ok).not.toBe(true);
-  expect(tried).toMatchObject({ ok: false, refused: { code: "removed" } });
+  expect(help?.ok).toBe(true);   // the live authority has the verb (verbspec force)
   const k = r.msgs.length, ku = px.up.length;
   r.send(boom.m);
   const a = await done("boom", k);
-  expect(a).toMatchObject({ type: "bridge/error", for: "bridge/do", fn: "force", code: "gap", reason: "there's no force blast in this protocol", fix: REMOVED_VERBS.force.fix });
-  expect(tried.refused.fix).toBe(REMOVED_VERBS.force.fix);
-  expect(ups(ku)).toEqual([]);
+  expect([a.type, a.fn, a.reply?.ok, a.reply?.refused]).toEqual(["bridge/done", "force", true, undefined]);
+  expect(ups(ku)).toEqual([{ verb: "force", args: { at: boom.m.at, power: boom.m.power, radius: boom.m.radius } }]);
 });
 
 test("T7d a script: upload {text}, then set script:<name> {…, src} with the reply's src; the thing then runs it", async () => {

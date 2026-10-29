@@ -7,6 +7,7 @@ import { creates, edits, lightEdit, asset, removeOf } from "./fixtures/writes.ts
 import * as R from "../engine/shared/protocol/requests.js";
 import { enc } from "../engine/shared/protocol/names.js";
 import { makeReplica } from "../engine/shared/protocol/replica.js";
+import { BASE } from "../engine/shared/protocol/roles.js";
 
 let srv: Server, br: Bridge, px: Proxy, r: Sock, ann: Awaited<ReturnType<typeof person>>, you: string;
 const ups = (k: number, verb?: string) => px.up.slice(k).map((x) => JSON.parse(x)).filter((m) => m.type === "request" && (!verb || m.verb === verb));
@@ -120,13 +121,13 @@ test("T6d ids that need enc: an imported world's Lamp_1 and 'chaise longue ☼',
 });
 
 test("T6c a refused create: the request goes up, the authority's refusal comes back as it is, no id is minted, nothing is drawn", async () => {
-  expect((await ann.req("set", { id: "@world", component: `roles:${you}`, value: { role: "inhabitant" } }))?.ok).toBe(true);
+  expect((await ann.req("set", { id: "@world", component: `roles:${you}`, value: { role: BASE } }))?.ok).toBe(true);
   await caughtUp();
   const f = creates(20)[0], k = r.msgs.length, ku = px.up.length, before = (await scene(true)).upserts.length;
   r.send(f.m);
   const a = await done(f.m.req, k);
   expect(a).toMatchObject({ type: "bridge/done", fn: "create", reply: { ok: false, refused: { code: "rights" } } });
-  expect(a.reply.refused.reason).toMatch(/inhabitant/);
+  expect(a.reply.refused.reason).toMatch(new RegExp(BASE));
   expect(a.reply.ids).toBeUndefined();
   expect(ups(ku, "create").length).toBe(1);   // the bridge never pre-empts (T5): the authority decided
   await caughtUp();
