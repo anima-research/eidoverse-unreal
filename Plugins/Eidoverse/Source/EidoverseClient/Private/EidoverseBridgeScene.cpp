@@ -5,4 +5,5 @@
 void AEidoverseBridge::OnSceneMsg(const FString& Type,const TSharedPtr<FJsonObject>& J)
 {
     ReceiveDynamicScene(J);
+    ReceiveSceneSeats(J);   // slice D's seats[] (EidoverseBridgeBodies.cpp)
 }

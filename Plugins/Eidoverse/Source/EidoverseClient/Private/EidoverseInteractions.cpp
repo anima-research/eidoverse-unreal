@@ -42,7 +42,9 @@ bool AEidoverseBridge::SendInteractionVerb(const FString& Verb,const TSharedRef<
 bool AEidoverseBridge::UseEntity(const FString& Id,const FString& Action)
 {
     if(Id.IsEmpty()||Id.Len()>128||Action.IsEmpty()||Action.Len()>64)return false;
-    auto A=MakeShared<FJsonObject>();A->SetStringField(TEXT("id"),Id);A->SetStringField(TEXT("action"),Action);return SendInteractionVerb(TEXT("use"),A);
+    auto A=MakeShared<FJsonObject>();A->SetStringField(TEXT("id"),Id);A->SetStringField(TEXT("action"),Action);
+    if(bUseBridge)return BodyRequest(TEXT("use"),A);   // the protocol's use request (ADAPTER-DESIGN §3.5)
+    return SendInteractionVerb(TEXT("use"),A);
 }
 bool AEidoverseBridge::PuntEntity(const FString& Id,float Power)
 {
@@ -52,6 +54,12 @@ bool AEidoverseBridge::PuntEntity(const FString& Id,float Power)
     FVector Direction=ToWirePosition(Center-Pawn->GetActorLocation());Direction.Y=0;Direction=Direction.GetSafeNormal();
     if(Direction.IsNearlyZero()){Direction=ToWirePosition(Pawn->GetActorForwardVector());Direction.Y=0;Direction=Direction.GetSafeNormal();}
     if(Direction.IsNearlyZero())Direction=FVector(0,0,1);
+    if(bUseBridge)
+    {
+        // the authority's punt {id, v}: it flies the thing, or says why not (§3.6; the lease simulation below is main's)
+        const double P=FMath::Clamp(Power,.5f,10.f);auto V=MakeShared<FJsonObject>();V->SetStringField(TEXT("id"),Id);
+        V->SetArrayField(TEXT("v"),Array({Direction.X*P,P*.45,Direction.Z*P}));return BodyRequest(TEXT("punt"),V);
+    }
     auto A=MakeShared<FJsonObject>();A->SetStringField(TEXT("id"),Id);A->SetNumberField(TEXT("power"),FMath::Clamp(Power,.5f,10.f));
     A->SetArrayField(TEXT("dir"),Array({Direction.X,bDeterministicScenePhysics?.9:0.,Direction.Z}));return SendInteractionVerb(TEXT("punt"),A);
 }
@@ -66,6 +74,7 @@ void AEidoverseBridge::ClearInteractions()
 {
     for(auto& S:ObjectSims){if(bJoined)SendLease(TEXT("release"),S.Key,true);if(DynamicScene)DynamicScene->HoldTransform(S.Key,false);}
     ObjectSims.Empty();PendingPunts.Empty();PendingPuntExpiry.Empty();LocalReach.Reset();PendingEmote.Empty();ActivePhysicsObjects=0;
+    HeldItem.Empty();bBodyArrived=false;bBodyMoving=false;PendingUnrideAt=0;PendingUnrideTries=0;   // the bridged connection's hold and track end here too
 }
 void AEidoverseBridge::ReceiveInteraction(const TSharedPtr<FJsonObject>& Entry)
 {
@@ -110,6 +119,7 @@ void AEidoverseBridge::ReceiveLease(const TSharedPtr<FJsonObject>& J)
 void AEidoverseBridge::TickInteractions(float Dt,double Now)
 {
     if(!DynamicScene)return;
+    TickBodyTrack(Now);   // bridged only (EidoverseBridgeBodies.cpp)
     for(auto It=PendingPuntExpiry.CreateIterator();It;++It)if(Now>It.Value()){PendingPunts.Remove(It.Key());It.RemoveCurrent();}
     for(auto It=ObjectSims.CreateIterator();It;++It)
     {
@@ -142,6 +152,9 @@ void AEidoverseBridge::TickInteractions(float Dt,double Now)
     auto* PC=UGameplayStatics::GetPlayerController(this,0);if(!PC||PC->IsMoveInputIgnored()||bSpectator)return;
     // Editing keys win while something is selected in build mode (web build.js priority).
     if(HUD&&HUD->IsFrameOpen(TEXT("build"))&&(!HUD->GetSelectedEntity().IsEmpty()||HUD->HasGhost()))return;
+    // holding something (bridged: the authority's grab): E sets it down, F throws it the way I look
+    if(!HeldItem.IsEmpty()&&(PC->WasInputKeyJustPressed(EKeys::E)||PC->WasInputKeyJustPressed(EKeys::F)))
+    {FVector Eye;FRotator R;PC->GetPlayerViewPoint(Eye,R);LetGoOfEntity(PC->WasInputKeyJustPressed(EKeys::F),ToWirePosition(R.Vector()*100)*6+FVector(0,2,0));return;}
     if(PC->WasInputKeyJustPressed(EKeys::E)&&HandleUseKey())return;
     if(PC->WasInputKeyJustPressed(EKeys::F)&&HandleFlyKey())return;   // F flies where flight is granted, else punts
     if(PC->WasInputKeyJustPressed(EKeys::E)||PC->WasInputKeyJustPressed(EKeys::F))
@@ -151,6 +164,6 @@ void AEidoverseBridge::TickInteractions(float Dt,double Now)
         // aim ray runs through the view but the distance is measured from the body.
         const FVector Head=PC->GetPawn()?PC->GetPawn()->GetActorLocation()+FVector(0,0,57):Eye;
         if(GetWorld()->LineTraceSingleByChannel(Hit,Eye,Eye+R.Vector()*(300+FVector::Dist(Eye,Head)),ECC_Visibility,Q)&&FVector::Dist(Hit.ImpactPoint,Head)<=300)
-        {FString Id=DynamicScene->EntityId(Hit.GetActor());if(!Id.IsEmpty()){if(PC->WasInputKeyJustPressed(EKeys::F))PuntEntity(Id);else {FString Action=TEXT("use");const TArray<TSharedPtr<FJsonValue>>* Actions=nullptr;auto Info=DynamicScene->Interaction(Id);if(Info&&Info->TryGetArrayField(TEXT("actions"),Actions)&&Actions->Num())Action=(*Actions)[0]->AsString();UseEntity(Id,Action);}}}
+        {FString Id=DynamicScene->EntityId(Hit.GetActor());if(!Id.IsEmpty()){if(PC->WasInputKeyJustPressed(EKeys::F))PuntEntity(Id);else {FString Action=TEXT("use");const TArray<TSharedPtr<FJsonValue>>* Actions=nullptr;auto Info=DynamicScene->Interaction(Id);if(Info&&Info->TryGetArrayField(TEXT("actions"),Actions)&&Actions->Num())Action=(*Actions)[0]->AsString();else if(bUseBridge){GrabEntity(Id);return;}UseEntity(Id,Action);}}}
     }
 }

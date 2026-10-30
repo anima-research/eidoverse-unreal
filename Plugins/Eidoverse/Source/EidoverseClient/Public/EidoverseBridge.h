@@ -214,10 +214,10 @@ public:
     TArray<TSharedPtr<FJsonObject>> AccessResults;  // the owner's directory search (access-directory), for AccessQuery
     FString AccessQuery, AccessError;
     int32 AccessResultsSerial=0;
-    void RequestAccessState() { SendRaw(TEXT("access-state"), MakeShared<FJsonObject>()); }
+    void RequestAccessState() { SendRaw(bUseBridge ? TEXT("bridge/access-state") : TEXT("access-state"), MakeShared<FJsonObject>()); }
     void RequestAccessDirectory(const FString& Query);
     /** grant: the one verb under every access change (the door is the wildcard "*", a member a named record). */
-    bool SendAccessGrant(const TSharedRef<FJsonObject>& Args) { AccessError.Empty(); return SendVerb(TEXT("grant"), Args); }
+    bool SendAccessGrant(const TSharedRef<FJsonObject>& Args) { AccessError.Empty(); return bUseBridge ? SendAccessGrantBridged(Args) : SendVerb(TEXT("grant"), Args); }
     UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse|Travel") TArray<FEidoverseWorldInfo> KnownWorlds;
     UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse|Travel") FString WorldsStatus;
     int32 WorldsSerial=0; double WorldsFetchedAt=-100; FString WorldsServer; bool bWorldsPending=false;
@@ -532,6 +532,9 @@ public:
     UFUNCTION(BlueprintPure, Category="Eidoverse|Interaction") bool IsBodyTracked(float Within=.5f) const;
     FVector PendingUnridePos=FVector::ZeroVector; int32 PendingUnrideTries=0; double PendingUnrideAt=0;
     void SendUnride();
+    /** Stand up from a seat (X does it through TickSeating; this is the same for scripts and tests). */
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|Interaction") void LeaveSeat();
+    double NextSeatPollAt=0;
     bool RideSeat(const FString& Host,const FString& Slot);   // EidoverseSeats.cpp
     void StandUpBridged(class AEidoverseExplorer* Explorer,bool bSendDismount,bool bHave,const FTransform& Seat);
     bool UseBridgedHelm(const FVector& Feet);           // EidoverseLocomotion.cpp: E at a drive seat

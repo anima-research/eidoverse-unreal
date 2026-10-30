@@ -332,7 +332,7 @@ void AEidoverseBridge::RequestAccessDirectory(const FString& Query)
     AccessQuery = Query.Left(64);
     if (AccessQuery.TrimStartAndEnd().IsEmpty()) { AccessResults.Reset(); ++AccessResultsSerial; return; }
     auto J = MakeShared<FJsonObject>(); J->SetStringField(TEXT("q"), AccessQuery);
-    SendRaw(TEXT("access-directory"), J);
+    SendRaw(bUseBridge ? TEXT("bridge/access-directory") : TEXT("access-directory"), J);
 }
 
 bool AEidoverseBridge::RequestEarlierChat()

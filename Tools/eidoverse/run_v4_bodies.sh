@@ -38,7 +38,7 @@ else
   EDITOR="$UE/Engine/Binaries/Mac/UnrealEditor.app/Contents/MacOS/UnrealEditor"; PROJECT="$ROOT/Test1.uproject"
   [ -n "${DEVELOPER_DIR:-}" ] || export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 fi
-"$EDITOR" "$PROJECT" -game -RenderOffscreen -ResX=1280 -ResY=720 \
+timeout "${EIDO_RUN_TIMEOUT:-900}" "$EDITOR" "$PROJECT" -game -RenderOffscreen -ResX=1280 -ResY=720 \
   -ExecCmds="Automation RunTests Eidoverse.LiveV4Bodies" -TestExit="Automation Test Queue Empty" \
   -unattended -nosound -nosplash -stdout -FullStdOutLogOutput -NoP4 ${UE_ARGS:-} >"$SCRATCH/game.log" 2>&1 || true
 echo "--- server"; grep -a "\[world:$WORLD\]" "$SCRATCH/server.log" | tr -d '\r' || true

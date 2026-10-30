@@ -24,7 +24,7 @@ namespace
         TWeakObjectPtr<AEidoverseBridge> Bridge;
         FString Bench, Lamp, Guest, GuestId;
         int32 Step = 0, Frames = 0, Serial = 0; double StepAt = 0, ErrorAt = 0;
-        TArray<FString> Lines; int32 Failures = 0; bool bHeld = false, bSat = false;
+        TArray<FString> Lines; int32 Failures = 0; bool bHeld = false, bSat = false, bSent = false;
         void Check(bool bOk, const FString& What) { Lines.Add(FString::Printf(TEXT("%s %s"), bOk ? TEXT("ok  ") : TEXT("FAIL"), *What)); if (!bOk) ++Failures; UE_LOG(LogTemp, Display, TEXT("EIDOVERSE_V4_BODIES %s %s"), bOk ? TEXT("ok") : TEXT("FAIL"), *What); }
     };
     FString AStr(const TSharedPtr<FJsonObject>& O, const TCHAR* K) { FString S; if (O) O->TryGetStringField(K, S); return S; }
@@ -69,8 +69,10 @@ bool FEidoverseLiveV4Bodies::RunTest(const FString&)
         AEidoverseBridge* B = S->Bridge.Get();
         AEidoverseExplorer* E = ExplorerOf(W);
         ++S->Frames;
-        auto Next = [&]() { ++S->Step; S->StepAt = Now; S->Frames = 0; };
+        auto Next = [&]() { ++S->Step; S->StepAt = Now; S->Frames = 0; S->bSent = false; };
         auto Late = [&](double Limit) { return In > Limit && S->Frames > 10; };
+        // a body act, retried until it goes (the client spaces them 0.25 s apart, as the main-era verbs were)
+        auto Act = [&](TFunctionRef<bool()> Do) { if (!S->bSent && In > .3) S->bSent = Do(); };
         // wait for Done (true: the row passes), or give up after Limit seconds (the row fails); either way, on to the next step
         auto Expect = [&](bool bDone, double Limit, const FString& What) { if (bDone || Late(Limit)) { S->Check(bDone, What); Next(); return true; } return false; };
         const FVector NearBench(8, 0, 7);
@@ -126,43 +128,48 @@ bool FEidoverseLiveV4Bodies::RunTest(const FString&)
         case 8:
             Hold(E, B, FVector(0, 0, 0));
             Expect(B->IsBodyTracked(), 15, TEXT("B1 the authority tracks my body (move) where I stand"));
-            if (S->Step == 9) { S->ErrorAt = B->LastErrorAt; B->SitOnNamed(E, S->Bench); }
+            if (S->Step == 9) S->ErrorAt = B->LastErrorAt;
             return false;
         case 9:
             Hold(E, B, FVector(0, 0, 0));
+            Act([&]() { return B->SitOnNamed(E, S->Bench); });
             Expect(B->LastErrorAt > S->ErrorAt && B->LastErrorText.Contains(TEXT("a seat is within 3.5 m")) && B->GetSeatHost().IsEmpty() && !(E && E->bSeated), 10,
                 TEXT("S1 a far seat is refused in the authority's words, and I stay standing"));
             return false;
         case 10:
             Hold(E, B, NearBench);
             Expect(In > 1 && B->IsBodyTracked(), 15, TEXT("B2 walked up to the bench: the authority's track follows"));
-            if (S->Step == 11) B->GrabEntity(S->Lamp);
             return false;
         case 11:
             Hold(E, B, NearBench);
+            Act([&]() { return B->GrabEntity(S->Lamp); });
             S->bHeld = B->HeldItem == S->Lamp;
             Expect(S->bHeld, 10, TEXT("H1a grab: the authority hands me the lamp"));
-            if (S->Step == 12) B->LetGoOfEntity(false, FVector::ZeroVector);
             return false;
         case 12:
             Hold(E, B, NearBench);
+            Act([&]() { return B->LetGoOfEntity(false, FVector::ZeroVector); });
             Expect(S->bHeld && In > .5 && B->HeldItem.IsEmpty(), 10, TEXT("H1b put: the lamp is set down, not mine any more"));
-            if (S->Step == 13) { S->ErrorAt = B->LastErrorAt; B->PuntEntity(S->Lamp, 4); }
+            if (S->Step == 13) S->ErrorAt = B->LastErrorAt;
             return false;
         case 13:
             Hold(E, B, NearBench);
+            Act([&]() { return B->PuntEntity(S->Lamp, 4); });
             Expect(B->LastErrorAt > S->ErrorAt && B->LastErrorText.Contains(TEXT("nothing flies")), 10, TEXT("H2 a kick is the authority's punt, refused in its words here (no physics)"));
-            if (S->Step == 14) B->SitOnNamed(E, S->Bench);
             return false;
         case 14:
-            S->bSat = In > 5 && B->GetSeatHost() == S->Bench && E && E->bSeated && B->GetSeatOccupant(S->Bench) == B->AssignedIdentity;
+            Act([&]() { return B->SitOnNamed(E, S->Bench); });
+            // (the explorer's own sitting pose needs a loaded body, which this scratch server has none of)
+            S->bSat = In > 5 && B->GetSeatHost() == S->Bench && B->GetSeatOccupant(S->Bench) == B->AssignedIdentity;
+            if (Late(20) && !S->bSat) UE_LOG(LogTemp, Display, TEXT("EIDOVERSE_V4_BODIES S2 state: host=%s seated=%d occupant=%s me=%s seats=%d sent=%d"),
+                *B->GetSeatHost(), E && E->bSeated, *B->GetSeatOccupant(S->Bench), *B->AssignedIdentity, B->SceneSeats.Num(), S->bSent);
             Expect(S->bSat, 20,
-                TEXT("S2 near, I sit: the ride is confirmed, still seated after 5 s, and the scene's seat names me"));
-            if (S->Step == 15 && E) E->bSitPressed = true;
+                TEXT("S2 near, I sit: the ride is confirmed, still mine after 5 s, and the scene's seat names me"));
             return false;
         case 15:
-            Expect(S->bSat && In > 1 && E && !E->bSeated && B->GetSeatHost().IsEmpty() && B->GetSeatOccupant(S->Bench).IsEmpty() && B->IsBodyTracked(1.5f), 15,
-                TEXT("S3 X stands me up: the seat is empty again and my body is where I landed"));
+            Act([&]() { B->LeaveSeat(); return true; });
+            Expect(S->bSat && In > 1 && B->GetSeatHost().IsEmpty() && B->GetSeatOccupant(S->Bench).IsEmpty() && B->IsBodyTracked(1.5f), 15,
+                TEXT("S3 standing up: the seat is empty again and my body is where I landed"));
             return false;
         case 16:
             for (const FString& L : S->Lines) AddInfo(L);

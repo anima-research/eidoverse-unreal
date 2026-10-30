@@ -118,12 +118,16 @@ bool AEidoverseBridge::SitOnNamed(AEidoverseExplorer* Explorer, const FString& P
         else if (!Prefix.IsEmpty()) Narrate(FString::Printf(TEXT("no seat here called “%s”"), *Prefix));
         return false;
     }
-    auto A = MakeShared<FJsonObject>();
-    A->SetStringField(TEXT("id"), AssignedIdentity); A->SetStringField(TEXT("to"), BestId); A->SetStringField(TEXT("slot"), BestSlot);
-    if (!SendInteractionVerb(TEXT("mount"), A)) return false;
+    if (bUseBridge) { if (!RideSeat(BestId, BestSlot)) return false; }
+    else
+    {
+        auto A = MakeShared<FJsonObject>();
+        A->SetStringField(TEXT("id"), AssignedIdentity); A->SetStringField(TEXT("to"), BestId); A->SetStringField(TEXT("slot"), BestSlot);
+        if (!SendInteractionVerb(TEXT("mount"), A)) return false;
+    }
     // Seated at once, as the browser's echo would do a moment later; an unconfirmed
     // mount lets go after a few seconds (refused, or the seat is taken).
-    SeatTo = BestId; SeatSlot = BestSlot; bSeatConfirmed = false; bSeatOffset = false; SeatRequestedAt = FPlatformTime::Seconds();
+    SeatTo = BestId; SeatSlot = BestSlot; SeatEntity.Empty(); bSeatConfirmed = false; bSeatOffset = false; SeatRequestedAt = FPlatformTime::Seconds();
     if (HUD) HUD->Hint(FString::Printf(TEXT("you sit on %s (%s) — X or move to get off"), *BestId.Left(8), *BestSlot), 4);
     return true;
 }
@@ -161,6 +165,7 @@ void AEidoverseBridge::StandUp(AEidoverseExplorer* Explorer, bool bSendDismount)
     FTransform Seat; FString Pose; bool bHave = false;
     if (!SeatTo.IsEmpty()) bHave = MountedSeatTransform(Seat, Pose);
     else if (bChairSeat) { Seat = ChairSeat; bHave = true; }
+    if (bUseBridge) { StandUpBridged(Explorer, bSendDismount, bHave, Seat); return; }
     if (!SeatTo.IsEmpty() && bSendDismount)
     {
         // My landing spot stamped: 0.7 m ahead of the seat (localbody.js dismountMe).
@@ -251,6 +256,56 @@ void AEidoverseBridge::TickSeating(AEidoverseExplorer* Explorer, double Now)
     Explorer->SetActorLocationAndRotation(Seat.GetLocation() + FVector(0, 0, Half), Seat.GetRotation(), false, nullptr, ETeleportType::TeleportPhysics);
 }
 
+// ---- bridged seats (Bridge/SLICES.md slice D; Bridge/src/bodies.ts): sitting is bridge/ride, the seat rides pose.seat ----
+
+bool AEidoverseBridge::RideSeat(const FString& Host, const FString& Slot)
+{
+    if (FPlatformTime::Seconds() - LastInteraction < .25) return false;
+    LastInteraction = FPlatformTime::Seconds();
+    // bodies.ts: use {id: host, action, args: {socket}}; the authority seats me, or says why not (far, taken)
+    auto A = MakeShared<FJsonObject>(); A->SetStringField(TEXT("to"), Host); A->SetStringField(TEXT("socket"), Slot);
+    return !BridgeRide(TEXT("bridge/ride"), A, [this, Host, Slot](const TSharedPtr<FJsonObject>& R)
+    {
+        if (SeatTo != Host || SeatSlot != Slot) return;
+        bool bOk = false; const TSharedPtr<FJsonObject>* Attach = nullptr;
+        UE_LOG(LogTemp, Display, TEXT("EIDOVERSE seat %s/%s: %s"), *Host, *Slot, R && R->TryGetBoolField(TEXT("ok"), bOk) && bOk ? TEXT("seated") : TEXT("not seated"));
+        if (R && R->TryGetBoolField(TEXT("ok"), bOk) && bOk && R->TryGetObjectField(TEXT("attach"), Attach))
+        { bSeatConfirmed = true; (*Attach)->TryGetStringField(TEXT("to"), SeatEntity); SeatAnim.Empty(); (*Attach)->TryGetStringField(TEXT("pose"), SeatAnim); return; }
+        if (auto* E = Cast<AEidoverseExplorer>(UGameplayStatics::GetPlayerPawn(this, 0))) StandUp(E, false);   // refused: stand at once
+    }).IsEmpty();
+}
+
+void AEidoverseBridge::LeaveSeat()
+{
+    if (auto* E = Cast<AEidoverseExplorer>(UGameplayStatics::GetPlayerPawn(this, 0))) if (!SeatTo.IsEmpty() || bChairSeat) StandUp(E, true);
+}
+
+void AEidoverseBridge::StandUpBridged(AEidoverseExplorer* Explorer, bool bSendDismount, bool bHave, const FTransform& Seat)
+{
+    const bool bWasRiding = !SeatTo.IsEmpty() && bSeatConfirmed;
+    SeatTo.Empty(); SeatSlot.Empty(); SeatClip.Empty(); SeatEntity.Empty(); SeatAnim.Empty(); bChairSeat = false; bSeatConfirmed = false; bSeatOffset = false;
+    Explorer->Posture.Empty();
+    // Step off forward (0.7 m ahead of the seat, localbody.js dismountMe), standing, before collision comes back.
+    const double Half = Explorer->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+    FVector Ground = Explorer->GetActorLocation() - FVector(0, 0, Half);
+    if (Explorer->bSeated)
+    {
+        const FVector Ahead = bHave ? Seat.GetLocation() + Seat.GetRotation().GetForwardVector() * 70 : Ground;
+        FHitResult Hit; FCollisionQueryParams Q(SCENE_QUERY_STAT(EidoverseStandUp), false, Explorer);
+        Ground = Ahead;
+        if (GetWorld()->LineTraceSingleByChannel(Hit, Ahead + FVector(0, 0, 120), Ahead - FVector(0, 0, 400), ECC_Visibility, Q)) Ground = Hit.ImpactPoint;
+        Explorer->SetActorLocation(Ground + FVector(0, 0, Half + 2), false, nullptr, ETeleportType::TeleportPhysics);
+        Explorer->SetSeated(false);
+    }
+    if (bWasRiding && bSendDismount)
+    {
+        // a pose with no seat first (its absence stands the body up), then walk off to the landing (bridge/unride)
+        SendPose();
+        PendingUnridePos = ToWirePosition(Ground - OriginCentimeters); PendingUnrideTries = 0;
+        SendUnride();
+    }
+}
+
 // ---- attaching things to things (scenegraph.js sceneAttach / sceneDetach) ---------
 
 bool AEidoverseBridge::AttachEntity(const FString& Child, const FString& Parent, const FString& Slot)
@@ -267,16 +322,19 @@ bool AEidoverseBridge::AttachEntity(const FString& Child, const FString& Parent,
     if (!C || !P) return false;
     auto A = MakeShared<FJsonObject>();
     A->SetStringField(TEXT("id"), Child); A->SetStringField(TEXT("to"), Parent);
-    if (!Slot.IsEmpty()) A->SetStringField(TEXT("slot"), Slot);
+    if (!Slot.IsEmpty()) A->SetStringField(bUseBridge ? TEXT("socket") : TEXT("slot"), Slot);
     else
     {
         // Glue where it stands: offset in the parent's model frame, yaw relative.
         const FVector Local = ToWirePosition(P->GetActorTransform().InverseTransformPosition(C->GetActorLocation()));
         auto R3 = [](double V) { return FMath::RoundToDouble(V * 1000) / 1000; };
-        A->SetArrayField(TEXT("offset"), {MakeShared<FJsonValueNumber>(R3(Local.X)), MakeShared<FJsonValueNumber>(R3(Local.Y)), MakeShared<FJsonValueNumber>(R3(Local.Z))});
+        A->SetArrayField(bUseBridge ? TEXT("pos") : TEXT("offset"), {MakeShared<FJsonValueNumber>(R3(Local.X)), MakeShared<FJsonValueNumber>(R3(Local.Y)), MakeShared<FJsonValueNumber>(R3(Local.Z))});
         const double Yaw = -FMath::DegreesToRadians(FRotator::NormalizeAxis(C->GetActorRotation().Yaw - P->GetActorRotation().Yaw));
         A->SetNumberField(TEXT("yaw"), R3(Yaw));
     }
+    if (bUseBridge)   // bridge/ride {id, to, socket?, pos?, yaw?} (requests.js parent): the thing rides, in the parent's frame
+        return !BridgeRide(TEXT("bridge/ride"), A, [this, Child, Parent](const TSharedPtr<FJsonObject>& R)
+        { bool bOk = false; if (R && R->TryGetBoolField(TEXT("ok"), bOk) && bOk) Narrate(FString::Printf(TEXT("%s now rides %s — it moves when %s moves"), *Child, *Parent, *Parent)); }).IsEmpty();
     if (!SendVerb(TEXT("mount"), A)) return false;
     Narrate(FString::Printf(TEXT("%s now rides %s — it moves when %s moves"), *Child, *Parent, *Parent));
     return true;
@@ -294,6 +352,7 @@ bool AEidoverseBridge::DetachEntity(const FString& Id)
     Args->SetStringField(TEXT("id"), Id);
     Args->SetArrayField(TEXT("pos"), {MakeShared<FJsonValueNumber>(R3(W.X)), MakeShared<FJsonValueNumber>(R3(W.Y)), MakeShared<FJsonValueNumber>(R3(W.Z))});
     Args->SetNumberField(TEXT("yaw"), R3(-FMath::DegreesToRadians(A->GetActorRotation().Yaw)));
+    if (bUseBridge) return !BridgeRide(TEXT("bridge/unride"), Args).IsEmpty();   // requests.js unparent: it stops riding where it stands
     return SendVerb(TEXT("dismount"), Args);
 }
 
