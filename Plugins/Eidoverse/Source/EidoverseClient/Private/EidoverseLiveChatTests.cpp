@@ -23,6 +23,9 @@
 #include "Serialization/JsonSerializer.h"
 #include "Tests/AutomationCommon.h"
 #include "WebSocketsModule.h"
+#include "EidoverseUI.h"
+#include "EngineUtils.h"
+#include "GenericPlatform/GenericPlatformHttp.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 namespace
@@ -239,6 +242,146 @@ bool FEidoverseLivePairing::RunTest(const FString&)
         }
         }
         return true;
+    }));
+    return true;
+}
+// Eidoverse.LiveV4Chat (T11, slice B: Plugins/Eidoverse/Bridge/SLICES.md): chat, narration, rights, pose.anim, capture, /defs and
+// /worlds through the local bridge, in a game session against Tools/eidoverse/run_v4_chat.sh (its founder is v4_chat_bot.ts).
+// Every row runs, red or green, and logs EIDOVERSE_V4CHAT <row> green|RED.
+namespace
+{
+    struct FV4Chat : TSharedFromThis<FV4Chat>
+    {
+        TWeakObjectPtr<UWorld> World;
+        TWeakObjectPtr<AEidoverseBridge> Bridge;
+        FString Url, WorldName, Control, Http, Body, ContentType, SavedEndpoint;
+        int32 Row = 0, Chimes = 0, Code = 0, Red = 0;
+        double RowAt = 0, AskAt = 0;
+        bool bStarted = false, bBusy = false, bAsked = false, bResult = false;
+        void Get(const FString& Full)
+        {
+            bBusy = true; bAsked = true; Body.Empty(); Code = 0; ContentType.Empty();
+            auto Req = FHttpModule::Get().CreateRequest();
+            Req->SetVerb(TEXT("GET")); Req->SetURL(Full); Req->SetTimeout(60);
+            Req->OnProcessRequestComplete().BindLambda([Self = AsWeak()](FHttpRequestPtr, FHttpResponsePtr R, bool bOk)
+            {
+                if (const TSharedPtr<FV4Chat> L = Self.Pin())
+                { L->Code = bOk && R ? R->GetResponseCode() : -1; L->ContentType = bOk && R ? R->GetContentType() : FString(); L->Body = bOk && R ? R->GetContentAsString().Left(400) : FString(); L->bBusy = false; }
+            });
+            Req->ProcessRequest();
+        }
+        void Bot(const FString& Path) { Get(Control + Path); }
+    };
+    const FEidoverseChatLine* FindLine(const AEidoverseBridge* B, const FString& Sender, const FString& Text)
+    {
+        for (const FEidoverseChatLine& L : B->ChatHistory) if (L.Sender == Sender && L.Text == Text) return &L;
+        return nullptr;
+    }
+    bool HasNarration(const AEidoverseBridge* B, const FString& Part)
+    {
+        for (const FEidoverseChatLine& L : B->ChatHistory) if (L.Sender == TEXT("*") && L.Text.Contains(Part)) return true;
+        return false;
+    }
+    FString Q(const FString& S) { return FGenericPlatformHttp::UrlEncode(S); }
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEidoverseLiveV4Chat, "Eidoverse.LiveV4Chat", EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext | EAutomationTestFlags::EngineFilter)
+bool FEidoverseLiveV4Chat::RunTest(const FString&)
+{
+    TSharedPtr<FV4Chat> S = MakeShared<FV4Chat>();
+    S->Url = FPlatformMisc::GetEnvironmentVariable(TEXT("EIDO_LIVE_V4_URL"));
+    S->WorldName = FPlatformMisc::GetEnvironmentVariable(TEXT("EIDO_LIVE_V4_WORLD"));
+    S->Control = FPlatformMisc::GetEnvironmentVariable(TEXT("EIDO_LIVE_V4_CONTROL"));
+    if (S->Url.IsEmpty() || S->WorldName.IsEmpty() || S->Control.IsEmpty()) { AddInfo(TEXT("live check skipped: run Tools/eidoverse/run_v4_chat.sh (-game, a scratch server and its founder)")); return true; }
+    if (!S->Url.StartsWith(TEXT("ws://127.0.0.1:")) || !S->Control.StartsWith(TEXT("http://127.0.0.1:"))) { AddError(TEXT("loopback servers only")); return false; }
+    S->Http = AEidoverseBridge::HttpBaseOf(S->Url);
+    for (const FWorldContext& C : GEngine->GetWorldContexts()) if (C.WorldType == EWorldType::Game && C.World()) S->World = C.World();
+    if (!S->World.IsValid()) { AddError(TEXT("needs a game session (-game)")); return false; }
+    S->RowAt = FPlatformTime::Seconds();
+    const FString Me = TEXT("unrealv4"), Founder = TEXT("founder");
+
+    // {row, start (once), check (until true or the row's time is up)}
+    struct FRow { const TCHAR* Name; double Limit; TFunction<void(AEidoverseBridge*)> Start; TFunction<bool(AEidoverseBridge*, double)> Check; };
+    TSharedRef<TArray<FRow>> Rows = MakeShared<TArray<FRow>>();
+    Rows->Add({TEXT("join through the bridge"), 60, [S, Me](AEidoverseBridge* B) {
+        if (B->bJoined) B->Disconnect();
+        B->bLoadRemoteAvatars = false; B->bReconnect = true; B->bUseBridge = true;
+        B->AttentionGate.Play = [W = TWeakPtr<FV4Chat>(S)]() { if (auto L = W.Pin()) ++L->Chimes; return true; };
+        B->JoinFromDoor(S->Url, S->WorldName, Me); },
+        [](AEidoverseBridge* B, double) { return B->bJoined && B->bBridgeReady; }});
+    Rows->Add({TEXT("speech is arrival-only: said, and nothing from before"), 5, nullptr,
+        [](AEidoverseBridge* B, double) { return HasNarration(B, TEXT("arrival-only")) && !FindLine(B, TEXT("founder"), TEXT("said before you came")); }});
+    Rows->Add({TEXT("bridge/say: someone's line, named"), 15, [S](AEidoverseBridge*) { S->Bot(TEXT("/say?text=") + Q(TEXT("line one from the founder"))); },
+        [Founder](AEidoverseBridge* B, double) { const auto* L = FindLine(B, Founder, TEXT("line one from the founder")); return L && L->Seq > 0; }});
+    Rows->Add({TEXT("my say goes as a request and comes back"), 15, [](AEidoverseBridge* B) { B->Say(TEXT("hello from unreal")); },
+        [](AEidoverseBridge* B, double) { return FindLine(B, B->AssignedIdentity, TEXT("hello from unreal")) != nullptr; }});
+    Rows->Add({TEXT("a live mention chimes once"), 15, [S](AEidoverseBridge*) { S->Bot(TEXT("/say?text=") + Q(TEXT("@unrealv4 are you there"))); },
+        [S, Founder](AEidoverseBridge* B, double) { return FindLine(B, Founder, TEXT("@unrealv4 are you there")) && S->Chimes == 1; }});
+    Rows->Add({TEXT("a spoken utterance's two says are one line"), 15, [S](AEidoverseBridge*) { S->Bot(TEXT("/say2?utt=3&a=first%20half&b=second%20half")); },
+        [Founder](AEidoverseBridge* B, double) { return FindLine(B, Founder, TEXT("first half second half")) != nullptr; }});
+    Rows->Add({TEXT("my spoken say is admitted (no voiced)"), 15, [](AEidoverseBridge* B) { B->SaySpoken(TEXT("testing out loud")); },
+        [](AEidoverseBridge* B, double) { return FindLine(B, B->AssignedIdentity, TEXT("\U0001F399 testing out loud")) != nullptr; }});
+    Rows->Add({TEXT("bridge/narration: a role grant is narrated"), 15, [S](AEidoverseBridge*) { S->Bot(TEXT("/grant?role=moderator")); },
+        [](AEidoverseBridge* B, double) { return HasNarration(B, TEXT("founder made unrealv4 moderator")); }});
+    Rows->Add({TEXT("rights: a moderator's permissions[] build"), 10, nullptr, [](AEidoverseBridge* B, double) { return B->CanBuild(); }});
+    Rows->Add({TEXT("rights: a custom role with build builds"), 15, [S](AEidoverseBridge*) { S->Bot(TEXT("/grant?role=crew")); },
+        [](AEidoverseBridge* B, double) { return HasNarration(B, TEXT("founder made unrealv4 crew")) && B->WorldRole == TEXT("crew") && B->CanBuild(); }});
+    Rows->Add({TEXT("rights: taken away, no build; the revoke narrated"), 15, [S](AEidoverseBridge*) { S->Bot(TEXT("/revoke")); },
+        [](AEidoverseBridge* B, double) { return HasNarration(B, TEXT("founder took unrealv4 off the list")) && !B->CanBuild(); }});
+    Rows->Add({TEXT("whisper: refused here by policy, no DM tab"), 5, [S](AEidoverseBridge* B) { S->bResult = B->Whisper(TEXT("founder"), TEXT("psst")); if (B->HUD) B->HUD->OpenDm(TEXT("founder")); },
+        [S](AEidoverseBridge* B, double) { return !S->bResult && B->HUD && B->HUD->GetDmTabs().IsEmpty() && HasNarration(B, TEXT("Direct messages aren't in world chat")); }});
+    Rows->Add({TEXT("history: a page at the floor; nothing doubled; the floor said"), 20, [S](AEidoverseBridge* B) { S->bResult = B->RequestEarlierChat(); },
+        [S](AEidoverseBridge* B, double) {
+            if (!S->bResult || !B->bHistoryDone || B->bHistoryPending || B->ChatHistory.IsEmpty()) return false;
+            int32 N = 0; for (const FEidoverseChatLine& L : B->ChatHistory) N += L.Text == TEXT("line one from the founder");
+            return N == 1 && B->ChatHistory[0].Text.Contains(TEXT("earlier chat isn't shown here")); }});
+    Rows->Add({TEXT("pose.anim in: a peer's once anim is read"), 15, [S](AEidoverseBridge*) { S->Bot(TEXT("/pose?anim=wave")); },
+        [Founder](AEidoverseBridge* B, double) { return B->PeerOnceAnim(Founder) == TEXT("wave"); }});
+    Rows->Add({TEXT("pose.anim out: my once anim rides as anim"), 15, [](AEidoverseBridge* B) { B->Emote(TEXT("cheer")); },
+        [S](AEidoverseBridge*, double In) {
+            if (S->bBusy) return false;
+            if (S->Body.Contains(TEXT("\"anim\":[\"cheer\"")) && S->Body.Contains(TEXT("\"emote\":[]"))) return true;
+            if (FPlatformTime::Seconds() - S->AskAt > 1) { S->AskAt = FPlatformTime::Seconds(); S->Bot(TEXT("/seen")); }
+            return false; }});
+    Rows->Add({TEXT("/defs: the action bar is read"), 15, [](AEidoverseBridge* B) { if (B->HUD) B->HUD->ReloadDefs(); },
+        [](AEidoverseBridge* B, double) { return B->HUD && B->HUD->GetEmoteNames().Contains(TEXT("wave")) && B->ClipEmoteNames().Contains(TEXT("wave")); }});
+    Rows->Add({TEXT("/worlds: people are objects, agents declare"), 15, [](AEidoverseBridge* B) { B->RefreshWorlds(); },
+        [S, Me, Founder](AEidoverseBridge* B, double) {
+            const FEidoverseWorldInfo* W = B->KnownWorlds.FindByPredicate([&](const FEidoverseWorldInfo& X) { return X.Name == S->WorldName; });
+            return W && W->People.Contains(Me) && W->Agents.Contains(Founder) && !W->People.Contains(Founder) && !W->People.Contains(FString()); }});
+    Rows->Add({TEXT("capture: the server's capture is answered with capture-result"), 60, [](AEidoverseBridge* B) { B->SetShareSceneScreenshots(true); },
+        [S, Me](AEidoverseBridge*, double In) {
+            if (!S->bAsked) { if (In > 1.5) S->Get(S->Http + TEXT("/snap?renderer=unreal&world=") + Q(S->WorldName) + TEXT("&follow=") + Me); return false; }
+            return !S->bBusy && S->Code == 200 && S->ContentType.StartsWith(TEXT("image/")); }});
+    Rows->Add({TEXT("queued while reconnecting: a say goes once, after the re-join"), 60, [S](AEidoverseBridge* B) { B->TestDropConnection(2); S->bResult = B->Say(TEXT("queued while away")); },
+        [S](AEidoverseBridge* B, double) {
+            int32 N = 0; for (const FEidoverseChatLine& L : B->ChatHistory) N += L.Sender == B->AssignedIdentity && L.Text == TEXT("queued while away");
+            return S->bResult && B->bJoined && N == 1; }});
+    Rows->Add({TEXT("not bridged: /defs is read for main's emotes, as before"), 20, [S](AEidoverseBridge* B) {
+        S->SavedEndpoint = B->Endpoint; B->bUseBridge = false; B->Endpoint = S->Control.Replace(TEXT("http://"), TEXT("ws://")) + TEXT("/ws"); if (B->HUD) B->HUD->ReloadDefs(); },
+        [](AEidoverseBridge* B, double) {
+            const TArray<FString> Bar = B->HUD ? B->HUD->GetEmoteNames() : TArray<FString>(), Clips = B->ClipEmoteNames();
+            return Bar.Contains(TEXT("nod-main")) && !Bar.Contains(TEXT("wave-bridge")) && Clips.Contains(TEXT("nod-main")) && !Clips.Contains(TEXT("wave-bridge")); }});
+
+    ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([this, S, Rows]() -> bool {
+        const double Now = FPlatformTime::Seconds(), In = Now - S->RowAt;
+        UWorld* W = S->World.Get(); if (!W) { AddError(TEXT("game world gone")); return true; }
+        AEidoverseBridge* B = S->Bridge.Get();
+        if (!B) { for (TActorIterator<AEidoverseBridge> It(W); It; ++It) S->Bridge = B = *It; if (!B || !B->HUD) { if (In > 30) { AddError(TEXT("no bridge or HUD")); return true; } return false; } S->RowAt = Now; return false; }
+        if (S->Row >= Rows->Num())
+        {
+            UE_LOG(LogTemp, Display, TEXT("EIDOVERSE_V4CHAT done: %d of %d rows red"), S->Red, Rows->Num());
+            B->SetShareSceneScreenshots(false); B->Disconnect(); if (!S->SavedEndpoint.IsEmpty()) B->Endpoint = S->SavedEndpoint; return true;
+        }
+        const FRow& R = (*Rows)[S->Row];
+        if (!S->bStarted) { S->bStarted = true; S->bAsked = false; S->Body.Empty(); S->AskAt = 0; if (R.Start) R.Start(B); return false; }
+        const bool bGreen = R.Check(B, In);
+        if (!bGreen && In < R.Limit) return false;
+        UE_LOG(LogTemp, Display, TEXT("EIDOVERSE_V4CHAT %02d %s: %s"), S->Row, bGreen ? TEXT("green") : TEXT("RED"), R.Name);
+        if (!bGreen) { ++S->Red; AddError(FString::Printf(TEXT("row %d red: %s (status %s; http %d %s)"), S->Row, R.Name, *B->ConnectionStatus, S->Code, *S->Body.Left(160))); }
+        if (!bGreen && S->Row == 0) return true;   // nothing else can run unjoined
+        ++S->Row; S->bStarted = false; S->RowAt = Now;
+        return false;
     }));
     return true;
 }

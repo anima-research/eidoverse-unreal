@@ -82,14 +82,16 @@ void AEidoverseBridge::ReceiveSnapshotExtras(const TSharedPtr<FJsonObject>& J, d
             AddChatLine(PStr(M, TEXT("actor")), PStr(M, TEXT("text")).Left(4000), false, FString(), true, Seq);
         }
     }
-    else if (Total == 0) bHistoryDone = true;
+    else if (Total == 0 && !bUseBridge) bHistoryDone = true;   // through the bridge the server's floor ends the walk (ReceiveHistory)
+    // speech is arrival-only (engine server.ts snapshot: recentChat is empty); an admin (readChat) may page back
+    if (bUseBridge && !HasPermission(TEXT("readChat"))) Narrate(TEXT("speech is arrival-only: you'll see what's said from now on"));
     ReceiveSnapshotSeats(State);
     // Wake where you fell asleep, unless this body already moved this session.
     PendingRestore = PObj(J, TEXT("restore"));
     if (PendingRestore && bBodyMovedThisSession) PendingRestore.Reset();
     // Rights, as the web narrates them.
     if (!bWorldOpen && !WorldRole.IsEmpty() && WorldRole != TEXT("owner"))
-        Narrate(FString::Printf(TEXT("this world has an owner — you are a %s%s here"), *WorldRole, bCanGenerate ? TEXT(" +gen") : TEXT("")));
+        Narrate(FString::Printf(TEXT("this world has an owner — you are a %s%s here"), *ShownRole(), bCanGenerate ? TEXT(" +gen") : TEXT("")));
     bEmptyWorldNoticePending = true;
     // Anything queued while reconnecting goes out now, in order.
     if (!QueuedMessages.IsEmpty())
@@ -155,6 +157,7 @@ bool AEidoverseBridge::ReceiveProtocol(const FString& Type, const TSharedPtr<FJs
     }
     if (!bJoined) return false;
     if (Type == TEXT("history")) return ReceiveHistory(J);
+    if (Type == TEXT("capture") && bUseBridge) { ReceiveCapture(J); return true; }   // a scene capture for the server's broker (engine server/screenshots.ts)
     if (Type == TEXT("world-reset"))
     {
         const FString By = PStr(J, TEXT("by")), World = PStr(J, TEXT("world"));
@@ -272,7 +275,8 @@ bool AEidoverseBridge::ReceiveHistory(const TSharedPtr<FJsonObject>& J)
     bHistoryPending = false;
     if (bHistoryDone)
     {
-        const FString Beginning = TEXT("\u2014 the beginning of this world \u2014");
+        // arrival-only: a non-admin's walk ends at its own arrival, not at the world's beginning
+        const FString Beginning = bUseBridge && !HasPermission(TEXT("readChat")) ? TEXT("\u2014 earlier chat isn't shown here \u2014") : TEXT("\u2014 the beginning of this world \u2014");
         if (ChatHistory.IsEmpty() || ChatHistory[0].Text != Beginning)
         {
             FEidoverseChatLine N; N.Sender = TEXT("*"); N.Text = Beginning; ChatHistory.Insert(N, 0);

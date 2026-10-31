@@ -41,8 +41,16 @@ void AEidoverseBridge::RefreshWorlds(const FString& Server)
             if (!IsWorldName(W.Name)) continue;
             O->TryGetBoolField(TEXT("loaded"), W.bLoaded);
             const TArray<TSharedPtr<FJsonValue>>* Names = nullptr;
-            if (O->TryGetArrayField(TEXT("people"), Names)) for (const auto& N : *Names) if (W.People.Num() < 64) W.People.Add(N->AsString().Left(64));
-            if (O->TryGetArrayField(TEXT("agents"), Names)) for (const auto& N : *Names) if (W.Agents.Num() < 64) W.Agents.Add(N->AsString().Left(64));
+            // people: [{id, declares?}] (engine routes.ts /worlds); an agent is one that declared itself one
+            if (O->TryGetArrayField(TEXT("people"), Names)) for (const auto& N : *Names)
+            {
+                FString Id, Declares; const TSharedPtr<FJsonObject>* P = nullptr;
+                if (N->TryGetObject(P)) { (*P)->TryGetStringField(TEXT("id"), Id); (*P)->TryGetStringField(TEXT("declares"), Declares); }
+                else N->TryGetString(Id);
+                TArray<FString>& Into = Declares == TEXT("agent") ? W.Agents : W.People;
+                if (!Id.IsEmpty() && Into.Num() < 64) Into.Add(Id.Left(64));
+            }
+            if (O->TryGetArrayField(TEXT("agents"), Names)) for (const auto& N : *Names) if (W.Agents.Num() < 64) W.Agents.Add(N->AsString().Left(64));   // main's
             Worlds.Add(MoveTemp(W));
             if (Worlds.Num() >= 500) break;
         }

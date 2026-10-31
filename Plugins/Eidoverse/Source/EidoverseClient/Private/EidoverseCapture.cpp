@@ -50,7 +50,7 @@ void AEidoverseBridge::ReceiveCapture(const TSharedPtr<FJsonObject>& Message)
 {
     FString Id,Follow,View;
     if(!Message->TryGetStringField(TEXT("id"),Id)||Id.IsEmpty()||Id.Len()>96)return;
-    auto Reply=MakeShared<FJsonObject>();Reply->SetStringField(TEXT("type"),TEXT("snap-result"));Reply->SetStringField(TEXT("id"),Id);
+    auto Reply=MakeShared<FJsonObject>();Reply->SetStringField(TEXT("type"),bUseBridge?TEXT("capture-result"):TEXT("snap-result"));   // the v4 name; main'sReply->SetStringField(TEXT("id"),Id);
     auto Fail=[&](const TCHAR* Why){Reply->SetStringField(TEXT("error"),Why);Send(Reply);};
     if(!bShareSceneScreenshots||CaptureConsentEndpoint!=Endpoint||CaptureConsentWorld!=WorldName){Fail(TEXT("scene sharing disabled"));return;}
     const double Now=FPlatformTime::Seconds();
