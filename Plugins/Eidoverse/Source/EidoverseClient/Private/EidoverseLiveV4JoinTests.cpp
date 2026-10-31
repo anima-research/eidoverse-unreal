@@ -52,7 +52,7 @@ bool FEidoverseLiveV4Join::RunTest(const FString&)
             if (!B || !B->HUD) { if (In > 30) { AddError(TEXT("no bridge or HUD")); return true; } return false; }
             if (B->bJoined) { B->Disconnect(); return false; }
             B->bLoadRemoteAvatars = false; B->bReconnect = false;
-            B->bUseBridge = false;
+            B->bUseBridge = false; B->bBridgeAuto = false;   // the direct refusal itself, measured once
             B->JoinFromDoor(Url, WorldName, TEXT("unrealdirect"));
             Next(); return false;
         case 1:   // red without the bridge: the server refuses a join that doesn't fold (4005), and the client says why
@@ -95,7 +95,20 @@ bool FEidoverseLiveV4Join::RunTest(const FString&)
             TestTrue(TEXT("still joined through the bridge"), B->bJoined && B->bBridgeReady);
             TestEqual(TEXT("one bridge/ready (no resync loop)"), B->BridgeReadyCount, 1);
             B->Disconnect();
-            return true;
+            B->bUseBridge = false; B->bBridgeAuto = true; B->bReconnect = true;   // the shipped defaults: nobody turned the bridge on
+            B->JoinFromDoor(Url, WorldName, TEXT("unrealauto"));
+            Next(); return false;
+        case 5:   // with the defaults, the refused direct join goes on through the bridge by itself
+            if (B->bJoined && B->bBridgeReady)
+            {
+                TestTrue(TEXT("the client turned the bridge on itself"), B->bUseBridge);
+                AddInfo(TEXT("defaults: joined through the bridge by itself as ") + B->AssignedIdentity);
+                UE_LOG(LogTemp, Display, TEXT("EIDOVERSE_V4_AUTO ok you=%s"), *B->AssignedIdentity);
+                B->Disconnect();
+                return true;
+            }
+            if (Late(60)) { AddError(TEXT("with the defaults, the client never reached the world through the bridge: ") + B->ConnectionStatus); return true; }
+            return false;
         default: return true;
         }
     }));

@@ -485,6 +485,8 @@ public:
     // ---- the local bridge (EidoverseSidecar.cpp; Plugins/Eidoverse/Bridge/README.md): join a world as a replica through it ----
     // On: -EidoverseBridge, or EIDOVERSE_BRIDGE=1|dev. The socket then goes to the bridge, which dials Endpoint.
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Eidoverse") bool bUseBridge=false;
+    // A world of the current protocol refuses a join that doesn't fold (4005); the client then joins it through the bridge by itself. Off: EIDOVERSE_BRIDGE=0.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Eidoverse") bool bBridgeAuto=true;
     UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse") bool bBridgeReady=false;   // bridge/ready: the join's cut is folded
     UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse") FString BridgeWorldId;
     FString BridgeActorId;   // bridge/ready's `you`: the actor id the authority names (held.by), not the display name the snapshot gives
