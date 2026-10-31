@@ -690,7 +690,8 @@ public:
 private:
     void Pose(const FString& Id,const TSharedPtr<FJsonObject>& Data,double Time);
     void Receive(const FString& Message);
-    void Lost(int32 Code);
+    void Lost(int32 Code,const FString& Reason=FString());
+    bool bBridgeAutoOn=false;   // bUseBridge was turned on by a 4005 refusal, not by the user
     void Send(const TSharedRef<FJsonObject>& Message);
     void SendPose();
     void AdvertiseCapture();

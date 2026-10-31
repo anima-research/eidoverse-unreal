@@ -72,7 +72,7 @@ void AEidoverseBridge::BeginPlay()
     AttentionGate.MentionsMe=[this](const FString& Text){return EidoAttention::Mentions(Text,AssignedIdentity);};
     AttentionGate.NowMs=[](){return FPlatformTime::Seconds()*1000;};
     AttentionGate.Play=[this](){return PlayAttention();};
-    {const FString Env=FPlatformMisc::GetEnvironmentVariable(TEXT("EIDOVERSE_BRIDGE"));if(FParse::Param(FCommandLine::Get(),TEXT("EidoverseBridge"))||Env==TEXT("1")||Env==TEXT("dev"))bUseBridge=true;}
+    {const FString Env=FPlatformMisc::GetEnvironmentVariable(TEXT("EIDOVERSE_BRIDGE"));if(FParse::Param(FCommandLine::Get(),TEXT("EidoverseBridge"))||Env==TEXT("1")||Env==TEXT("dev"))bUseBridge=true;if(Env==TEXT("0"))bBridgeAuto=false;}
     if(bAutoConnect)Connect();
 }
 void AEidoverseBridge::EndPlay(const EEndPlayReason::Type Reason)
@@ -267,6 +267,7 @@ void AEidoverseBridge::Connect()
     if(!ProductionLogin&&!bLocalCommonsPreset&&IdentityToken.IsEmpty())IdentityToken=FPlatformMisc::GetEnvironmentVariable(TEXT("EIDOVERSE_IDENTITY_TOKEN"));
     // a retry keeps the chat: remember the last entry the old socket delivered, for the re-join's resync
     if(bRetrying)ChatResyncFloor=FMath::Max(ChatResyncFloor,LastLogSequence);
+    if(!bRetrying&&bBridgeAutoOn){bUseBridge=false;bBridgeAutoOn=false;}   // a new door asks again: its server may speak the old protocol
     bWanted=true;OpenedAt=FPlatformTime::Seconds();AssignedIdentity.Empty();LastFrameTime=-1;LastLogSequence=-1;
     if(bUseBridge)
     {
@@ -289,7 +290,7 @@ void AEidoverseBridge::BindSocket()
         if(B.bUseBridge)B.SendBridgeHello();
         B.SendJoin();B.Status(TEXT("joining"));});});
     Socket->OnMessage().AddLambda([Weak,G](const FString& M){if(M.Len()>8*1024*1024)return;Eido::Dispatch(Weak,[G,M](AEidoverseBridge& B){if(B.Generation==G)B.Receive(M);});});
-    Socket->OnClosed().AddLambda([Weak,G](int32 Code,const FString&,bool){Eido::Dispatch(Weak,[G,Code](AEidoverseBridge& B){if(B.Generation==G)B.Lost(Code);});});
+    Socket->OnClosed().AddLambda([Weak,G](int32 Code,const FString& Reason,bool){Eido::Dispatch(Weak,[G,Code,Reason](AEidoverseBridge& B){if(B.Generation==G)B.Lost(Code,Reason);});});
     Socket->OnConnectionError().AddLambda([Weak,G](const FString&){Eido::Dispatch(Weak,[G](AEidoverseBridge& B){if(B.Generation==G)B.Lost(1006);});});
     Status(TEXT("connecting"));Socket->Connect();
 }
@@ -352,10 +353,13 @@ void AEidoverseBridge::TestDropConnection(double HoldSeconds)
     Lost(1006);
     if(RetryAt>0)RetryAt=FPlatformTime::Seconds()+FMath::Max(0.,HoldSeconds);
 }
-void AEidoverseBridge::Lost(int32 Code)
+void AEidoverseBridge::Lost(int32 Code,const FString& Reason)
 {
     ClearInteractions();VoiceLost();
     bJoined=false;ClearPeers();EndDynamicScene();
+    // the server's words for a client that doesn't fold (engine server/server.ts): a current-protocol world, so go on through the bridge
+    if(Code==4005&&!bUseBridge&&bBridgeAuto&&bWanted&&Reason==TEXT("this client doesn't fold the log"))
+    {bUseBridge=true;bBridgeAutoOn=true;RetryAt=FPlatformTime::Seconds();Status(TEXT("a world of the current protocol: joining through the local bridge"));return;}
     bool bRetry=true;const FString Why=CloseReason(Code,bRetry);
     if(!bRetry){bWanted=false;RetryAt=0;QueuedMessages.Reset();Status(Why);ToastText(Why,true);if(Code==4003&&HasProductionSession())LogoutProduction();if(Code==4003&&!HasProductionSession())bDoorKeyRefused=true;}
     else if(bWanted&&bReconnect){RetryAt=FPlatformTime::Seconds()+RetryDelay;RetryDelay=FMath::Min(15.0,FMath::Max(1.2,RetryDelay*1.6));Status(Why);}
