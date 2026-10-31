@@ -108,16 +108,21 @@ bool FEidoverseSidecar::Ready()
     }
     if (Port) return true;
     Out += FPlatformProcess::ReadPipe(StdoutRead);
-    int32 Nl; if (!Out.FindChar('\n', Nl)) return false;
-    TSharedPtr<FJsonObject> J; double P = 0;
-    if (FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Out.Left(Nl)), J) && J && J->TryGetNumberField(TEXT("port"), P) && P > 0 && P < 65536)
+    // the port line may follow a runtime's own warning on the shared pipe (bun on Linux: JSC's signal-30 note); say those, keep reading
+    int32 Nl;
+    while (Out.FindChar('\n', Nl))
     {
-        Port = int32(P);
-        UE_LOG(LogTemp, Display, TEXT("EIDOVERSE bridge ready on 127.0.0.1:%d (%.1f s)"), Port, FPlatformTime::Seconds() - LaunchedAt);
-        return true;
+        const FString Line = Out.Left(Nl).TrimStartAndEnd(); Out.RightChopInline(Nl + 1);
+        TSharedPtr<FJsonObject> J; double P = 0;
+        if (Line.StartsWith(TEXT("{")) && FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Line), J) && J && J->TryGetNumberField(TEXT("port"), P) && P > 0 && P < 65536)
+        {
+            Port = int32(P);
+            UE_LOG(LogTemp, Display, TEXT("EIDOVERSE bridge ready on 127.0.0.1:%d (%.1f s)"), Port, FPlatformTime::Seconds() - LaunchedAt);
+            return true;
+        }
+        if (!Line.IsEmpty()) UE_LOG(LogTemp, Warning, TEXT("EIDOVERSE bridge said %s"), *Line.Left(200));
     }
-    UE_LOG(LogTemp, Warning, TEXT("EIDOVERSE bridge said %s, not its port; stopping it"), *Out.Left(200));
-    Stop();
+    if (FPlatformTime::Seconds() - LaunchedAt > 15) { UE_LOG(LogTemp, Warning, TEXT("EIDOVERSE bridge never said its port in 15 s; stopping it")); Stop(); }
     return false;
 }
 
