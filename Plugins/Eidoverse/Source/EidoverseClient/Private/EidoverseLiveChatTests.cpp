@@ -330,7 +330,7 @@ bool FEidoverseLiveV4Chat::RunTest(const FString&)
         [](AEidoverseBridge* B, double) { return HasNarration(B, TEXT("founder took unrealv4 off the list")) && !B->CanBuild(); }});
     Rows->Add({TEXT("whisper: refused here by policy, no DM tab"), 5, [S](AEidoverseBridge* B) { S->bResult = B->Whisper(TEXT("founder"), TEXT("psst")); if (B->HUD) B->HUD->OpenDm(TEXT("founder")); },
         [S](AEidoverseBridge* B, double) { return !S->bResult && B->HUD && B->HUD->GetDmTabs().IsEmpty() && HasNarration(B, TEXT("Direct messages aren't in world chat")); }});
-    Rows->Add({TEXT("history: a page at the floor; nothing doubled; the floor said"), 20, [S](AEidoverseBridge* B) { S->bResult = B->RequestEarlierChat(); },
+    Rows->Add({TEXT("history: a page at the floor; nothing doubled; the floor said"), 20, [S](AEidoverseBridge* B) { S->bResult = B->RequestEarlierChat() || B->bHistoryPending || B->bHistoryDone; },   // a rendered HUD asks by itself near the log's top (EidoverseUI.cpp)
         [S](AEidoverseBridge* B, double) {
             if (!S->bResult || !B->bHistoryDone || B->bHistoryPending || B->ChatHistory.IsEmpty()) return false;
             int32 N = 0; for (const FEidoverseChatLine& L : B->ChatHistory) N += L.Text == TEXT("line one from the founder");
