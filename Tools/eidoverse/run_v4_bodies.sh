@@ -28,7 +28,7 @@ i=0; until grep -q '"bench"' "$SCRATCH/seed.log" 2>/dev/null; do i=$((i+1)); [ $
 grep -q '"ok":true' "$SCRATCH/seed.log" || { echo "seed refused; see $SCRATCH/seed.log"; exit 2; }
 field() { sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p" "$SCRATCH/seed.log" | head -1; }
 export EIDO_LIVE_V4_URL="ws://127.0.0.1:$PORT/ws" EIDO_LIVE_V4_WORLD="$WORLD" EIDO_LIVE_V4_BENCH=$(field bench) EIDO_LIVE_V4_LAMP=$(field lamp) EIDO_LIVE_V4_GUEST=guestbot
-WIN=""; if [ -n "${WSL_DISTRO_NAME:-}" ]; then WIN=1; fi
+WIN=""; if [ -n "${UE_EDITOR:-}" ]; then :; elif [ -n "${WSL_DISTRO_NAME:-}" ]; then WIN=1; fi
 if [ -n "$WIN" ]; then
   UE=${UE_ROOT:-"/mnt/c/Program Files/Epic Games/UE_5.8"}
   EDITOR="$UE/Engine/Binaries/Win64/UnrealEditor.exe"; PROJECT=$(wslpath -w "$ROOT/Test1.uproject")

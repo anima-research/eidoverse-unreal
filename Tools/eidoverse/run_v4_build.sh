@@ -27,7 +27,8 @@ i=0; until curl -sf "http://127.0.0.1:$PORT/version" >/dev/null 2>&1; do i=$((i+
 bun "$ROOT/Tools/eidoverse/v4_seed.ts" "ws://127.0.0.1:$PORT/ws" "$WORLD" "$OWNER" >"$SCRATCH/seed.log" 2>&1 || { echo "seed failed; see $SCRATCH/seed.log"; exit 2; }
 export EIDO_LIVE_V4_URL="ws://127.0.0.1:$PORT/ws" EIDO_LIVE_V4_WORLD="$WORLD" EIDO_LIVE_V4_OWNER="$OWNER" EIDO_LIVE_BUILD_URL="ws://127.0.0.1:$PORT/ws" EIDO_LIVE_BUILD_WORLD="$KEYS" EIDOVERSE_BRIDGE=1
 TESTS=${V4_TESTS:-Eidoverse.LiveV4Build+Eidoverse.LiveBuildKeys}
-if [ -n "${WSL_DISTRO_NAME:-}" ]; then
+if [ -n "${UE_EDITOR:-}" ]; then EDITOR=$UE_EDITOR; PROJECT="$ROOT/Test1.uproject"
+elif [ -n "${WSL_DISTRO_NAME:-}" ]; then
   UE=${UE_ROOT:-"/mnt/c/Program Files/Epic Games/UE_5.8"}
   EDITOR="$UE/Engine/Binaries/Win64/UnrealEditor.exe"; PROJECT=$(wslpath -w "$ROOT/Test1.uproject")
   export WSLENV="EIDO_LIVE_V4_URL:EIDO_LIVE_V4_WORLD:EIDO_LIVE_V4_OWNER:EIDO_LIVE_BUILD_URL:EIDO_LIVE_BUILD_WORLD:EIDOVERSE_BRIDGE${WSLENV:+:$WSLENV}"

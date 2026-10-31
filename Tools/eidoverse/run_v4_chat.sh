@@ -25,7 +25,8 @@ bun "$ROOT/Tools/eidoverse/v4_chat_bot.ts" "ws://127.0.0.1:$PORT/ws" "$WORLD" fo
 BOT=$!
 i=0; until curl -sf "http://127.0.0.1:$CPORT/ready" 2>/dev/null | grep -q '"ready":true'; do i=$((i+1)); [ $i -lt 150 ] || { echo "the bot never got ready; see $SCRATCH/bot.log"; exit 2; }; sleep 0.2; done
 export EIDO_LIVE_V4_URL="ws://127.0.0.1:$PORT/ws" EIDO_LIVE_V4_WORLD="$WORLD" EIDO_LIVE_V4_CONTROL="http://127.0.0.1:$CPORT"
-if [ -n "${WSL_DISTRO_NAME:-}" ]; then
+if [ -n "${UE_EDITOR:-}" ]; then EDITOR=$UE_EDITOR; PROJECT="$ROOT/Test1.uproject"
+elif [ -n "${WSL_DISTRO_NAME:-}" ]; then
   UE=${UE_ROOT:-"/mnt/c/Program Files/Epic Games/UE_5.8"}
   EDITOR="$UE/Engine/Binaries/Win64/UnrealEditor.exe"; PROJECT=$(wslpath -w "$ROOT/Test1.uproject")
   export WSLENV="EIDO_LIVE_V4_URL:EIDO_LIVE_V4_WORLD:EIDO_LIVE_V4_CONTROL:EIDOVERSE_BRIDGE${WSLENV:+:$WSLENV}"

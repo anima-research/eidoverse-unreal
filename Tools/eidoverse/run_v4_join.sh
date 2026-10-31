@@ -26,7 +26,7 @@ SERVER=$!
 i=0; until curl -sf "http://127.0.0.1:$PORT/version" >/dev/null 2>&1; do i=$((i+1)); [ $i -lt 150 ] || { echo "server never came up; see $SCRATCH/server.log"; exit 2; }; sleep 0.2; done
 bun "$ROOT/Tools/eidoverse/v4_seed.ts" "ws://127.0.0.1:$PORT/ws" "$WORLD" founder >"$SCRATCH/seed.log" 2>&1 || { echo "seed failed; see $SCRATCH/seed.log"; exit 2; }
 export EIDO_LIVE_V4_URL="ws://127.0.0.1:$PORT/ws" EIDO_LIVE_V4_WORLD="$WORLD" EIDO_LIVE_V4_ITEMS=2
-WIN=""; if [ -n "${WSL_DISTRO_NAME:-}" ]; then WIN=1; fi
+WIN=""; if [ -n "${UE_EDITOR:-}" ]; then :; elif [ -n "${WSL_DISTRO_NAME:-}" ]; then WIN=1; fi
 if [ -n "$WIN" ]; then
   UE=${UE_ROOT:-"/mnt/c/Program Files/Epic Games/UE_5.8"}
   EDITOR="$UE/Engine/Binaries/Win64/UnrealEditor.exe"; PROJECT=$(wslpath -w "$ROOT/Test1.uproject")
@@ -36,6 +36,7 @@ else
   EDITOR="$UE/Engine/Binaries/Mac/UnrealEditor.app/Contents/MacOS/UnrealEditor"; PROJECT="$ROOT/Test1.uproject"
   [ -n "${DEVELOPER_DIR:-}" ] || export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 fi
+if [ -n "${UE_EDITOR:-}" ]; then EDITOR=$UE_EDITOR; PROJECT="$ROOT/Test1.uproject"; fi
 "$EDITOR" "$PROJECT" -game -RenderOffscreen -ResX=1280 -ResY=720 \
   -ExecCmds="Automation RunTests ${EIDO_V4_TESTS:-Eidoverse.LiveV4Join}" -TestExit="Automation Test Queue Empty" \
   -unattended -nosound -nosplash -stdout -FullStdOutLogOutput -NoP4 ${UE_ARGS:-} >"$SCRATCH/game.log" 2>&1 || true
