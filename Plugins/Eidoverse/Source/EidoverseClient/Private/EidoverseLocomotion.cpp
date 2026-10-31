@@ -66,6 +66,7 @@ bool AEidoverseBridge::HandleUseKey()
             return true;
         }
     }
+    if (bUseBridge) return UseBridgedHelm(Feet);
     // A helm within 2.5 m (vehicles.js): claim the lease; piloting starts when granted.
     for (const auto& Pair : DynamicScene->GetItems())
     {
@@ -106,16 +107,22 @@ void AEidoverseBridge::EndHelm(bool bRelease, bool bExit)
     {
         // Back to yaw-only; step off at the exit point when the vessel names one.
         A->SetActorRotation(FRotator(0, A->GetActorRotation().Yaw, 0));
+        if (bUseBridge) { PendingUnridePos = ToWirePosition(A->GetActorLocation() - OriginCentimeters); PendingUnrideTries = 0; PendingUnrideAt = FPlatformTime::Seconds() + .1; }   // walk off the helm (bodies.ts unride)
         const FVector P = ToWirePosition(A->GetActorLocation() - OriginCentimeters);
         auto J = MakeShared<FJsonObject>(); J->SetStringField(TEXT("op"), TEXT("release")); J->SetStringField(TEXT("id"), Helm.Id);
         J->SetArrayField(TEXT("p"), {MakeShared<FJsonValueNumber>(P.X), MakeShared<FJsonValueNumber>(P.Y), MakeShared<FJsonValueNumber>(P.Z)});
         J->SetNumberField(TEXT("yaw"), Helm.YawWire);
-        SendRaw(TEXT("lease"), J);
+        if (!bUseBridge) SendRaw(TEXT("lease"), J);
         if (Explorer && bExit)
         {
             const FEidoverseSceneItem* E = DynamicScene->GetItems().Find(Helm.Id); FVector Exit;
             const double Half = Explorer->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
-            if (E && LVecField(E->Vehicle, TEXT("exit"), Exit)) Explorer->SetActorLocation(A->GetActorTransform().TransformPosition(FromWirePosition(Exit)) + FVector(0, 0, Half + 2), false, nullptr, ETeleportType::TeleportPhysics);
+            if (E && LVecField(E->Vehicle, TEXT("exit"), Exit))
+            {
+                const FVector Land = A->GetActorTransform().TransformPosition(FromWirePosition(Exit));
+                Explorer->SetActorLocation(Land + FVector(0, 0, Half + 2), false, nullptr, ETeleportType::TeleportPhysics);
+                if (bUseBridge) PendingUnridePos = ToWirePosition(Land - OriginCentimeters);
+            }
         }
     }
     if (DynamicScene && !Helm.Id.IsEmpty()) { if (A) DynamicScene->SetLocalTransform(Helm.Id, A->GetActorTransform()); DynamicScene->HoldTransform(Helm.Id, false); }
@@ -160,7 +167,7 @@ void AEidoverseBridge::TickLocomotion(AEidoverseExplorer* Explorer, float Dt)
     {
         AActor* A = DynamicScene->EntityActor(Helm.Id);
         const FEidoverseSceneItem* E = DynamicScene->GetItems().Find(Helm.Id);
-        if (!A || !E || !E->Vehicle || !PC) { EndHelm(false); return; }
+        if (!A || !E || (!E->Vehicle && !bUseBridge) || !PC) { EndHelm(false); return; }   // bridged: the scene may carry no vehicle block
         // Knocked down at the helm (a push, a force): let go, so the fall runs and nothing steers from a limp body.
         if (bDowned) { EndHelm(true, false); if (HUD) HUD->Hint(TEXT("knocked from the helm"), 3); return; }
         // The helm owns the keys and the camera: never both it and photo mode (main.js me-drive).
@@ -175,11 +182,11 @@ void AEidoverseBridge::TickLocomotion(AEidoverseExplorer* Explorer, float Dt)
         Helm.Vel = FMath::Lerp(Helm.Vel, Desired, 1 - FMath::Exp(-1.5 * Step));
         const FVector OldWire = ToWirePosition(A->GetActorLocation() - OriginCentimeters);
         FVector NewWire = OldWire + Helm.Vel * Step;
-        { double MinY, MaxY; if (E->Vehicle->TryGetNumberField(TEXT("minY"), MinY)) NewWire.Y = FMath::Max(NewWire.Y, MinY); if (E->Vehicle->TryGetNumberField(TEXT("maxY"), MaxY)) NewWire.Y = FMath::Min(NewWire.Y, MaxY); }
+        { double MinY, MaxY; if (E->Vehicle && E->Vehicle->TryGetNumberField(TEXT("minY"), MinY)) NewWire.Y = FMath::Max(NewWire.Y, MinY); if (E->Vehicle && E->Vehicle->TryGetNumberField(TEXT("maxY"), MaxY)) NewWire.Y = FMath::Min(NewWire.Y, MaxY); }
         // Probes: rays along the motion (distance + 0.3 m); a hit stops the vessel.
         TArray<FVector> Probes;
         const TArray<TSharedPtr<FJsonValue>>* ProbeArr = nullptr;
-        if (E->Vehicle->TryGetArrayField(TEXT("probes"), ProbeArr)) for (const auto& V : *ProbeArr) { FVector P; if (LVec(V, P)) Probes.Add(P); }
+        if (E->Vehicle && E->Vehicle->TryGetArrayField(TEXT("probes"), ProbeArr)) for (const auto& V : *ProbeArr) { FVector P; if (LVec(V, P)) Probes.Add(P); }
         if (Probes.IsEmpty()) Probes.Add(FVector::ZeroVector);
         const FVector MoveUE = FromWirePosition(NewWire - OldWire);
         if (!MoveUE.IsNearlyZero())
@@ -197,7 +204,7 @@ void AEidoverseBridge::TickLocomotion(AEidoverseExplorer* Explorer, float Dt)
         A->SetActorLocationAndRotation(OriginCentimeters + FromWirePosition(NewWire), VesselQ);
         DynamicScene->SetLocalTransform(Helm.Id, A->GetActorTransform());
         // Me at the helm, facing with the vessel, sitting.
-        FVector HelmL; LVecField(E->Vehicle, TEXT("helm"), HelmL);
+        FVector HelmL = Helm.HelmLocal; LVecField(E->Vehicle, TEXT("helm"), HelmL);
         Explorer->SetSeated(true);
         Explorer->SetActorLocationAndRotation(A->GetActorTransform().TransformPosition(FromWirePosition(HelmL)) + FVector(0, 0, Half), FRotator(0, A->GetActorRotation().Yaw, 0), false, nullptr, ETeleportType::TeleportPhysics);
         LocoMode = TEXT("pilot"); LocoClip = TEXT("sitchair"); LocoSpeed = float(Helm.Vel.Size());
@@ -206,6 +213,7 @@ void AEidoverseBridge::TickLocomotion(AEidoverseExplorer* Explorer, float Dt)
         {
             Helm.SentAt = Now;
             const FQuat W = ToWireRotation(VesselQ);
+            if (bUseBridge) { SendDrive(NewWire, W); return; }
             auto J = MakeShared<FJsonObject>(); J->SetStringField(TEXT("op"), TEXT("state")); J->SetStringField(TEXT("id"), Helm.Id);
             J->SetArrayField(TEXT("p"), {MakeShared<FJsonValueNumber>(NewWire.X), MakeShared<FJsonValueNumber>(NewWire.Y), MakeShared<FJsonValueNumber>(NewWire.Z)});
             J->SetNumberField(TEXT("yaw"), Helm.YawWire);
@@ -239,4 +247,43 @@ void AEidoverseBridge::TickLocomotion(AEidoverseExplorer* Explorer, float Dt)
     }
     if (Key != ClimbHintKey && !Key.IsEmpty() && HUD) HUD->Hint(Line, 3);
     ClimbHintKey = Key;
+}
+
+// ---- bridged (Bridge/SLICES.md slice D): the helm is a seat whose station drives its host; steering is the drive request ----
+bool AEidoverseBridge::UseBridgedHelm(const FVector& Feet)
+{
+    // a seat within 2.5 m whose station drives its host (shared/drive.js helmOf); piloting starts when the ride is allowed
+    for (const FEidoSeat& S : SceneSeats)
+    {
+        if (S.Action != TEXT("drive") || !S.Occupant.IsEmpty()) continue;
+        const AActor* Host = DynamicScene->EntityActor(S.Host);
+        const TSharedPtr<FJsonObject> Info = Host ? DynamicScene->Interaction(S.Host) : nullptr;
+        const TSharedPtr<FJsonObject>* Sockets = nullptr; const TSharedPtr<FJsonObject>* Sock = nullptr; FVector HelmL(0, .5, 0);
+        if (Info && Info->TryGetObjectField(TEXT("sockets"), Sockets) && (*Sockets)->TryGetObjectField(S.Name, Sock)) LVecField(*Sock, TEXT("pos"), HelmL);
+        if (!Host || FVector::Dist(Host->GetActorTransform().TransformPosition(FromWirePosition(HelmL)), Feet) > 250) continue;
+        auto J = MakeShared<FJsonObject>(); J->SetStringField(TEXT("to"), S.Host); J->SetStringField(TEXT("socket"), S.Name); J->SetStringField(TEXT("action"), TEXT("drive"));
+        const FString HostId = S.Host;
+        if (!BridgeRide(TEXT("bridge/ride"), J, [this, HostId, HelmL](const TSharedPtr<FJsonObject>& R)
+            {
+                bool bOk = false; if (Helm.Id != HostId) return;
+                if (!R || !R->TryGetBoolField(TEXT("ok"), bOk) || !bOk) { Helm = FHelm(); return; }
+                const TSharedPtr<FJsonObject>* Attach = nullptr;
+                if (R->TryGetObjectField(TEXT("attach"), Attach)) { (*Attach)->TryGetStringField(TEXT("to"), Helm.Seat); (*Attach)->TryGetStringField(TEXT("pose"), SeatAnim); }
+                Helm.bPending = false; Helm.bActive = true; Helm.Vel = FVector::ZeroVector; Helm.HelmLocal = HelmL;
+                if (AActor* A = DynamicScene ? DynamicScene->EntityActor(HostId) : nullptr) Helm.YawWire = -FMath::DegreesToRadians(A->GetActorRotation().Yaw);
+                if (DynamicScene) DynamicScene->HoldTransform(HostId, true);
+                if (HUD) HUD->Hint(TEXT("piloting — W/S thrust, A/D steer, Space rise, C dive, E exit"), 5);
+            }).IsEmpty()) { Helm = FHelm(); Helm.Id = S.Host; Helm.bPending = true; }
+        return true;
+    }
+    return false;
+}
+
+void AEidoverseBridge::SendDrive(const FVector& PosWire, const FQuat& QWire)
+{
+    // drive {id, pos, q} (verbspec drive): the authority checks each step and commits the last it accepts
+    auto J = MakeShared<FJsonObject>(); J->SetStringField(TEXT("id"), Helm.Id);
+    J->SetArrayField(TEXT("pos"), {MakeShared<FJsonValueNumber>(PosWire.X), MakeShared<FJsonValueNumber>(PosWire.Y), MakeShared<FJsonValueNumber>(PosWire.Z)});
+    J->SetArrayField(TEXT("q"), {MakeShared<FJsonValueNumber>(QWire.X), MakeShared<FJsonValueNumber>(QWire.Y), MakeShared<FJsonValueNumber>(QWire.Z), MakeShared<FJsonValueNumber>(QWire.W)});
+    Request(TEXT("drive"), J, [](const TSharedPtr<FJsonObject>&) {});
 }

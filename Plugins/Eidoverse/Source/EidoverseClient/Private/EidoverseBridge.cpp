@@ -952,6 +952,7 @@ bool AEidoverseBridge::ReceiveWriteWire(const FString& Type,const TSharedPtr<FJs
 bool AEidoverseBridge::ReceiveBodiesWire(const FString& Type,const TSharedPtr<FJsonObject>& J)
 {
     if(Type==TEXT("lease")){ReceiveLease(J);return true;}
+    if(Type==TEXT("holds")){ReceiveHolds(J);return true;}   // bridged: the authority's holds pass through (bodies.ts)
     return false;
 }
 void AEidoverseBridge::SendPose()
@@ -1014,6 +1015,7 @@ void AEidoverseBridge::SendPose()
     if(MyPins.Num()){TArray<TSharedPtr<FJsonValue>> Pins;for(const auto& Pin:MyPins){auto O=MakeShared<FJsonObject>();O->SetStringField(TEXT("j"),Pin.Key.ToString());O->SetArrayField(TEXT("at"),Eido::Numbers({Pin.Value.X,Pin.Value.Y,Pin.Value.Z}));Pins.Add(MakeShared<FJsonValueObject>(O));}Data->SetArrayField(TEXT("pins"),Pins);}
     else if(bSendPinsNull){Data->SetField(TEXT("pins"),MakeShared<FJsonValueNull>());bSendPinsNull=false;}
     if(!PendingEmote.IsEmpty()){Data->SetStringField(bUseBridge?TEXT("anim"):TEXT("emote"),PendingEmote);PendingEmote.Empty();}   // pose.anim (engine shared/onceanim.js); main reads emote
+    if(const TSharedPtr<FJsonObject> Seat=SeatWirePose())Data->SetObjectField(TEXT("seat"),Seat);   // bridged seat (slice D, EidoverseBridgeBodies.cpp)
     J->SetStringField(TEXT("type"),TEXT("pose"));J->SetObjectField(TEXT("pose"),Data);Send(J);++SentPoseCount;
 }
 // -EidoverseJoin=<server>,<world>,<name> [-EidoverseAvatar=<library path>]

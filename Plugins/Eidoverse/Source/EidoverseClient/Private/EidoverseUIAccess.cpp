@@ -110,6 +110,7 @@ void UEidoverseHUD::RefreshAccess(double Now)
 
 void UEidoverseHUD::PaintAccess()
 {
+    if (!AccessDoor) return;   // the tab isn't built yet (a test, or a grant before the World panel opened)
     for (auto It = AccessActions.CreateIterator(); It; ++It) if (!It->Key.IsValid()) It.RemoveCurrent();
     AccessDoor->ClearChildren(); AccessMembers->ClearChildren(); AccessResultsBox->ClearChildren(); AccessHere->ClearChildren();
     AccessAddRole->ClearChildren(); AccessAddSpan->ClearChildren();
@@ -230,7 +231,7 @@ void UEidoverseHUD::PaintAccess()
             auto* Line = WidgetTree->ConstructWidget<UHorizontalBox>();
             auto* Txt = WidgetTree->ConstructWidget<UVerticalBox>();
             Txt->AddChildToVerticalBox(Label(RName, 11));
-            Txt->AddChildToVerticalBox(Label(FString::Printf(TEXT("%s · %s"), *Str(R, TEXT("kind")), *Ago(Num(R, TEXT("last")), Now)), 10, FEidoverseTheme::Dim()));
+            Txt->AddChildToVerticalBox(Label(FString::Printf(TEXT("%s · %s"), *Str(R, TEXT("kind")), *(Num(R, TEXT("last")) > 0 ? Ago(Num(R, TEXT("last")), Now) : FString(Flag(R, TEXT("here")) ? TEXT("here now") : TEXT("seen here")))), 10, FEidoverseTheme::Dim()));
             Line->AddChildToHorizontalBox(Txt)->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
             // by SUBJECT: the pick binds to exactly this person, whatever else shares the name
             Line->AddChildToHorizontalBox(AccessButton(TEXT("add"), TEXT("add:") + Str(R, TEXT("sub"))));

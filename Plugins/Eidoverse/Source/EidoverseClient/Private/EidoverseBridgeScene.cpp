@@ -23,6 +23,7 @@ void AEidoverseBridge::OnSceneMsg(const FString& Type,const TSharedPtr<FJsonObje
     }
     if(J->HasField(TEXT("seats")))OnBodiesMsg(Type,J);   // seats[] are slice D's
     ReceiveDynamicScene(J);
+    ReceiveSceneSeats(J);   // slice D's seats[] (EidoverseBridgeBodies.cpp)
 }
 void AEidoverseBridge::TickSelfHeld()
 {
