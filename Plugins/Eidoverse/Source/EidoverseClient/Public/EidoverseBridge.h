@@ -6,6 +6,7 @@
 
 class IWebSocket;
 class FJsonObject;
+class FJsonValue;
 class UStaticMesh;
 class UTextRenderComponent;
 class UStaticMeshComponent;
@@ -513,6 +514,23 @@ public:
     FString ShownRole() const { return bUseBridge&&!RoleName.IsEmpty()?RoleName:WorldRole; }
 
     void OnWriteReply(const FString& Type,const TSharedPtr<FJsonObject>& J);    // C: EidoverseBridgeWrites.cpp
+    // Build and world writes as bridge/do (Bridge/src/writes.ts), when bridged: ids in view spelling; a create is named $b<n> until its reply's ids say what it became.
+    FString BuildCreate(const FString& Model,const FVector& PosWire,double Yaw,double Scale,const TSharedPtr<FJsonObject>& Components=nullptr,bool bSelect=false,TFunction<void(const TSharedPtr<FJsonObject>&)> Done=nullptr);
+    FString BuildPlace(const FString& Id,const FVector& PosWire,double Yaw,double Scale);
+    /** set {id, component, value, merge?}; a null or absent value is unset (the component taken off). */
+    FString BuildSet(const FString& Id,const FString& Component,const TSharedPtr<FJsonValue>& Value,bool bMerge=false,TFunction<void(const TSharedPtr<FJsonObject>&)> Done=nullptr);
+    FString BuildRemove(const FString& Id);
+    /** bridge/do with its fields as JSON (the build undo stack, scripts); a $b<n> id is resolved first. */
+    UFUNCTION(BlueprintCallable, Category="Eidoverse") FString BridgeDoJson(const FString& Fn,const FString& FieldsJson);
+    /** A create's $b<n> as the id the authority minted for it (once its reply came); anything else as it is. */
+    FString ResolveBuildId(const FString& Id) const;
+    bool InspectThroughBridge(const FString& Id);
+    static TSharedRef<FJsonObject> TransformFields(const FVector& PosWire,double Yaw,double Scale);
+    static TSharedRef<FJsonObject> PlaceFields(const FString& Id,const FVector& PosWire,double Yaw,double Scale);
+    TMap<FString,FString> MintedIds, PendingCreates;   // $b<n> -> minted id; a create's req -> its $b<n>
+    TSet<FString> RefusedRefs;                         // creates the authority refused
+    FString PendingSelect;                             // a create to select once the scene draws it (the HUD's TickBuild)
+    int32 BuildRefSerial=0;
 
     void OnBodiesMsg(const FString& Type,const TSharedPtr<FJsonObject>& J);     // D: EidoverseBridgeBodies.cpp
 

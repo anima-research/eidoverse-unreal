@@ -3,6 +3,7 @@
 // editor: every component type is a row, editable as raw JSON, removable, and new
 // types can be added. A saved edit replaces that type's data wholesale (the `comp`
 // verb's contract); data null removes it. The server decides (rights, lock, guard).
+// Through the local bridge (bUseBridge): the authority's inspect, and set / unset by the current protocol's names.
 #include "EidoverseUI.h"
 #include "EidoverseBridge.h"
 #include "EidoverseScene.h"
@@ -60,14 +61,28 @@ namespace
         for (TCHAR C : Type) if (!FChar::IsAlnum(C) && C != '_' && C != '-') return false;
         return true;
     }
+    // a component name as the bridged view spells it (motion:<slot>, script:<name>, t/bell): the authority checks the grammar
+    bool ValidName(const FString& Type)
+    {
+        if (Type.IsEmpty() || Type.Len() > 128) return false;
+        for (TCHAR C : Type) if (!FChar::IsAlnum(C) && C != '_' && C != '-' && C != ':' && C != '/' && C != '.' && C != '@') return false;
+        return true;
+    }
 }
 
 bool UEidoverseHUD::SetComponentJson(const FString& Id, const FString& Type, const FString& Json)
 {
-    if (!Bridge || Id.IsEmpty() || !ValidType(Type)) { Toast(TEXT("A component type is letters, digits, _ or -."), true); return false; }
+    if (Bridge && Bridge->bUseBridge && !Id.IsEmpty() && !ValidName(Type)) { Toast(TEXT("A component name is letters, digits and - _ : / . @"), true); return false; }
+    if (!Bridge || Id.IsEmpty() || (!Bridge->bUseBridge && !ValidType(Type))) { Toast(TEXT("A component type is letters, digits, _ or -."), true); return false; }
     TSharedPtr<FJsonValue> Data = Json.TrimStartAndEnd().IsEmpty() ? MakeShared<FJsonValueNull>() : ParseValue(Json);
     if (!Data.IsValid()) { Toast(TEXT("Not valid JSON."), true); return false; }
     if (!Bridge->CanBuild()) { Toast(TEXT("You can't build in this world."), true); return false; }
+    if (Bridge->bUseBridge)
+    {
+        if (Bridge->BuildSet(Id, Type, Data).IsEmpty()) return false;
+        ReinspectAt = FPlatformTime::Seconds() + .35;
+        return true;
+    }
     auto Args = MakeShared<FJsonObject>();
     Args->SetStringField(TEXT("id"), Id);
     Args->SetStringField(TEXT("type"), Type);

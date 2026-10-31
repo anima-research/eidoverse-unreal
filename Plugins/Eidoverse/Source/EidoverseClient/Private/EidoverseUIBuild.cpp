@@ -1,7 +1,8 @@
 // Build mode: library search, spawning, selection and nudging, with undo.
 // Wire behaviour mirrors client/lib/build.js + palette.js: spawn {id, lib, pos,
 // yaw, scale?} with an 8-hex client id, place {id, pos, yaw, scale}, remove {id};
-// undo sends the inverse verb. The server decides (rights, lock, guard).
+// undo sends the inverse verb. The server decides (rights, lock, guard). Through the local bridge
+// (bUseBridge) they go as bridge/do instead: create with a $b<n> the authority mints an id for, setTransform, remove.
 #include "EidoverseUI.h"
 #include "EidoverseBridge.h"
 #include "EidoverseScene.h"
@@ -220,6 +221,14 @@ bool UEidoverseHUD::PlaceSelected(TFunctionRef<void(FVector& Pos, double& Yaw, d
     FVector Pos; double Yaw, Scale; FString Lib; bool bAnimated;
     if (!Scene || Id.IsEmpty() || !Scene->GetEntityPose(Id, Pos, Yaw, Scale, Lib, bAnimated)) return false;
     if (bAnimated) { Toast(TEXT("Moving or mounted things can't be placed from here yet."), true); return false; }
+    if (Bridge->bUseBridge)
+    {
+        const TSharedRef<FJsonObject> Undo = AEidoverseBridge::PlaceFields(Id, Pos, Yaw, Scale);
+        Edit(Pos, Yaw, Scale);
+        if (Bridge->BuildPlace(Id, Pos, Yaw, Scale).IsEmpty()) return false;
+        PushUndo(TEXT("setTransform"), Undo);
+        return true;
+    }
     auto Before = MakeShared<FJsonObject>();
     Before->SetStringField(TEXT("id"), Id); Before->SetArrayField(TEXT("pos"), Vec3(Pos));
     Before->SetNumberField(TEXT("yaw"), Yaw); Before->SetNumberField(TEXT("scale"), Scale);
@@ -253,13 +262,17 @@ void UEidoverseHUD::BuildAction(const FString& Action)
         const FVector Ground = GetWorld()->LineTraceSingleByChannel(Hit, Ahead + FVector(0, 0, 300), Ahead - FVector(0, 0, 5000), ECC_Visibility, Query) ? Hit.ImpactPoint : Ahead;
         const FVector Wire = AEidoverseBridge::ToWirePosition(Ground - Scene->GetSceneOrigin());
         const FVector Me = AEidoverseBridge::ToWirePosition(Pawn->GetActorLocation() - Scene->GetSceneOrigin());
-        auto Args = MakeShared<FJsonObject>();
-        const FString Id = NewEntityId();
-        Args->SetStringField(TEXT("id"), Id);
-        Args->SetStringField(TEXT("lib"), Lib);
-        Args->SetArrayField(TEXT("pos"), Vec3(Wire));
-        Args->SetNumberField(TEXT("yaw"), FMath::RoundToDouble(FMath::Atan2(Me.X - Wire.X, Me.Z - Wire.Z) * 10000) / 10000);
-        if (!Bridge->SendVerb(TEXT("spawn"), Args)) return;
+        FString Id = Bridge->bUseBridge ? Bridge->BuildCreate(Lib, Wire, FMath::Atan2(Me.X - Wire.X, Me.Z - Wire.Z), 1) : NewEntityId();
+        if (Id.IsEmpty()) return;
+        if (!Bridge->bUseBridge)
+        {
+            auto Args = MakeShared<FJsonObject>();
+            Args->SetStringField(TEXT("id"), Id);
+            Args->SetStringField(TEXT("lib"), Lib);
+            Args->SetArrayField(TEXT("pos"), Vec3(Wire));
+            Args->SetNumberField(TEXT("yaw"), FMath::RoundToDouble(FMath::Atan2(Me.X - Wire.X, Me.Z - Wire.Z) * 10000) / 10000);
+            if (!Bridge->SendVerb(TEXT("spawn"), Args)) return;
+        }
         LastSpawned = Id;
         auto Undo = MakeShared<FJsonObject>(); Undo->SetStringField(TEXT("id"), Id);
         PushUndo(TEXT("remove"), Undo);
@@ -283,7 +296,7 @@ void UEidoverseHUD::BuildAction(const FString& Action)
     {
         if (UndoStack.IsEmpty()) { Hint(TEXT("nothing to undo"), 1.5f); return; }
         const auto Last = UndoStack.Pop();
-        Bridge->SendVerbJson(Last.Key, Last.Value);
+        if (Bridge->bUseBridge) Bridge->BridgeDoJson(Last.Key, Last.Value); else Bridge->SendVerbJson(Last.Key, Last.Value);
         Hint(TEXT("undo ") + Last.Key, 1.5f);
         return;
     }
@@ -321,6 +334,20 @@ void UEidoverseHUD::BuildAction(const FString& Action)
     {
         FVector Pos; double Yaw, Scale; FString Lib; bool bAnimated;
         if (!Scene->GetEntityPose(Id, Pos, Yaw, Scale, Lib, bAnimated)) return;
+        if (Bridge->bUseBridge)
+        {
+            // remove; its undo makes it again (the authority mints a new id)
+            if (Bridge->BuildRemove(Id).IsEmpty()) return;
+            if (!Lib.IsEmpty())
+            {
+                auto Undo = MakeShared<FJsonObject>();
+                Undo->SetStringField(TEXT("model"), Lib); Undo->SetObjectField(TEXT("transform"), AEidoverseBridge::TransformFields(Pos, Yaw, Scale));
+                PushUndo(TEXT("create"), Undo);
+            }
+            Scene->SetSelected(FString());
+            RefreshBuild();
+            return;
+        }
         auto Args = MakeShared<FJsonObject>(); Args->SetStringField(TEXT("id"), Id);
         if (!Bridge->SendVerb(TEXT("remove"), Args)) return;
         if (!Lib.IsEmpty())
@@ -394,6 +421,20 @@ bool UEidoverseHUD::PlaceGhost()
     if (!Scene || !Scene->HasGhost() || !bGhostAimed) return false;
     const FString Lib = Scene->GetGhostLib();
     const FVector Wire = AEidoverseBridge::ToWirePosition(Scene->GetGhostActor()->GetActorLocation() - Scene->GetSceneOrigin());
+    if (Lib == TEXT("@light") && Bridge->bUseBridge)
+    {
+        // a light is a thing with a light component and no model (lights.js)
+        auto Light = MakeShared<FJsonObject>();
+        Light->SetNumberField(TEXT("color"), 16767392); Light->SetNumberField(TEXT("intensity"), 16); Light->SetNumberField(TEXT("range"), 10);
+        auto Comps = MakeShared<FJsonObject>(); Comps->SetObjectField(TEXT("light"), Light);
+        const FString Id = Bridge->BuildCreate(FString(), Wire + FVector(0, .9, 0), 0, 1, Comps);
+        if (Id.IsEmpty()) return false;
+        LastSpawned = Id;
+        auto Undo = MakeShared<FJsonObject>(); Undo->SetStringField(TEXT("id"), Id);
+        PushUndo(TEXT("remove"), Undo);
+        Scene->ClearGhost(); Hint(TEXT("placed a light"), 2);
+        return true;
+    }
     if (Lib == TEXT("@light"))
     {
         auto Args = MakeShared<FJsonObject>(); const FString Id = NewEntityId();
@@ -404,6 +445,17 @@ bool UEidoverseHUD::PlaceGhost()
         auto Undo = MakeShared<FJsonObject>(); Undo->SetStringField(TEXT("id"), Id);
         PushUndo(TEXT("remove"), Undo);
         Scene->ClearGhost(); Hint(TEXT("placed a light"), 2);
+        return true;
+    }
+    if (Bridge->bUseBridge)
+    {
+        const FString Made = Bridge->BuildCreate(Lib, Wire, GhostYaw, GhostScale);
+        if (Made.IsEmpty()) return false;
+        LastSpawned = Made;
+        auto Undo = MakeShared<FJsonObject>(); Undo->SetStringField(TEXT("id"), Made);
+        PushUndo(TEXT("remove"), Undo);
+        Scene->ClearGhost();
+        Hint(TEXT("placed ") + LibNames.FindRef(Lib), 2);
         return true;
     }
     auto Args = MakeShared<FJsonObject>();
@@ -447,6 +499,13 @@ void UEidoverseHUD::RefreshBuild()
 void UEidoverseHUD::TickBuild(double Now)
 {
     if (bSearchPending && Now >= SearchAt) SearchLibrary(PendingQuery);
+    if (Bridge && Bridge->bUseBridge)
+    {
+        // a create's $b<n> is its minted id once the reply came (OnWriteReply); a building just made is selected once drawn
+        LastSpawned = Bridge->ResolveBuildId(LastSpawned);
+        AEidoverseScene* Drawn = Bridge->GetScene();
+        if (!Bridge->PendingSelect.IsEmpty() && Drawn && Drawn->GetItems().Contains(Bridge->PendingSelect)) { SelectEntity(Bridge->PendingSelect); Bridge->PendingSelect.Empty(); }
+    }
     if (!IsFrameOpen("build") || !Bridge || !Bridge->bJoined || !Bridge->CanBuild())
     {
         CancelGhost();

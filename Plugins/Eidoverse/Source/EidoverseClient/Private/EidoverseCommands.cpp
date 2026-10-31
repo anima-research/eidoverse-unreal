@@ -121,6 +121,9 @@ bool AEidoverseBridge::HandleInteractionCommand(const FString& Text)
     const FString Name = Def->Name;
     auto Usage = [this, Def]() { Narrate(FString::Printf(TEXT("usage: %s"), Def->Help)); };
     auto Verb = [this](const FString& V, const TSharedRef<FJsonObject>& Args2) { return SendVerb(V, Args2); };
+    // bridged (slice C): a write as bridge/do (Bridge/src/writes.ts); names resolve to identities there, and the authority's refusal is shown
+    const bool bBridged = bUseBridge;
+    auto Do = [this](const TCHAR* Fn, const TSharedRef<FJsonObject>& Fields) { if (BridgeDo(Fn, Fields).IsEmpty()) Narrate(TEXT("not sent: join a world first")); };
     auto Obj = []() { return MakeShared<FJsonObject>(); };
 
     if (Name == TEXT("w"))
@@ -248,16 +251,17 @@ bool AEidoverseBridge::HandleInteractionCommand(const FString& Text)
         Arg->SetArrayField(TEXT("at"), {MakeShared<FJsonValueNumber>(P.X), MakeShared<FJsonValueNumber>(P.Y), MakeShared<FJsonValueNumber>(P.Z)});
         if (Args.Num() > 0 && IsNumber(Args[0])) Arg->SetNumberField(TEXT("power"), FCString::Atod(*Args[0]));
         if (Args.Num() > 1 && IsNumber(Args[1])) Arg->SetNumberField(TEXT("radius"), FCString::Atod(*Args[1]));
-        Verb(TEXT("force"), Arg);
+        if (bBridged) Do(TEXT("force"), Arg); else Verb(TEXT("force"), Arg);
     }
     else if (Name == TEXT("kick") || Name == TEXT("ban"))
     {
         if (Args.IsEmpty()) { Narrate(Name == TEXT("kick") ? TEXT("usage: /kick <name> [reason] — they can rejoin; /ban keeps them out") : TEXT("usage: /ban <name> [reason] — a kick that sticks — /unban lifts it")); return true; }
-        auto Arg = Obj(); Arg->SetStringField(TEXT("id"), Args[0]);
+        auto Arg = Obj(); Arg->SetStringField(bBridged ? TEXT("who") : TEXT("id"), Args[0]);
         const FString Reason = Rest.Mid(Args[0].Len()).TrimStartAndEnd();
         if (!Reason.IsEmpty()) Arg->SetStringField(TEXT("reason"), Reason.Left(200));
-        Verb(Name, Arg);
+        if (bBridged) Do(*Name, Arg); else Verb(Name, Arg);
     }
+    else if (Name == TEXT("unban") && bBridged) { if (Args.IsEmpty()) Usage(); else { auto Arg = Obj(); Arg->SetStringField(TEXT("who"), Args[0]); Do(TEXT("unban"), Arg); } }
     else if (Name == TEXT("unban")) { if (Args.IsEmpty()) Usage(); else { auto Arg = Obj(); Arg->SetStringField(TEXT("id"), Args[0]); Verb(TEXT("unban"), Arg); } }
     else if (Name == TEXT("bans")) SendRaw(TEXT("world-bans"), Obj());
     else if (Name == TEXT("gban") || Name == TEXT("gunban"))
@@ -288,7 +292,7 @@ bool AEidoverseBridge::HandleInteractionCommand(const FString& Text)
         for (int32 I = 1; I < Args.Num(); ++I)
         {
             const FString L = Args[I].ToLower();
-            if (L == TEXT("owner") || L == TEXT("builder") || L == TEXT("visitor") || L == TEXT("spectator") || L == TEXT("none")) Role = L;
+            if (L == TEXT("owner") || L == TEXT("builder") || L == TEXT("visitor") || L == TEXT("spectator") || L == TEXT("none") || (bBridged && (L == TEXT("moderator") || L == TEXT("member")))) Role = L;
             else if (L == TEXT("+gen") || L == TEXT("-gen")) Gen = L;
             else if (L == TEXT("+fly") || L == TEXT("-fly")) Fly = L;
             else if (L == TEXT("for") && ForAt == INDEX_NONE) ForAt = I;
@@ -305,6 +309,31 @@ bool AEidoverseBridge::HandleInteractionCommand(const FString& Text)
             For = D.Left(Letters);
         }
         if (Args.IsEmpty() || (Role.IsEmpty() && Gen.IsEmpty() && Fly.IsEmpty() && For.IsEmpty() && !bForever)) { Usage(); return true; }
+        if (bBridged)
+        {
+            // roles:<identity> {role, can?, until?} (roles.js): none takes the grant back; watching is the door's now
+            if (Role == TEXT("none")) { auto Arg = Obj(); Arg->SetStringField(TEXT("who"), Args[0]); Do(TEXT("revoke"), Arg); return true; }
+            if (Role == TEXT("spectator")) { Narrate(TEXT("watching is the door now, not a role: /access watch lets anyone watch, and only people listed come in")); return true; }
+            auto Arg = Obj(); Arg->SetStringField(TEXT("who"), Args[0]);
+            if (!Role.IsEmpty()) Arg->SetStringField(TEXT("role"), Role);
+            if (!Gen.IsEmpty() || !Fly.IsEmpty())
+            {
+                auto Can = Obj();
+                if (!Gen.IsEmpty()) Can->SetBoolField(TEXT("generate"), Gen == TEXT("+gen"));
+                if (!Fly.IsEmpty()) Can->SetBoolField(TEXT("fly"), Fly == TEXT("+fly"));
+                Arg->SetObjectField(TEXT("can"), Can);
+            }
+            if (!For.IsEmpty())
+            {
+                const double N = FCString::Atod(*For); const TCHAR U = FChar::ToLower(For[For.Len() - 1]);
+                const double Ms = N * (U == 'm' ? 60e3 : U == 'h' ? 3600e3 : U == 'd' ? 86400e3 : U == 'w' ? 604800e3 : 0);
+                if (Ms <= 0) { Narrate(TEXT("for wants a duration: 30m, 2h, 1d or 1w")); return true; }
+                Arg->SetNumberField(TEXT("until"), FMath::RoundToDouble((FDateTime::UtcNow() - FDateTime(1970, 1, 1)).GetTotalMilliseconds() + Ms));
+            }
+            else if (bForever) Arg->SetField(TEXT("until"), MakeShared<FJsonValueNull>());
+            Do(TEXT("grant"), Arg);
+            return true;
+        }
         auto Arg = Obj(); Arg->SetStringField(TEXT("id"), Args[0]);
         if (!Role.IsEmpty()) Arg->SetStringField(TEXT("role"), Role);
         if (!Gen.IsEmpty()) Arg->SetBoolField(TEXT("gen"), Gen == TEXT("+gen"));
@@ -312,6 +341,30 @@ bool AEidoverseBridge::HandleInteractionCommand(const FString& Text)
         if (!For.IsEmpty()) Arg->SetStringField(TEXT("for"), For);
         else if (bForever) Arg->SetField(TEXT("until"), MakeShared<FJsonValueNull>());
         Verb(TEXT("grant"), Arg);
+    }
+    else if (Name == TEXT("revoke") && bBridged)
+    {
+        // take back someone's grant: they get this world's default role again
+        if (Rest.IsEmpty()) { Usage(); return true; }
+        auto Arg = Obj(); Arg->SetStringField(TEXT("who"), Rest);
+        Do(TEXT("revoke"), Arg);
+    }
+    else if (bBridged && (Name == TEXT("members") || (Name == TEXT("access") && Rest.IsEmpty())))
+    {
+        // who may come in is the access tab's (bridge/access-state, from @world access and roles:*)
+        if (HUD) HUD->SelectWorldTab(5);
+        Narrate(TEXT("who may come in, and until when: the World panel's access tab"));
+    }
+    else if (Name == TEXT("access") && bBridged)
+    {
+        // the door (access.js DOORS): one request, built by the bridge from the world's access and default-role
+        static const TMap<FString, FString> Doors = {{TEXT("members"), TEXT("invite-only")}, {TEXT("private"), TEXT("invite-only")}, {TEXT("closed"), TEXT("invite-only")},
+            {TEXT("invite-only"), TEXT("invite-only")}, {TEXT("watch"), TEXT("watch")}, {TEXT("spectators"), TEXT("watch")}, {TEXT("visitors"), TEXT("public")},
+            {TEXT("visitor"), TEXT("public")}, {TEXT("public"), TEXT("public")}, {TEXT("open"), TEXT("open")}, {TEXT("builders"), TEXT("open")}};
+        const FString* Door = Doors.Find(Rest.ToLower());
+        if (!Door) { Narrate(TEXT("usage: /access members|watch|visitors|open \u2014 or /access to see who can come in")); return true; }
+        auto Arg = Obj(); Arg->SetStringField(TEXT("door"), *Door);
+        Do(TEXT("door"), Arg);
     }
     else if (Name == TEXT("revoke"))
     {
@@ -333,6 +386,20 @@ bool AEidoverseBridge::HandleInteractionCommand(const FString& Text)
         if (!Rung) { Narrate(TEXT("usage: /access members|watch|visitors|open \u2014 or /access to see who can come in")); return true; }
         auto Arg = Obj(); Arg->SetStringField(TEXT("id"), TEXT("*")); Arg->SetStringField(TEXT("role"), *Rung);
         Verb(TEXT("grant"), Arg);
+    }
+    else if (Name == TEXT("epoch") && bBridged)
+    {
+        // @world physics-engine {engine, tickMs}: the engine alone, the authority stamps its version
+        auto Arg = Obj();
+        if (Args.Num() && (Args[0] == TEXT("off") || Args[0] == TEXT("leave") || Args[0] == TEXT("exit") || Args[0] == TEXT("none")))
+        { Arg->SetField(TEXT("engine"), MakeShared<FJsonValueNull>()); Narrate(TEXT("asking to leave the sim epoch — flights are released where they stand")); }
+        else
+        {
+            Arg->SetStringField(TEXT("engine"), TEXT("eidosim"));
+            Arg->SetNumberField(TEXT("tickMs"), Args.Num() && IsNumber(Args[0]) ? FMath::Clamp(FCString::Atoi(*Args[0]), 16, 1000) : 66);
+            Narrate(TEXT("asking to enter the deterministic sim epoch — punts will replay identically everywhere"));
+        }
+        Do(TEXT("epoch"), Arg);
     }
     else if (Name == TEXT("epoch"))
     {
@@ -406,6 +473,13 @@ bool AEidoverseBridge::HandleInteractionCommand(const FString& Text)
     else if (Name == TEXT("script"))
     {
         if (Args.IsEmpty()) { Usage(); return true; }
+        if (bViaAlias && bBridged)
+        {
+            // /unbind <id> <name>: take its script:<name> component off (docs/SCRIPTS.md)
+            if (Args.Num() < 2) { Narrate(TEXT("usage: /unbind <id> <script name> \u2014 /script <id> lists what it runs")); return true; }
+            auto Arg = Obj(); Arg->SetStringField(TEXT("id"), Args[0]); Arg->SetStringField(TEXT("component"), TEXT("script:") + Args[1]);
+            Do(TEXT("unset"), Arg); return true;
+        }
         if (bViaAlias) { auto Arg = Obj(); Arg->SetStringField(TEXT("id"), Args[0]); Arg->SetBoolField(TEXT("remove"), true); Verb(TEXT("behavior"), Arg); return true; }
         auto Arg = Obj(); DebugReqId = FString::Printf(TEXT("d%d"), ++DebugRequests);
         Arg->SetStringField(TEXT("reqId"), DebugReqId); Arg->SetStringField(TEXT("behavior"), Args[0]); Arg->SetNumberField(TEXT("limit"), 40);

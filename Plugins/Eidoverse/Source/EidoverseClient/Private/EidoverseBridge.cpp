@@ -143,6 +143,7 @@ bool AEidoverseBridge::JoinFromDoor(const FString& Server,const FString& World,c
 bool AEidoverseBridge::RequestInspect(const FString& Id)
 {
     if(!bJoined||Id.IsEmpty()||Id.Len()>128)return false;
+    if(bUseBridge)return InspectThroughBridge(Id);   // slice C (EidoverseBridgeWrites.cpp)
     auto J=MakeShared<FJsonObject>();J->SetStringField(TEXT("type"),TEXT("inspect"));J->SetStringField(TEXT("id"),Id);
     Send(J);return true;
 }
@@ -332,6 +333,7 @@ void AEidoverseBridge::ReadRights(const TSharedPtr<FJsonObject>& Rights)
 }
 bool AEidoverseBridge::SendVerb(const FString& Verb,const TSharedRef<FJsonObject>& Args)
 {
+    if(bUseBridge)return !Request(Verb,Args).IsEmpty();   // the protocol's request for callers not yet ported (Bridge/SLICES.md)
     if(bSpectator||Verb.IsEmpty())return false;
     auto J=MakeShared<FJsonObject>();J->SetStringField(TEXT("type"),TEXT("verb"));J->SetStringField(TEXT("verb"),Verb);J->SetObjectField(TEXT("args"),Args);
     if(!bJoined||!Socket||!Socket->IsConnected())return QueueWhileReconnecting(J,Verb);
