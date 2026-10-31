@@ -1,7 +1,3 @@
-// LOCAL WINDOWS BUILD ONLY (Hep, 10-28): MSVC errors on a local name shadowing a member; Clang does not
-#ifdef _MSC_VER
-#pragma warning(disable: 4458)
-#endif
 // Chat slash commands: one table, as the browser's commands/registry.js, so names,
 // aliases, help and autocomplete come from one place. An unknown command is never
 // posted to the room.

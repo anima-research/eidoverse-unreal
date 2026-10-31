@@ -1,7 +1,3 @@
-// LOCAL WINDOWS BUILD ONLY (Hep, 10-28): MSVC errors on a local name shadowing a member; Clang does not
-#ifdef _MSC_VER
-#pragma warning(disable: 4458)
-#endif
 // Seat-anchor gizmos (seatedit.js:105-277): while building with a thing selected, each
 // of its seats shows as a diamond with a cone pointing where a sitter faces (gold, the
 // picked one mint at 1.6x). A click within min(0.3, 0.06 + 0.015 x distance) m of one

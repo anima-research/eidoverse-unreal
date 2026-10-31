@@ -1,7 +1,3 @@
-// LOCAL WINDOWS BUILD ONLY (Hep, 10-28): MSVC errors on a local name shadowing a member; Clang does not
-#ifdef _MSC_VER
-#pragma warning(disable: 4458)
-#endif
 // Build tools beyond spawn/place (web build.js, lights.js, placer.js, scenegraph.js):
 // drag-to-move with the live `drag` stream, lock/guard and attribution, light editing,
 // attach/detach/find. The server still decides; these only shape the requests. Through the local bridge

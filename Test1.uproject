@@ -40,10 +40,6 @@
 			"TargetAllowList": [
 				"Editor"
 			]
-		},
-		{
-			"Name": "ImgMedia",
-			"Enabled": false
 		}
 	]
 }

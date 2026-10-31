@@ -158,7 +158,7 @@ bool FEidoverseVoiceLoopback::RunTest(const FString&)
         if (!S->bReverseChecked && S->BotOut.Contains(TEXT("{\"heard\":")))
         {
             FString Line; for (const FString& Ln : [&] { TArray<FString> A; S->BotOut.ParseIntoArrayLines(A); return A; }()) if (Ln.StartsWith(TEXT("{\"heard\":"))) Line = Ln;
-            TSharedPtr<FJsonObject> J; const TSharedPtr<FJsonObject>* H = nullptr; const TSharedPtr<FJsonObject>* U = nullptr;
+            TSharedPtr<FJsonObject> J; const TSharedPtr<FJsonObject>* H; const TSharedPtr<FJsonObject>* U;
             if (!Line.IsEmpty() && FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Line), J) && J && J->TryGetObjectField(TEXT("heard"), H) && (*H)->TryGetObjectField(TEXT("unrealvoice"), U))
             {
                 double MeanDb = -200, Packets = 0; (*U)->TryGetNumberField(TEXT("meanDb"), MeanDb); (*U)->TryGetNumberField(TEXT("packets"), Packets);

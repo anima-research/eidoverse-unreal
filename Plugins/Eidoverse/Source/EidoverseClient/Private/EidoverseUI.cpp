@@ -1,7 +1,3 @@
-// LOCAL WINDOWS BUILD ONLY (Hep, 10-28): MSVC errors on a local name shadowing a member; Clang does not
-#ifdef _MSC_VER
-#pragma warning(disable: 4458)
-#endif
 #include "EidoverseUI.h"
 #include "EidoverseAttention.h"
 #include "Framework/Application/NavigationConfig.h"

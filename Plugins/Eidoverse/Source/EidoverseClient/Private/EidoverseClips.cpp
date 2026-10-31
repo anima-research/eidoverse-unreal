@@ -334,7 +334,7 @@ void UEidoverseClipLibrary::RequestRoster()
     Defs->OnProcessRequestComplete().BindLambda([Weak, Gen, Finish](FHttpRequestPtr, FHttpResponsePtr Response, bool bOk)
     {
         UEidoverseClipLibrary* Self = Weak.Get();
-        TSharedPtr<FJsonObject> J; const TSharedPtr<FJsonObject>* E = nullptr;
+        TSharedPtr<FJsonObject> J; const TSharedPtr<FJsonObject>* E;
         if (Self && Self->Generation == Gen && bOk && Response && Response->GetResponseCode() == 200 && Response->GetContent().Num() < 4 << 20 &&
             FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Response->GetContentAsString()), J) && J && J->TryGetObjectField(Self->bActionBar ? TEXT("actionbar") : TEXT("emotes"), E))
             for (const auto& Pair : (*E)->Values)

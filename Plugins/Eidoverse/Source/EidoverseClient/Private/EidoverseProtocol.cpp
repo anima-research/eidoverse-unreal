@@ -1,7 +1,3 @@
-// LOCAL WINDOWS BUILD ONLY (Hep, 10-28): MSVC errors on a local name shadowing a member; Clang does not
-#ifdef _MSC_VER
-#pragma warning(disable: 4458)
-#endif
 // Protocol parity with the browser's net.js: server error text, the join window of
 // chat and history paging, whispers, world reset/fork/moderation messages, log
 // narration, restore-where-you-were, the reconnect verb queue and close codes.
