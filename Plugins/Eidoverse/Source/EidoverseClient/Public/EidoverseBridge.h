@@ -487,6 +487,7 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Eidoverse") bool bUseBridge=false;
     UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse") bool bBridgeReady=false;   // bridge/ready: the join's cut is folded
     UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse") FString BridgeWorldId;
+    FString BridgeActorId;   // bridge/ready's `you`: the actor id the authority names (held.by), not the display name the snapshot gives
     UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse") int32 BridgeReadyCount=0;
     TSharedPtr<FEidoverseSidecar> Sidecar;
     bool bBridgeStarting=false;

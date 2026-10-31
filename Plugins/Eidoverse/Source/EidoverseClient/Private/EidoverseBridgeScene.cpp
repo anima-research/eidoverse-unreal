@@ -15,7 +15,7 @@ void AEidoverseBridge::OnSceneMsg(const FString& Type,const TSharedPtr<FJsonObje
         for(const auto& V:*Ts)
         {
             const TSharedPtr<FJsonObject>* T=nullptr;const TSharedPtr<FJsonObject>* H=nullptr;FString By,Id;
-            if(V->TryGetObject(T)&&(*T)->TryGetObjectField(TEXT("held"),H)&&(*H)->TryGetStringField(TEXT("by"),By)&&!By.IsEmpty()&&By==AssignedIdentity&&(*T)->TryGetStringField(TEXT("id"),Id))Mine.Add(Id);
+            if(V->TryGetObject(T)&&(*T)->TryGetObjectField(TEXT("held"),H)&&(*H)->TryGetStringField(TEXT("by"),By)&&!By.IsEmpty()&&(By==BridgeActorId||By==AssignedIdentity)&&(*T)->TryGetStringField(TEXT("id"),Id))Mine.Add(Id);
             else Kept.Add(V);
         }
         if(DynamicScene)for(const FString& Id:SelfHeld)if(!Mine.Contains(Id))DynamicScene->HoldTransform(Id,false);

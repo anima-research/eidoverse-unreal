@@ -828,7 +828,7 @@ void AEidoverseBridge::OnBridgeMessage(const FString& Type,const TSharedPtr<FJso
     if(Type==TEXT("bridge/ready"))
     {
         // the join's cut is adopted: the world can be drawn (the scene starts here, not on the snapshot)
-        bBridgeReady=true;++BridgeReadyCount;BridgeWorldId=Eido::String(J,TEXT("worldId"));
+        bBridgeReady=true;++BridgeReadyCount;BridgeWorldId=Eido::String(J,TEXT("worldId"));BridgeActorId=Eido::String(J,TEXT("you"));
         double Head=-1;J->TryGetNumberField(TEXT("head"),Head);
         UE_LOG(LogTemp,Display,TEXT("EIDOVERSE bridge/ready world=%s worldId=%s head=%.0f you=%s"),*Eido::String(J,TEXT("world")),*BridgeWorldId,Head,*Eido::String(J,TEXT("you")));
         bSceneSupported=true;
