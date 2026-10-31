@@ -1,0 +1,58 @@
+{
+ "verb": {
+  "EidoverseBridge.cpp": 2,
+  "EidoverseInteractions.cpp": 1,
+  "EidoverseVoiceGlue.cpp": 1
+ },
+ "SendVerb(…)": {
+  "EidoverseBridge.cpp": 3,
+  "EidoverseCommands.cpp": 1,
+  "EidoverseInteractions.cpp": 3,
+  "EidoverseLiveBuildKeysTests.cpp": 1,
+  "EidoverseSeats.cpp": 4,
+  "EidoverseUIBuild.cpp": 6,
+  "EidoverseUIBuildTools.cpp": 5,
+  "EidoverseUIInspect.cpp": 1,
+  "EidoverseUIStructure.cpp": 1,
+  "EidoverseUIWorld.cpp": 5
+ },
+ "lease": {
+  "EidoverseBridge.cpp": 1,
+  "EidoverseInteractions.cpp": 2,
+  "EidoverseLocomotion.cpp": 3
+ },
+ "render-scene": {
+  "EidoverseBridge.cpp": 1,
+  "EidoverseWorlds.cpp": 1
+ },
+ "whisper": {
+  "EidoverseBridge.cpp": 2,
+  "EidoverseCommands.cpp": 1
+ },
+ "snap": {
+  "EidoverseBridge.cpp": 1
+ },
+ "inspect": {
+  "EidoverseBridge.cpp": 2,
+  "EidoverseBridgeWrites.cpp": 1,
+  "EidoverseUIWorld.cpp": 1
+ },
+ "snap-result": {
+  "EidoverseCapture.cpp": 1
+ },
+ "emotes": {
+  "EidoverseClips.cpp": 1,
+  "EidoverseUI.cpp": 1,
+  "EidoverseUILantern.cpp": 1,
+  "EidoverseUIMenu.cpp": 1
+ },
+ "world-access": {
+  "EidoverseCommands.cpp": 2
+ },
+ "access-state": {
+  "EidoverseProtocol.cpp": 1
+ },
+ "access-directory": {
+  "EidoverseProtocol.cpp": 2
+ }
+}

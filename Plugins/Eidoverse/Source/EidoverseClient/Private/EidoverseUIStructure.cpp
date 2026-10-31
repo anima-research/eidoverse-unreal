@@ -164,6 +164,16 @@ bool UEidoverseHUD::StructureAction(const FString& Action)
         APlayerController* PC = GetOwningPlayer(); APawn* Pawn = PC ? PC->GetPawn() : nullptr; if (!Pawn) return true;
         const FVector Ahead = Pawn->GetActorLocation() + FRotator(0, PC->GetControlRotation().Yaw, 0).Vector() * 400;
         const FVector W = AEidoverseBridge::ToWirePosition(Ahead - Scene->GetSceneOrigin());
+        if (Bridge->bUseBridge)
+        {
+            // one create with its plan; the authority mints its id, and it is selected once drawn (PendingSelect)
+            auto Comps = MakeShared<FJsonObject>(); Comps->SetObjectField(TEXT("structure"), Empty());
+            const FString Made = Bridge->BuildCreate(TEXT("eidoverse/assets/models/crate_large_red.glb"), FVector(FMath::RoundToDouble(W.X), 0, FMath::RoundToDouble(W.Z)), 0, 1, Comps, true);
+            if (Made.IsEmpty()) return true;
+            StructTarget = Made; StructData = Empty(); StructTool = TEXT("room"); StructLevel = 0; StructUndo.Reset();
+            Hint(TEXT("new building — drag a room on the ground"), 4);
+            return true;
+        }
         const FString Id = FString::Printf(TEXT("house-%d_%d"), FMath::RoundToInt(W.X), FMath::RoundToInt(W.Z));
         auto Args = MakeShared<FJsonObject>();
         Args->SetStringField(TEXT("id"), Id); Args->SetStringField(TEXT("lib"), TEXT("eidoverse/assets/models/crate_large_red.glb"));
@@ -198,6 +208,7 @@ bool UEidoverseHUD::StructureAction(const FString& Action)
 bool UEidoverseHUD::TickStructure(APlayerController* PC, AEidoverseScene* Scene)
 {
     if (StructTool.IsEmpty() || StructTarget.IsEmpty()) { HideStructPreview(); return false; }
+    if (Bridge->bUseBridge) StructTarget = Bridge->ResolveBuildId(StructTarget);   // a building just made: its $b<n> until the reply's id
     // The editable plan comes from the inspect reply (the folded comp bag).
     if (!StructData && Bridge->InspectedId == StructTarget && Bridge->InspectSerial != StructInspectSerial && Bridge->InspectReply)
     {

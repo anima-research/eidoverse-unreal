@@ -1,3 +1,4 @@
+using System.IO;
 using UnrealBuildTool;
 
 public class EidoverseClient : ModuleRules
@@ -31,5 +32,8 @@ public class EidoverseClient : ModuleRules
         }
         else PrivateDefinitions.Add("EIDOVERSE_VOICE_WEBRTC=0");
         PrivateDependencyModuleNames.Add("AudioExtensions");   // USoundWaveProcedural subclass (speaker waves)
+        // The local bridge, staged when built for this platform (Plugins/Eidoverse/Bridge/build.sh; EidoverseSidecar.cpp runs it).
+        string BridgeDir = Path.Combine(PluginDirectory, "Binaries", Target.Platform.ToString(), "Bridge");
+        if (Directory.Exists(BridgeDir)) foreach (string F in Directory.GetFiles(BridgeDir)) RuntimeDependencies.Add(F);
     }
 }

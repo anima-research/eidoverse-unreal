@@ -53,6 +53,7 @@ class EIDOVERSECLIENT_API UEidoverseClipLibrary : public UObject
 public:
     // http(s)://host[:port] of the server; resets everything when it changes.
     void Configure(const FString& HttpBase);
+    bool bActionBar = false;   // /defs actionbar (through the bridge), else main's emotes
     // The clip for a slot (or a plain clip file name), following the fallback chain
     // while the preferred one loads. Null when nothing playable is ready yet.
     TSharedPtr<const FEidoClip> Resolve(const FString& Slot, FString* OutPlayedSlot = nullptr);
@@ -66,6 +67,7 @@ public:
     int32 ReadyCount() const { return Ready.Num(); }
 private:
     FString Base;
+    bool bActionBarOf = false;   // the bActionBar Base was read with
     bool bRosterRequested = false, bRosterReady = false;
     TMap<FString, FString> Roster;           // file name -> library path (with ?v=)
     TMap<FString, FString> Emotes;           // emote -> clip file

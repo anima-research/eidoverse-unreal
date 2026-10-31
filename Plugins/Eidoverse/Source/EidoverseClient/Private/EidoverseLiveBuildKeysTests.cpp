@@ -4,7 +4,8 @@
 // mouse would (FSlateApplication::Process*Event): arrives in mouselook, presses B (the pointer must come free),
 // clicks the pallet (it must be selected), and again straight from typing in chat, then presses each key
 // with focus on the world and on a panel button, at a person's pace. Each press must move the pallet as build.js
-// does: Q/E turn 15 deg, R/F raise and lower 0.25 m, , . resize, arrows nudge 0.5 m.
+// does: Q/E turn 15 deg, R/F raise and lower 0.25 m, , . resize, arrows nudge 0.5 m. Through the local bridge
+// (EIDOVERSE_BRIDGE=1, Tools/eidoverse/run_v4_build.sh: a current-protocol world it owns) the pallet is a create, and the test follows its minted id.
 #include "EidoverseBridge.h"
 #include "EidoverseScene.h"
 #include "EidoverseUI.h"
@@ -33,13 +34,14 @@ namespace
         TWeakObjectPtr<UWorld> World;
         TWeakObjectPtr<AEidoverseBridge> Bridge;
         int32 Step = 0, Case = 0, Frames = 0; double StepAt = 0;
+        FString PalletRef;   // bridged: the create's $b<n>
         bool bButtonFocus = false; int32 ClickFrame = 0;
         FVector Pos; double Yaw = 0, Scale = 1;
         TArray<FString> Report; int32 Failures = 0;
         FVector2D PressedAt = FVector2D::ZeroVector, LastPx = FVector2D(-1e6, -1e6), PressedMouse = FVector2D::ZeroVector;
         double HeldDrift = 0;
     };
-    const FString PalletId = TEXT("buildkeys-pallet");
+    FString PalletId = TEXT("buildkeys-pallet");   // bridged: the id the create's reply minted
     // Place the faux cursor (see RunTest) where the injected events say the mouse is: a captured viewport reads the
     // cursor, not the events. Never the platform cursor -- that would move the real mouse of whoever uses this Mac.
     bool bFauxCursor = false;   // set only once UsePlatformCursorForCursorUser(false) has replaced a platform cursor
@@ -130,6 +132,8 @@ bool FEidoverseLiveBuildKeys::RunTest(const FString&)
         case 1:   // in, owner of the fresh world, the explorer possessed
             if (!B || !B->bJoined || !B->GetScene() || !B->CanBuild() || !Cast<AEidoverseExplorer>(UGameplayStatics::GetPlayerPawn(W, 0)))
             { if (In > 40) { AddError(TEXT("never joined able to build: ") + (B ? B->ConnectionStatus : FString())); return true; } return false; }
+            if (B->bUseBridge) { PalletId.Reset(); S->PalletRef = B->BuildCreate(TEXT("eidoverse/assets/models/scifi_single_pallet.glb"), FVector(0, 1, 4), 0, 1); }
+            else
             {
                 auto Args = MakeShared<FJsonObject>();
                 Args->SetStringField(TEXT("id"), PalletId); Args->SetStringField(TEXT("lib"), TEXT("eidoverse/assets/models/scifi_single_pallet.glb"));
@@ -140,6 +144,7 @@ bool FEidoverseLiveBuildKeys::RunTest(const FString&)
             Next(2); return false;
         case 2:   // the pallet in the scene; I look at it, in mouselook (as a join leaves me), and press B
         {
+            if (B->bUseBridge && PalletId.IsEmpty() && B->ResolveBuildId(S->PalletRef) != S->PalletRef) PalletId = B->ResolveBuildId(S->PalletRef);
             if (!Pose(B, S->Pos, S->Yaw, S->Scale)) { if (In > 20) { AddError(TEXT("the pallet never arrived")); return true; } return false; }
             if (In < 1.5) return false;   // let the model settle in
             APlayerController* PC = UGameplayStatics::GetPlayerController(W, 0);

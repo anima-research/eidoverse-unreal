@@ -78,8 +78,29 @@ void AEidoverseBridge::ReceiveSnapshotExtras(const TSharedPtr<FJsonObject>& J, d
             AddChatLine(PStr(M, TEXT("actor")), PStr(M, TEXT("text")).Left(4000), false, FString(), true, Seq);
         }
     }
-    else if (Total == 0) bHistoryDone = true;
-    // Folded mounts: am I seated somewhere already (a reconnect mid-ride)?
+    else if (Total == 0 && !bUseBridge) bHistoryDone = true;   // through the bridge the server's floor ends the walk (ReceiveHistory)
+    // speech is arrival-only (engine server.ts snapshot: recentChat is empty); an admin (readChat) may page back
+    if (bUseBridge && !HasPermission(TEXT("readChat"))) Narrate(TEXT("speech is arrival-only: you'll see what's said from now on"));
+    ReceiveSnapshotSeats(State);
+    // Wake where you fell asleep, unless this body already moved this session.
+    PendingRestore = PObj(J, TEXT("restore"));
+    if (PendingRestore && bBodyMovedThisSession) PendingRestore.Reset();
+    // Rights, as the web narrates them.
+    if (!bWorldOpen && !WorldRole.IsEmpty() && WorldRole != TEXT("owner"))
+        Narrate(FString::Printf(TEXT("this world has an owner — you are a %s%s here"), *ShownRole(), bCanGenerate ? TEXT(" +gen") : TEXT("")));
+    bEmptyWorldNoticePending = true;
+    // Anything queued while reconnecting goes out now, in order.
+    if (!QueuedMessages.IsEmpty())
+    {
+        TArray<TSharedRef<FJsonObject>> Out = MoveTemp(QueuedMessages); QueuedMessages.Reset();
+        for (const auto& M : Out) Send(M);
+        Narrate(FString::Printf(TEXT("sent %d queued action%s"), Out.Num(), Out.Num() == 1 ? TEXT("") : TEXT("s")));
+    }
+}
+
+// Folded mounts at join (a reconnect mid-ride): slice D's (Bridge/SLICES.md; through the bridge, seats come in bridge/scene).
+void AEidoverseBridge::ReceiveSnapshotSeats(const TSharedPtr<FJsonObject>& State)
+{
     RemoteMounts.Reset();
     if (const TSharedPtr<FJsonObject> Mounts = PObj(State, TEXT("mounts")))
         for (const auto& Pair : Mounts->Values)
@@ -90,20 +111,6 @@ void AEidoverseBridge::ReceiveSnapshotExtras(const TSharedPtr<FJsonObject>& J, d
         auto Args = MakeShared<FJsonObject>(*Mine->Get());
         Args->SetStringField(TEXT("id"), AssignedIdentity);
         ReceiveSeatLog(TEXT("mount"), Args);
-    }
-    // Wake where you fell asleep, unless this body already moved this session.
-    PendingRestore = PObj(J, TEXT("restore"));
-    if (PendingRestore && bBodyMovedThisSession) PendingRestore.Reset();
-    // Rights, as the web narrates them.
-    if (!bWorldOpen && !WorldRole.IsEmpty() && WorldRole != TEXT("owner"))
-        Narrate(FString::Printf(TEXT("this world has an owner — you are a %s%s here"), *WorldRole, bCanGenerate ? TEXT(" +gen") : TEXT("")));
-    bEmptyWorldNoticePending = true;
-    // Anything queued while reconnecting goes out now, in order.
-    if (!QueuedMessages.IsEmpty())
-    {
-        TArray<TSharedRef<FJsonObject>> Out = MoveTemp(QueuedMessages); QueuedMessages.Reset();
-        for (const auto& M : Out) Send(M);
-        Narrate(FString::Printf(TEXT("sent %d queued action%s"), Out.Num(), Out.Num() == 1 ? TEXT("") : TEXT("s")));
     }
 }
 
@@ -145,54 +152,8 @@ bool AEidoverseBridge::ReceiveProtocol(const FString& Type, const TSharedPtr<FJs
         return true;
     }
     if (!bJoined) return false;
-    if (Type == TEXT("history"))
-    {
-        const FString ReqId = PStr(J, TEXT("reqId"));
-        const auto& Entries = PArr(J, TEXT("entries"));
-        const double Oldest = PNum(J, TEXT("oldestSeq"), -1);
-        auto OldestOf = [&]() -> int64
-        {
-            if (Oldest >= 0) return int64(Oldest);
-            const TSharedPtr<FJsonObject> First = Entries.Num() ? Entries[0]->AsObject() : nullptr;
-            return First ? int64(PNum(First, TEXT("seq"), -1)) : -1;
-        };
-        if (!ChatResyncReqId.IsEmpty() && ReqId == ChatResyncReqId)
-        {
-            // The resync after a re-join: newest first, pages of 40, until a short page.
-            ChatResyncReqId.Empty();
-            if (Entries.IsEmpty()) return true;
-            InsertChatHistory(Entries);
-            if (Entries.Num() < 40 || ++ChatResyncPages >= 25) return true;
-            ChatResyncBefore = OldestOf();
-            if (ChatResyncBefore > ChatResyncAfter) SendResyncPage();
-            return true;
-        }
-        if (ReqId != HistoryReqId) return true;
-        // A trim that passed the cursor while this page was in flight has restarted the walk (NoteChatTrimmed
-        // is the only other writer of the cursor). The page's lines still slot in, but where the walk stands,
-        // and whether it has reached the beginning, now come from the restart.
-        if (ChatPageCursor == ChatPageFrom)
-        {
-            if (Entries.Num()) ChatPageCursor = OldestOf();
-            bool bMore = true; J->TryGetBoolField(TEXT("hasMore"), bMore);
-            if (Entries.IsEmpty() || !bMore) bHistoryDone = true;
-        }
-        const int32 Added = InsertChatHistory(Entries);
-        // Nothing new on this page (every line already on screen): walk on, up to 25 pages per scroll.
-        if (!Added && !bHistoryDone && ++ChatSkipPages < 25) { SendHistoryPage(); return true; }
-        bHistoryPending = false;
-        if (bHistoryDone)
-        {
-            const FString Beginning = TEXT("\u2014 the beginning of this world \u2014");
-            if (ChatHistory.IsEmpty() || ChatHistory[0].Text != Beginning)
-            {
-                FEidoverseChatLine N; N.Sender = TEXT("*"); N.Text = Beginning; ChatHistory.Insert(N, 0);
-                if (ChatPanel) ChatPanel->RefreshHistory();
-                if (HUD) HUD->AddTopNote(Beginning);
-            }
-        }
-        return true;
-    }
+    if (Type == TEXT("history")) return ReceiveHistory(J);
+    if (Type == TEXT("capture") && bUseBridge) { ReceiveCapture(J); return true; }   // a scene capture for the server's broker (engine server/screenshots.ts)
     if (Type == TEXT("world-reset"))
     {
         const FString By = PStr(J, TEXT("by")), World = PStr(J, TEXT("world"));
@@ -208,22 +169,7 @@ bool AEidoverseBridge::ReceiveProtocol(const FString& Type, const TSharedPtr<FJs
         ToastText(FString::Printf(TEXT("world copied to “%s”"), *To));
         return true;
     }
-    if (Type == TEXT("access-state"))
-    {
-        // the World panel's access tab (accesspanel.js): structure, re-asked whenever a grant lands
-        if (PStr(J, TEXT("world")) != WorldName) return true;
-        AccessState = J; ++AccessSerial;
-        return true;
-    }
-    if (Type == TEXT("access-directory"))
-    {
-        if (PStr(J, TEXT("q")) != AccessQuery) return true;   // an answer to an older keystroke
-        AccessResults.Reset();
-        for (const auto& V : PArr(J, TEXT("results"))) if (const TSharedPtr<FJsonObject> R = V->AsObject()) if (AccessResults.Num() < 40) AccessResults.Add(R);
-        const FString Err = PStr(J, TEXT("error")); if (!Err.IsEmpty()) AccessError = Err;
-        ++AccessResultsSerial;
-        return true;
-    }
+    if (ReceiveAccessProtocol(Type, J)) return true;
     if (Type == TEXT("notice"))
     {
         // the world telling me something that is not a refusal (today: my access here ends soon) — it matters now,
@@ -286,6 +232,79 @@ bool AEidoverseBridge::ReceiveProtocol(const FString& Type, const TSharedPtr<FJs
     return false;
 }
 
+// The history page (chat.js): slice B's (Bridge/SLICES.md).
+bool AEidoverseBridge::ReceiveHistory(const TSharedPtr<FJsonObject>& J)
+{
+    const FString ReqId = PStr(J, TEXT("reqId"));
+    const auto& Entries = PArr(J, TEXT("entries"));
+    const double Oldest = PNum(J, TEXT("oldestSeq"), -1);
+    auto OldestOf = [&]() -> int64
+    {
+        if (Oldest >= 0) return int64(Oldest);
+        const TSharedPtr<FJsonObject> First = Entries.Num() ? Entries[0]->AsObject() : nullptr;
+        return First ? int64(PNum(First, TEXT("seq"), -1)) : -1;
+    };
+    if (!ChatResyncReqId.IsEmpty() && ReqId == ChatResyncReqId)
+    {
+        // The resync after a re-join: newest first, pages of 40, until a short page.
+        ChatResyncReqId.Empty();
+        if (Entries.IsEmpty()) return true;
+        InsertChatHistory(Entries);
+        if (Entries.Num() < 40 || ++ChatResyncPages >= 25) return true;
+        ChatResyncBefore = OldestOf();
+        if (ChatResyncBefore > ChatResyncAfter) SendResyncPage();
+        return true;
+    }
+    if (ReqId != HistoryReqId) return true;
+    // A trim that passed the cursor while this page was in flight has restarted the walk (NoteChatTrimmed
+    // is the only other writer of the cursor). The page's lines still slot in, but where the walk stands,
+    // and whether it has reached the beginning, now come from the restart.
+    if (ChatPageCursor == ChatPageFrom)
+    {
+        if (Entries.Num()) ChatPageCursor = OldestOf();
+        bool bMore = true; J->TryGetBoolField(TEXT("hasMore"), bMore);
+        if (Entries.IsEmpty() || !bMore) bHistoryDone = true;
+    }
+    const int32 Added = InsertChatHistory(Entries);
+    // Nothing new on this page (every line already on screen): walk on, up to 25 pages per scroll.
+    if (!Added && !bHistoryDone && ++ChatSkipPages < 25) { SendHistoryPage(); return true; }
+    bHistoryPending = false;
+    if (bHistoryDone)
+    {
+        // arrival-only: a non-admin's walk ends at its own arrival, not at the world's beginning
+        const FString Beginning = bUseBridge && !HasPermission(TEXT("readChat")) ? TEXT("\u2014 earlier chat isn't shown here \u2014") : TEXT("\u2014 the beginning of this world \u2014");
+        if (ChatHistory.IsEmpty() || ChatHistory[0].Text != Beginning)
+        {
+            FEidoverseChatLine N; N.Sender = TEXT("*"); N.Text = Beginning; ChatHistory.Insert(N, 0);
+            if (ChatPanel) ChatPanel->RefreshHistory();
+            if (HUD) HUD->AddTopNote(Beginning);
+        }
+    }
+    return true;
+}
+
+// The access tab's two messages (accesspanel.js): slice D's (Bridge/SLICES.md).
+bool AEidoverseBridge::ReceiveAccessProtocol(const FString& Type, const TSharedPtr<FJsonObject>& J)
+{
+    if (Type == TEXT("access-state"))
+    {
+        // the World panel's access tab (accesspanel.js): structure, re-asked whenever a grant lands
+        if (PStr(J, TEXT("world")) != WorldName) return true;
+        AccessState = J; ++AccessSerial;
+        return true;
+    }
+    if (Type == TEXT("access-directory"))
+    {
+        if (PStr(J, TEXT("q")) != AccessQuery) return true;   // an answer to an older keystroke
+        AccessResults.Reset();
+        for (const auto& V : PArr(J, TEXT("results"))) if (const TSharedPtr<FJsonObject> R = V->AsObject()) if (AccessResults.Num() < 40) AccessResults.Add(R);
+        const FString Err = PStr(J, TEXT("error")); if (!Err.IsEmpty()) AccessError = Err;
+        ++AccessResultsSerial;
+        return true;
+    }
+    return false;
+}
+
 void AEidoverseBridge::NarrateLogEntry(const TSharedPtr<FJsonObject>& Entry)
 {
     const FString Verb = PStr(Entry, TEXT("verb")), Actor = PStr(Entry, TEXT("actor"));
@@ -313,7 +332,7 @@ void AEidoverseBridge::RequestAccessDirectory(const FString& Query)
     AccessQuery = Query.Left(64);
     if (AccessQuery.TrimStartAndEnd().IsEmpty()) { AccessResults.Reset(); ++AccessResultsSerial; return; }
     auto J = MakeShared<FJsonObject>(); J->SetStringField(TEXT("q"), AccessQuery);
-    SendRaw(TEXT("access-directory"), J);
+    SendRaw(bUseBridge ? TEXT("bridge/access-directory") : TEXT("access-directory"), J);
 }
 
 bool AEidoverseBridge::RequestEarlierChat()
@@ -417,7 +436,10 @@ FString AEidoverseBridge::CloseReason(int32 Code, bool& bRetry) const
     {
     case 4002: return FString::Printf(TEXT("“%s” is connected elsewhere — reconnect to take over"), *ParticipantName);
     case 4006: return TEXT("you were removed from this world") + (Recent.IsEmpty() ? FString() : TEXT(" — ") + Recent);
-    case 4005: return FString::Printf(TEXT("“%s” is not a valid world name"), *WorldName);
+    // 4005: a refused join, in the server's words sent just before (engine docs/WIRE.md §1)
+    case 4005: return FString::Printf(TEXT("couldn't join \u201c%s\u201d%s"), *WorldName, Recent.IsEmpty() ? TEXT("") : *(TEXT(": ") + Recent));
+    // 4011: nothing to watch yet (nobody has founded it): not a refusal, so it redials
+    case 4011: bRetry = true; return FString::Printf(TEXT("nothing to watch in \u201c%s\u201d yet \u2014 trying again"), *WorldName);
     case 4003: return HasProductionSession() ? TEXT("your sign-in was refused — sign in again") : TEXT("that door key was refused");
     // 4010: this world is not open to you (members only, watch only), or your access just ended or changed. The
     // server said why just before closing; the door won't open on its own (net.js), so no retry.

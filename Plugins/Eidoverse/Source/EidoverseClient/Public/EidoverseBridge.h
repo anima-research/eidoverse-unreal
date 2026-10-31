@@ -6,6 +6,7 @@
 
 class IWebSocket;
 class FJsonObject;
+class FJsonValue;
 class UStaticMesh;
 class UTextRenderComponent;
 class UStaticMeshComponent;
@@ -23,6 +24,7 @@ class AEidoverseScene;
 class APawn;
 class APostProcessVolume;
 class UEidoverseHUD;
+class FEidoverseSidecar;
 
 struct FEidoverseSuspendedActor
 {
@@ -180,12 +182,12 @@ public:
     // Presence-only "composing" signal (never logged). To: whisper recipient, or empty.
     UFUNCTION(BlueprintCallable, Category="Eidoverse") bool SendTyping(const FString& To);
 
-    // Rights (snapshot yourRights, live your-rights): visitor | builder | owner.
+    // Rights (snapshot yourRights, live your-rights): the role, and the permissions[] it carries (build, readChat, …).
     // An ownerless ("open") world makes everyone a builder. The server still decides.
     UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse|Rights") FString WorldRole;
     UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse|Rights") bool bWorldOpen=false;
     UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse|Rights") bool bCanGenerate=false;
-    UFUNCTION(BlueprintPure, Category="Eidoverse|Rights") bool CanBuild() const { return bJoined&&!bSpectator&&(bWorldOpen||WorldRole==TEXT("builder")||WorldRole==TEXT("owner")); }
+    UFUNCTION(BlueprintPure, Category="Eidoverse|Rights") bool CanBuild() const { return bJoined&&!bSpectator&&(bWorldOpen||(bUseBridge?HasPermission(TEXT("build")):WorldRole==TEXT("builder")||WorldRole==TEXT("owner"))); }
     UFUNCTION(BlueprintPure, Category="Eidoverse|Rights") bool IsOwner() const { return bJoined&&!bSpectator&&(WorldRole==TEXT("owner")); }
     // Authoring verbs (sky, terrain, grass, spawn, place, remove, comp, ...). Refusals arrive as 'error'.
     bool SendVerb(const FString& Verb,const TSharedRef<FJsonObject>& Args);
@@ -213,10 +215,10 @@ public:
     TArray<TSharedPtr<FJsonObject>> AccessResults;  // the owner's directory search (access-directory), for AccessQuery
     FString AccessQuery, AccessError;
     int32 AccessResultsSerial=0;
-    void RequestAccessState() { SendRaw(TEXT("access-state"), MakeShared<FJsonObject>()); }
+    void RequestAccessState() { SendRaw(bUseBridge ? TEXT("bridge/access-state") : TEXT("access-state"), MakeShared<FJsonObject>()); }
     void RequestAccessDirectory(const FString& Query);
     /** grant: the one verb under every access change (the door is the wildcard "*", a member a named record). */
-    bool SendAccessGrant(const TSharedRef<FJsonObject>& Args) { AccessError.Empty(); return SendVerb(TEXT("grant"), Args); }
+    bool SendAccessGrant(const TSharedRef<FJsonObject>& Args) { AccessError.Empty(); return bUseBridge ? SendAccessGrantBridged(Args) : SendVerb(TEXT("grant"), Args); }
     UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse|Travel") TArray<FEidoverseWorldInfo> KnownWorlds;
     UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse|Travel") FString WorldsStatus;
     int32 WorldsSerial=0; double WorldsFetchedAt=-100; FString WorldsServer; bool bWorldsPending=false;
@@ -317,7 +319,7 @@ public:
     struct FClimb { FString Id; TArray<FVector> PathLocal; int32 Segment=0; double Distance=0; float Speed=1.3f; bool bReverse=false; };
     TOptional<FClimb> Climb;
     FString ClimbHintKey;
-    struct FHelm { FString Id; bool bPending=false; bool bActive=false; FVector Vel=FVector::ZeroVector; double YawWire=0; double SentAt=0; };
+    struct FHelm { FString Id,Seat; bool bPending=false; bool bActive=false; FVector Vel=FVector::ZeroVector,HelmLocal=FVector(0,.5,0); double YawWire=0; double SentAt=0; };
     FHelm Helm;
     // vehicles.js piloting(): the helm owns the keys and the camera while held
     UFUNCTION(BlueprintPure, Category="Eidoverse") bool IsPiloting() const { return Helm.bActive; }
@@ -480,6 +482,116 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Eidoverse") int32 SentPoseCount=0;
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Eidoverse") bool bJoined=false;
     UPROPERTY(BlueprintAssignable, Category="Eidoverse") FEidoverseChat OnChat;
+    // ---- the local bridge (EidoverseSidecar.cpp; Plugins/Eidoverse/Bridge/README.md): join a world as a replica through it ----
+    // On: -EidoverseBridge, or EIDOVERSE_BRIDGE=1|dev. The socket then goes to the bridge, which dials Endpoint.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Eidoverse") bool bUseBridge=false;
+    // A world of the current protocol refuses a join that doesn't fold (4005); the client then joins it through the bridge by itself. Off: EIDOVERSE_BRIDGE=0.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Eidoverse") bool bBridgeAuto=true;
+    UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse") bool bBridgeReady=false;   // bridge/ready: the join's cut is folded
+    UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse") FString BridgeWorldId;
+    FString BridgeActorId;   // bridge/ready's `you`: the actor id the authority names (held.by), not the display name the snapshot gives
+    UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse") int32 BridgeReadyCount=0;
+    TSharedPtr<FEidoverseSidecar> Sidecar;
+    bool bBridgeStarting=false;
+    /** A request {id, verb, args} (the protocol's writes); Done gets the reply body ({ok, …} or {ok:false, refused}). */
+    FString Request(const FString& Verb,const TSharedRef<FJsonObject>& Args,TFunction<void(const TSharedPtr<FJsonObject>&)> Done=nullptr);
+    /** bridge/do {req, fn, …} (Bridge/src/writes.ts); Done gets bridge/done's reply, or the bridge/error itself. */
+    FString BridgeDo(const FString& Fn,const TSharedRef<FJsonObject>& Fields,TFunction<void(const TSharedPtr<FJsonObject>&)> Done=nullptr);
+    TMap<FString,TFunction<void(const TSharedPtr<FJsonObject>&)>> PendingReplies;
+    int32 RequestSerial=0;
+    void OnBridgeMessage(const FString& Type,const TSharedPtr<FJsonObject>& J);
+    bool OnReply(const TSharedPtr<FJsonObject>& J);
+    void ShowRefusal(const TSharedPtr<FJsonObject>& Reply);
+    // Per-slice hooks (Bridge/SLICES.md): each slice owns one, in its own file; slice 0 leaves them as stubs.
+    void OnSceneMsg(const FString& Type,const TSharedPtr<FJsonObject>& J);      // A: EidoverseBridgeScene.cpp
+    TSet<FString> SelfHeld;   // A: what bridge/scene says my hand holds (held.by == me), drawn at my hand by TickSelfHeld
+    void TickSelfHeld();
+
+    void OnChatMsg(const FString& Type,const TSharedPtr<FJsonObject>& J);       // B: EidoverseBridgeChat.cpp
+    bool SaySpoken(const FString& Text);                 // a speech-to-text final as a say (EidoverseVoiceGlue.cpp)
+    FString PeerOnceAnim(const FString& Id) const;       // tests: the last once anim a peer's pose carried
+    TArray<FString> ClipEmoteNames() const;              // tests: the clip library's action-bar names
+    TArray<FString> RightsPermissions; int32 RightsRank=0; FString RoleName;   // your-rights permissions[], rank, roleName
+    bool HasPermission(const FString& Name) const { return RightsPermissions.Contains(Name); }
+    static const TCHAR* NoDirectMessages;               // through the bridge whisper is gone by policy (ADAPTER-DESIGN §3.4)
+    FString ShownRole() const { return bUseBridge&&!RoleName.IsEmpty()?RoleName:WorldRole; }
+
+    void OnWriteReply(const FString& Type,const TSharedPtr<FJsonObject>& J);    // C: EidoverseBridgeWrites.cpp
+    // Build and world writes as bridge/do (Bridge/src/writes.ts), when bridged: ids in view spelling; a create is named $b<n> until its reply's ids say what it became.
+    FString BuildCreate(const FString& Model,const FVector& PosWire,double Yaw,double Scale,const TSharedPtr<FJsonObject>& Components=nullptr,bool bSelect=false,TFunction<void(const TSharedPtr<FJsonObject>&)> Done=nullptr);
+    FString BuildPlace(const FString& Id,const FVector& PosWire,double Yaw,double Scale);
+    /** set {id, component, value, merge?}; a null or absent value is unset (the component taken off). */
+    FString BuildSet(const FString& Id,const FString& Component,const TSharedPtr<FJsonValue>& Value,bool bMerge=false,TFunction<void(const TSharedPtr<FJsonObject>&)> Done=nullptr);
+    FString BuildRemove(const FString& Id);
+    /** bridge/do with its fields as JSON (the build undo stack, scripts); a $b<n> id is resolved first. */
+    UFUNCTION(BlueprintCallable, Category="Eidoverse") FString BridgeDoJson(const FString& Fn,const FString& FieldsJson);
+    /** A create's $b<n> as the id the authority minted for it (once its reply came); anything else as it is. */
+    FString ResolveBuildId(const FString& Id) const;
+    bool InspectThroughBridge(const FString& Id);
+    static TSharedRef<FJsonObject> TransformFields(const FVector& PosWire,double Yaw,double Scale);
+    static TSharedRef<FJsonObject> PlaceFields(const FString& Id,const FVector& PosWire,double Yaw,double Scale);
+    TMap<FString,FString> MintedIds, PendingCreates;   // $b<n> -> minted id; a create's req -> its $b<n>
+    TSet<FString> RefusedRefs;                         // creates the authority refused
+    FString PendingSelect;                             // a create to select once the scene draws it (the HUD's TickBuild)
+    int32 BuildRefSerial=0;
+
+    void OnBodiesMsg(const FString& Type,const TSharedPtr<FJsonObject>& J);     // D: EidoverseBridgeBodies.cpp
+    // Seats, holding and the body's track at the authority (EidoverseBridgeBodies.cpp; Bridge/src/bodies.ts).
+    struct FEidoSeat { FString Seat,Host,Name,Action,Pose,Occupant,Thing; };
+    TArray<FEidoSeat> SceneSeats;                       // bridge/scene seats[], as the bridge last listed them
+    int32 SceneSeatsSerial=0;
+    /** bridge/scene's seats[] (slice A's OnSceneMsg calls it): others' seats to RemoteMounts, a seat I was put in. */
+    void ReceiveSceneSeats(const TSharedPtr<FJsonObject>& Scene);
+    const FEidoSeat* FindSceneSeat(const FString& Host,const FString& Name) const;
+    /** bridge/ride or bridge/unride {req, …}; Done gets bridge/ridden's reply. */
+    FString BridgeRide(const FString& Type,const TSharedRef<FJsonObject>& Fields,TFunction<void(const TSharedPtr<FJsonObject>&)> Done=nullptr,bool bQuiet=false);
+    /** A request for my body (use, grab, punt…), rate limited as the main-era verbs were; refusals are shown. */
+    bool BodyRequest(const FString& Verb,const TSharedRef<FJsonObject>& Args,TFunction<void(const TSharedPtr<FJsonObject>&)> Done=nullptr);
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|Interaction") bool GrabEntity(const FString& Id);
+    /** put (bThrow false) or throw with V (wire m/s) what I hold. */
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|Interaction") bool LetGoOfEntity(bool bThrow,FVector V);
+    UPROPERTY(Transient, BlueprintReadOnly, Category="Eidoverse|Interaction") FString HeldItem;   // what the authority says I hold (grab's reply, then holds)
+    FString SeatEntity,SeatAnim;                        // the socket entity I sit in (bridge/ridden attach.to), sent as pose.seat
+    TSharedPtr<FJsonObject> SeatWirePose() const;       // pose.seat while seated (net.js sendPose), else null
+    UFUNCTION(BlueprintPure, Category="Eidoverse|Interaction") FString GetSeatHost() const { return bSeatConfirmed?SeatTo:FString(); }
+    UFUNCTION(BlueprintPure, Category="Eidoverse|Interaction") FString GetSeatOccupant(const FString& Host) const;
+    // The authority's track of my body (client/lib/thingphysics.js track): move {to} in steps it accepts.
+    bool bBodyArrived=false,bBodyMoving=false; FVector BodyTrackedAt=FVector::ZeroVector; double BodyTrackAt=0,BodyTeleportAt=-100;
+    void TickBodyTrack(double Now);
+    FVector MyFeetWire() const;
+    UFUNCTION(BlueprintPure, Category="Eidoverse|Interaction") bool IsBodyTracked(float Within=.5f) const;
+    FVector PendingUnridePos=FVector::ZeroVector; int32 PendingUnrideTries=0; double PendingUnrideAt=0;
+    void SendUnride();
+    /** Stand up from a seat (X does it through TickSeating; this is the same for scripts and tests). */
+    UFUNCTION(BlueprintCallable, Category="Eidoverse|Interaction") void LeaveSeat();
+    double NextSeatPollAt=0;
+    bool RideSeat(const FString& Host,const FString& Slot);   // EidoverseSeats.cpp
+    void StandUpBridged(class AEidoverseExplorer* Explorer,bool bSendDismount,bool bHave,const FTransform& Seat);
+    bool UseBridgedHelm(const FVector& Feet);           // EidoverseLocomotion.cpp: E at a drive seat
+    void SendDrive(const FVector& PosWire,const FQuat& QWire);
+    void ReceiveHolds(const TSharedPtr<FJsonObject>& J);   // holds {holds: {id: {by, hand}}}: what I held and isn't listed is out of my hand
+
+    void OnAccessMsg(const FString& Type,const TSharedPtr<FJsonObject>& J);     // D: EidoverseBridgeAccess.cpp
+    // The access tab's writes (EidoverseBridgeAccess.cpp): @world access + default-role, roles:<identity> (Bridge/test/fixtures/access.ts).
+    /** One of AccessState's doors (open, public, watch, invite-only). */
+    bool SendAccessDoor(const FString& Door);
+    /** roles:<Who> {role, until?} (UntilMs 0: no end); a name, not an identity, resolves in the bridge (writes.ts grant). */
+    bool SendAccessRole(const FString& Who,const FString& NewRole,double UntilMs=0);
+    bool SendAccessRevoke(const FString& Who);
+    bool AccessMayEdit() const;
+    void AccessReplied(const TSharedPtr<FJsonObject>& Reply);
+    TSharedPtr<FJsonObject> AccessStateWire;            // bridge/access-state as sent; AccessState is it in the tab's (main's) shape
+    TSharedPtr<FJsonObject> AccessTabState(const TSharedPtr<FJsonObject>& Wire) const;
+    bool SendAccessGrantBridged(const TSharedRef<FJsonObject>& Args);   // main's grant args → the door or roles:<identity> requests
+
+    // The main-era wire, split by owner so each slice retires its own (Bridge/SLICES.md).
+    bool ReceiveSceneWire(const FString& Type,const TSharedPtr<FJsonObject>& J);      // A
+    bool ReceiveChatWire(const FString& Type,const TSharedPtr<FJsonObject>& J,double Now);   // B
+    bool ReceiveWriteWire(const FString& Type,const TSharedPtr<FJsonObject>& J);      // C
+    bool ReceiveBodiesWire(const FString& Type,const TSharedPtr<FJsonObject>& J);     // D
+    bool ReceiveHistory(const TSharedPtr<FJsonObject>& J);                            // B (EidoverseProtocol.cpp)
+    bool ReceiveAccessProtocol(const FString& Type,const TSharedPtr<FJsonObject>& J); // D (EidoverseProtocol.cpp)
+    void ReceiveSnapshotSeats(const TSharedPtr<FJsonObject>& State);                  // D (EidoverseProtocol.cpp)
     UFUNCTION(BlueprintCallable, Category="Eidoverse") void Connect();
     UFUNCTION(BlueprintCallable, Category="Eidoverse") void Disconnect();
     /** Tests only (Eidoverse.LiveChat): drop the socket as a network failure would, the chat kept, and hold the
@@ -562,6 +674,8 @@ private:
     FString LastExplorerMode;
     bool bRejoining=false;
     void SendJoin();
+    void SendBridgeHello();
+    void BindSocket();
     void ReadRights(const TSharedPtr<FJsonObject>& Rights);
     void Status(const FString& Value);
     void ClearPeers();
@@ -576,7 +690,8 @@ public:
 private:
     void Pose(const FString& Id,const TSharedPtr<FJsonObject>& Data,double Time);
     void Receive(const FString& Message);
-    void Lost(int32 Code);
+    void Lost(int32 Code,const FString& Reason=FString());
+    bool bBridgeAutoOn=false;   // bUseBridge was turned on by a 4005 refusal, not by the user
     void Send(const TSharedRef<FJsonObject>& Message);
     void SendPose();
     void AdvertiseCapture();

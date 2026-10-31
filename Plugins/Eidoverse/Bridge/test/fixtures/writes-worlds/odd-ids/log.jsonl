@@ -1,0 +1,5 @@
+{"seq":0,"ts":1786320000000,"actor":"world","verb":"genesis","args":{"v":2,"dialect":"eidoverse-log"}}
+{"seq":1,"ts":1786320000001,"actor":"world","verb":"grant","args":{"id":"author","role":"owner","gen":true}}
+{"seq":2,"ts":1786320000002,"actor":"author","verb":"grant","args":{"id":"*","role":"builder"}}
+{"seq":3,"ts":1786320000003,"actor":"author","verb":"spawn","args":{"id":"Lamp_1","lib":"eidoverse/assets/models/lamp.glb","pos":[1,0,1]}}
+{"seq":4,"ts":1786320000004,"actor":"author","verb":"spawn","args":{"id":"chaise longue ☼","lib":"eidoverse/assets/models/lamp.glb","pos":[-1,0,1]}}
